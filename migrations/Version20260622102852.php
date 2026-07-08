@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace DoctrineMigrations;
+
+use Doctrine\DBAL\Schema\Schema;
+use Doctrine\Migrations\AbstractMigration;
+
+/**
+ * Auto-generated Migration: Please modify to your needs!
+ */
+final class Version20260622102852 extends AbstractMigration
+{
+    public function getDescription(): string
+    {
+        return 'Ajoute courrier.datelivraison (date réelle de remise au destinataire)';
+    }
+
+    public function up(Schema $schema): void
+    {
+        $this->addSql('ALTER TABLE courrier ADD datelivraison DATETIME DEFAULT NULL');
+    }
+
+    public function down(Schema $schema): void
+    {
+        $this->addSql('ALTER TABLE courrier DROP datelivraison');
+    }
+}

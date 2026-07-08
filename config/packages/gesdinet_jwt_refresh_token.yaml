@@ -1,0 +1,12 @@
+gesdinet_jwt_refresh_token:
+    refresh_token_class: App\Entity\RefreshToken
+
+    single_use: false # Pour qu'un refresh token ne soit utilisé qu'une seule fois, si quelqu'un vole le token et l'utilise avant nous le notre sera invalide
+    # ttl: 2592000 -- La durée de vie du refresh token, '30j' par défaut
+    # ttl_update: true -- Permet de renouveller le 'ttl' à chaque refresh
+    # cookie: -- !! configurer le cookie
+    #    enabled: true
+    #    same_site: strict
+    #    http_only: true
+    #    secure: true
+    #    path: /api/token/refresh

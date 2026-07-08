@@ -1,0 +1,17 @@
+api_platform:
+    title: Backend - Transport
+    version: 1.0.0
+    defaults:
+        stateless: true
+        cache_headers:
+            vary: ['Content-Type', 'Authorization', 'Origin']
+    eager_loading:
+        max_joins: 50 # Vu qu'une entité peut porter plus de 4 relations or 'ApiPlatform' a une limite de jointures de l'eager-loading '30' par défaut
+
+    show_webby: false # Permet de désactivé l'arraigné
+    use_symfony_listeners: true # Permet d'utiliser le Controller pour les opérations personalisés, va activé l'intégration avec le système de routing de symfony et enregistré automatiquement les controllers comme services
+
+    formats: # Pour definir les formats qu'on veut supporter
+        jsonld: ['application/ld+json']
+        json: ['application/json']
+        multipart : ['multipart/form-data']

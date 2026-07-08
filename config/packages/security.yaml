@@ -1,0 +1,84 @@
+security:
+    # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+
+    # access_decision_manager:
+    #    strategy: unanimous
+
+    # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
+    providers:
+        # used to reload user from session & other features (e.g. switch_user)
+        app_user_provider:
+            entity:
+                class: App\Entity\User
+                property: email
+
+        # jwt: -- Un provider jwt qui évite à symfony de faire appelle à la base de données
+        #    lexik_jwt:
+        #        class: App\Entity\User
+
+    firewalls:
+        dev:
+            # Ensure dev tools and static assets are always allowed
+            pattern: ^/(_profiler|_wdt|assets|build)/
+            security: false
+
+        # jwt --
+        login: # Sinon si on utilise un provider différent pour le login que pour la partie api ça peut causer des problèmes
+            pattern: ^/api/login_check
+            provider: app_user_provider # Pour récupérer les informations en base de données
+            stateless: true # Important
+            json_login:
+                check_path: /api/login_check # Le chemin à utiliser pour valider les authentifications
+                username_path: username # Les identifiants attendu ou dans 'lexik_jwt_authentication.yaml'
+                password_path: password # --
+                success_handler: lexik_jwt_authentication.handler.authentication_success # La class à utilisé lorsque l'authentification est ok
+                failure_handler: App\Security\LoginFailureHandler # lexik_jwt_authentication.handler.authentication_failure
+            # L'ordre est important
+            user_checker: App\Security\UserChecker # Pour bloquer les utilisateurs suspendus
+            login_throttling:
+                max_attempts: 4 # Le nombres de tentatives par minute, 5 par défaut
+                interval: '15 minutes' # L'interval 'seconds', 'hours', 'day'
+                # limiter: app.my_login_rate_limiter -- Pour utiliser un limiteur de débit personnalisé via un identifiant de service
+
+        api:
+            pattern: ^/api
+            # Si on a une erreur 'JWT Token Not Found' alors il faut mettre 'anonymous' à 'true' mais il l'est par défaut
+            stateless: true
+            provider: app_user_provider # 'jwt' pour récupérer les informations de l'utilisateur depuis le token sinon 'app_user_provider' qui peut être utilise pour le refresh ou dans 'gesdinet_jwt_refresh_token'
+            jwt: ~ # Un provider qui permet de récupérer l'utilisateur depuis le 'token jwt' au lieu de faire une requête en base de données
+            refresh_jwt: # 'jwtRefreshBundle' et pour la route on a aussi 'api_refresh_token'
+                check_path: /api/token/refresh
+                # provider: app_user_provider -- Permet d'avoir les informations de l'utilisateur via le token du refresh avec 'provider: jwt' en haut
+            logout:
+                path: /api/token/invalidate # Ou.. 'api_token_invalidate' permet d'invalider le 'refresh token' et supprimé en base de données
+            entry_point: jwt
+        # --
+
+        # main:
+        #    lazy: true
+        #    provider: app_user_provider
+
+            # Activate different ways to authenticate:
+            # https://symfony.com/doc/current/security.html#the-firewall
+
+            # https://symfony.com/doc/current/security/impersonating_user.html
+            # switch_user: true
+
+    # Note: Only the *first* matching rule is applied
+    access_control:
+        # - { path: ^/admin, roles: ROLE_ADMIN }
+        # - { path: ^/profile, roles: ROLE_USER }
+        - { path: ^/api/(login|token/refresh), roles: PUBLIC_ACCESS } # Pour le 'jwtRefreshBundle' et on doit y accéder même si on n'est pas connecté
+
+when@test:
+    security:
+        password_hashers:
+            # Password hashers are resource-intensive by design to ensure security.
+            # In tests, it's safe to reduce their cost to improve performance.
+            Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+                algorithm: auto
+                cost: 4 # Lowest possible value for bcrypt
+                time_cost: 3 # Lowest possible value for argon
+                memory_cost: 10 # Lowest possible value for argon

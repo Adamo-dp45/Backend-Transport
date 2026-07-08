@@ -1,0 +1,7 @@
+framework:
+    rate_limiter:
+        # Anti-abus : créations de réservation depuis l'API publique invité (par IP).
+        reservation_publique:
+            policy: 'sliding_window'
+            limit: 10
+            interval: '1 minute'

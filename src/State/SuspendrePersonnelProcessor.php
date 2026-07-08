@@ -1,0 +1,37 @@
+<?php
+
+namespace App\State;
+
+use ApiPlatform\Metadata\Operation;
+use ApiPlatform\State\ProcessorInterface;
+use App\Domain\Enum\ReferenceStatus;
+use App\Entity\Personnel;
+use App\Entity\User;
+use Symfony\Bundle\SecurityBundle\Security;
+
+class SuspendrePersonnelProcessor implements ProcessorInterface
+{
+    public function __construct(
+        private ProcessorInterface $processor,
+        private Security $security
+    )
+    {
+    }
+
+    public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = [])
+    {
+        /** @var Personnel $data */
+
+        /**
+         * @var User
+         */
+        $user = $this->security->getUser(); /*
+            - On n'a pas besoin de vérifier le 'identreprise' vu qu'il est géré par le filtre
+        */
+        $data
+            ->setStatut($data->getStatut() === ReferenceStatus::ACTIF->value ? ReferenceStatus::SUSPENDU->value : ReferenceStatus::ACTIF->value)
+            ->setUpdatedBy($user->getId())
+        ;
+        return $this->processor->process($data, $operation, $uriVariables, $context);
+    }
+}

@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+# See also https://symfony.com/doc/current/service_container/import.html
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
+parameters:
+    app.entity.path: '%kernel.project_dir%/src/Entity'
+    glide.key: '%env(GLIDE_KEY)%'
+    app.mailer.email: '%env(MAILER_FROM_EMAIL)%'
+    app.mailer.name: '%env(MAILER_FROM_NAME)%'
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    App\:
+        resource: '../src/'
+
+    # add more service definitions when explicit configuration is needed
+    # please note that last definitions always *replace* previous ones
+
+    # OpenApi --
+    App\ApiPlatform\OpenApi\OpenApiFactory:
+        decorates: 'api_platform.openapi.factory' # On décore la class 'OpenApiFactory'
+        arguments: ['@App\ApiPlatform\OpenApi\OpenApiFactory.inner']
+        autoconfigure: false
+    # -- On va ensuite utiliser mon 'OpenApiFactory' lorsque les spécifications 'OpenApi' vont être générerés
+
+    # Processor & Provider --
+    _instanceof:
+        ApiPlatform\State\ProcessorInterface:
+            bind:
+                $processor: '@api_platform.doctrine.orm.state.persist_processor'
+                # $removeProcessor: '@ApiPlatform\Doctrine\Common\State\RemoveProcessor' -- 'o'
+
+        # ApiPlatform\State\ProviderInterface: -- Pour le provider si on a en besoin
+        #    bind:
+        #        $provider: '@api_platform.doctrine.orm.state.item_provider'
+
+    # App\State\: -- Va bind sur tous les class dans 'State\' donc trop générique
+    #    resource: '../src/State/'
+    #    bind:
+    #        $processor: '@api_platform.doctrine.orm.state.persist_processor'
+
+    # App\State\EntrepriseInjectionProcessor: -- Ou.. le faire un à un
+    #    bind:
+    #        $processor: '@api_platform.doctrine.orm.state.persist_processor'
+    ## --
+
+    App\Domain\Service\EntityDiscoveryService:
+        arguments:
+            $entityPath: '%app.entity.path%'
+
+    # Extension.. mais pas utile à cause de l'autoconfigure --
+    # services:
+    #    App\Doctrine\EntrepriseScopeExtension:
+    #        tags:
+    #            - { name: 'api_platform.doctrine.orm.query_extension.collection' }
+    #            - { name: 'api_platform.doctrine.orm.query_extension.item' }
+    # --
