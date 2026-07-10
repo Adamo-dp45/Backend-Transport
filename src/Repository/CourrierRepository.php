@@ -305,6 +305,32 @@ class CourrierRepository extends ServiceEntityRepository
             ->getArrayResult();
     }
 
+    /**
+     * Incidents courriers par gare de DÉPÔT (garedepart) : annulés + perdus, sur la période (createdAt).
+     * @return array<int, array{gareid:int, garelibelle:string, nbannules:int, nbperdus:int}>
+     */
+    public function incidentsParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('c')
+            ->select(
+                'g.id AS gareid',
+                'g.libelle AS garelibelle',
+                "SUM(CASE WHEN c.statut = 'ANNULE' THEN 1 ELSE 0 END) AS nbannules",
+                "SUM(CASE WHEN c.statut = 'PERDU' THEN 1 ELSE 0 END) AS nbperdus"
+            )
+            ->join('c.garedepart', 'g')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere("c.statut IN ('ANNULE', 'PERDU')")
+            ->andWhere('c.createdAt >= :debut')
+            ->andWhere('c.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
     /** Courriers en attente de récupération par gare (statut RECEPTIONNE, à destination). */
     public function enAttenteParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
@@ -340,6 +366,30 @@ class CourrierRepository extends ServiceEntityRepository
             ->getArrayResult();
     }
 
+    /**
+     * Recette + nombre de COURRIERS par LIGNE (via le voyage), sur la période (createdAt). Complète la
+     * recette « par ligne ». Les courriers sans voyage (donc sans ligne) sont exclus par la jointure.
+     * @return array<int, array{ligneid:int, nbcourriers:int, recette:int}>
+     */
+    public function recetteParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('c')
+            ->select('l.id AS ligneid, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant), 0) AS recette')
+            ->join('c.voyage', 'v')
+            ->join('v.ligne', 'l')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere("c.statut != 'ANNULE'")
+            ->andWhere('c.createdAt >= :debut')
+            ->andWhere('c.createdAt <= :fin')
+            ->andWhere('c.deletedAt IS NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('l.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
     /* Bordereau chauffeur
      */
     public function findByVoyage(int $voyageId, int $identreprise): array
@@ -369,6 +419,26 @@ class CourrierRepository extends ServiceEntityRepository
             ->orderBy('c.codecourrier', 'ASC')
             ->getQuery()
             ->getArrayResult();
+    }
+
+    /**
+     * Nombre de courriers (hors annulés) déposés à une gare donnée pour un voyage — bordereau de gare.
+     * garedepart = gare de dépôt : ce que cette gare charge dans le car.
+     */
+    public function countByVoyageEtGare(int $voyageId, int $gareId, int $identreprise): int
+    {
+        return (int) $this->createQueryBuilder('c')
+            ->select('COUNT(c.id)')
+            ->andWhere('c.voyage = :voyageId')
+            ->andWhere('c.garedepart = :gareId')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere("c.statut != 'ANNULE'")
+            ->andWhere('c.deletedAt IS NULL')
+            ->setParameter('voyageId', $voyageId)
+            ->setParameter('gareId', $gareId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     //    /**

@@ -44,7 +44,9 @@ class LigneRepository extends ServiceEntityRepository
                 'COALESCE(SUM(t.prix), 0) AS recette',
             )
             ->leftJoin('l.voyages', 'v', 'WITH', 'v.datedepartprevue >= :debut AND v.datedepartprevue <= :fin AND v.deletedAt IS NULL')
-            ->leftJoin('v.tickets', 't', 'WITH', 't.createdAt >= :debut AND t.createdAt <= :fin')
+            // Billets VALIDE seulement (exclut les désistés reportés/annulés) et HORS réservation (recette
+            // réservation reconnue au paiement, ajoutée séparément par LigneStatsProvider) — anti double-comptage.
+            ->leftJoin('v.tickets', 't', 'WITH', "t.createdAt >= :debut AND t.createdAt <= :fin AND t.statut = 'VALIDE' AND t.reservation IS NULL")
             ->andWhere('l.identreprise = :ide')
             ->andWhere('l.deletedAt IS NULL')
             ->setParameter('ide', $identreprise)

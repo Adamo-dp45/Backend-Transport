@@ -81,7 +81,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
                                     'gareArrivee' => ['type' => 'int', 'example' => 2],
                                     'voyage' => ['type' => 'int', 'example' => null],
                                     'fraissuivi' => ['type' => 'number', 'example' => 100],
-                                    'modepaiement' => ['type' => 'string', 'example' => 'ENVOI'],
+                                    // 'modepaiement' => ['type' => 'string', 'example' => 'ENVOI'], // paiement courrier désactivé
                                     'details' => [ // -- Mieux vaut utiliser un dto pour éviter cette doc
                                         'type' => 'array',
                                         'items' => [

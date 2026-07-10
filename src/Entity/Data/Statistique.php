@@ -8,7 +8,6 @@ use ApiPlatform\OpenApi\Model\Operation;
 use App\Entity\Output\Agent\AgentStatistiqueOutput;
 use App\Entity\Output\Bagage\BagageStatistiqueOutput;
 use App\Entity\Output\Billetterie\BilleterieStatistiqueOutput;
-use App\Entity\Output\Caisse\CaisseOutput;
 use App\Entity\Output\Client\ClientStatistiqueOutput;
 use App\Entity\Output\Courrier\CourrierStatistiqueOutput;
 use App\Entity\Output\Exploitation\ExploitationStatistiqueOutput;
@@ -23,7 +22,6 @@ use App\Entity\Output\Stock\StockStatistiqueOutput;
 use App\State\AgentStatsProvider;
 use App\State\BagageStatsProvider;
 use App\State\BilleterieStatsProvider;
-use App\State\CaisseStatsProvider;
 use App\State\ClientStatsProvider;
 use App\State\CourrierStatsProvider;
 use App\State\ExploitationStatsProvider;
@@ -165,15 +163,6 @@ use App\State\StockStatsProvider;
             openapi: new Operation(
                 summary: 'Performance par ligne',
                 description: 'Recette, nombre de voyages et de tickets agrégés par ligne (remplace /stats/trajet/performance)',
-                security: [['bearerAuth' => []]]
-            )
-        ),
-        new Get(
-            uriTemplate: '/stats/caisse',
-            provider: CaisseStatsProvider::class,
-            input: false,
-            output: CaisseOutput::class,
-            openapi: new Operation(
                 security: [['bearerAuth' => []]]
             )
         ),

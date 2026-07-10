@@ -227,6 +227,7 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
      */
     #[ORM\ManyToOne]
     #[ORM\JoinColumn(nullable: true)]
+    #[Groups(['read:Ticket'])] // exposé (IRI) pour distinguer un billet de réservation d'une vente directe
     private ?Reservation $reservation = null;
 
     #[ORM\Column(options: ['default' => 0])]

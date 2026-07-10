@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Entity\Output\Caisse;
+namespace App\Entity\Output\Agent;
 
-final class CaisseDetailVoyageDto
+final class AgentDetailVoyageDto
 {
     public function __construct(
         public readonly string $codevoyage,

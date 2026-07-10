@@ -2,6 +2,7 @@
 
 namespace App\Controller\Api;
 
+use App\Domain\Service\RecetteGareService;
 use App\Domain\Trait\PeriodeTrait;
 use App\Entity\User;
 use App\Repository\BagageRepository;
@@ -34,7 +35,8 @@ final class GareStatsController extends AbstractController
         TicketRepository $ticketRepository,
         CourrierRepository $courrierRepository,
         BagageRepository $bagageRepository,
-        UserRepository $userRepository
+        UserRepository $userRepository,
+        RecetteGareService $recetteGareService
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN'); // analyses cross-gare réservées à l'admin entreprise
 
@@ -43,26 +45,23 @@ final class GareStatsController extends AbstractController
         $ent = $user->getEntreprise()->getId();
         [$debut, $fin] = $this->parsePeriode($request);
 
-        // ── Totaux par gare (classement + base du panier moyen) ──
-        $gares = [];
-        $mergeTotal = function (array $rows, string $recetteKey, string $nbKey) use (&$gares) {
-            foreach ($rows as $r) {
-                $id = $r['gareid'];
-                $gares[$id]['libelle'] = $gares[$id]['libelle'] ?? $r['garelibelle'];
-                $gares[$id][$recetteKey] = (int) $r['recette'];
-                $gares[$id]['nbOperations'] = ($gares[$id]['nbOperations'] ?? 0) + (int) $r[$nbKey];
-            }
-        };
-        $mergeTotal($ticketRepository->recetteParGare($debut, $fin, $ent), 'recetteBillets', 'nbtickets');
-        $mergeTotal($courrierRepository->recetteParGare($debut, $fin, $ent), 'recetteCourriers', 'nbcourriers');
-        $mergeTotal($bagageRepository->recetteParGare($debut, $fin, $ent), 'recetteBagages', 'nbbagages');
+        // ── Recette par gare (composite : billets guichet + commercial [gare d'affectation] + réservation
+        //    payée + bagages + courriers), ventilée par canal — via le service centralisé. ──
+        $gares = $recetteGareService->parGare($debut, $fin, $ent);
 
         // ── Désistements par gare (billets annulés / reportés) ──
         $desist = [];
+        $desistLibelles = [];
         foreach ($ticketRepository->desistementsParGare($debut, $fin, $ent) as $r) {
-            $id = $r['gareid'];
+            $id = (int) $r['gareid'];
             $desist[$id] = ['annules' => (int) $r['nbannules'], 'reportes' => (int) $r['nbreportes']];
-            $gares[$id]['libelle'] = $gares[$id]['libelle'] ?? $r['garelibelle']; // gare listée même sans recette
+            $desistLibelles[$id] = $r['garelibelle'];
+        }
+
+        // ── Remises accordées par gare (signal anti-abus) ──
+        $remiseParGare = [];
+        foreach ($ticketRepository->remisesParGare($debut, $fin, $ent) as $r) {
+            $remiseParGare[(int) $r['gareid']] = ['total' => (int) $r['total'], 'nb' => (int) $r['nb']];
         }
 
         // ── Par gare × jour (séries) ──
@@ -106,13 +105,12 @@ final class GareStatsController extends AbstractController
             $nbAgents[$r['gareid']] = (int) $r['nb'];
         }
 
-        // ── Assemblage ──
+        // ── Assemblage (union des gares avec recette et/ou désistements) ──
+        $allIds = array_values(array_unique(array_merge(array_keys($gares), array_keys($desist))));
         $parGare = [];
-        foreach ($gares as $id => $g) {
-            $rb = $g['recetteBillets'] ?? 0;
-            $rc = $g['recetteCourriers'] ?? 0;
-            $rba = $g['recetteBagages'] ?? 0;
-            $total = $rb + $rc + $rba;
+        foreach ($allIds as $id) {
+            $g = $gares[$id] ?? null;
+            $total = $g['recetteTotale'] ?? 0;
             $nbOps = $g['nbOperations'] ?? 0;
 
             $agents = [];
@@ -127,35 +125,61 @@ final class GareStatsController extends AbstractController
 
             $parGare[] = [
                 'gareId' => $id,
-                'libelle' => $g['libelle'] ?? '—',
-                'recetteBillets' => $rb,
-                'recetteCourriers' => $rc,
-                'recetteBagages' => $rba,
+                'libelle' => $g['libelle'] ?? ($desistLibelles[$id] ?? '—'),
+                'recetteBillets' => $g['recetteBillets'] ?? 0,
+                'recetteCourriers' => $g['recetteCourriers'] ?? 0,
+                'recetteBagages' => $g['recetteBagages'] ?? 0,
                 'recetteTotale' => $total,
+                // Ventilation par CANAL (guichet / commercial / réservation)
+                'canalGuichet' => $g['canalGuichet'] ?? 0,
+                'canalCommercial' => $g['canalCommercial'] ?? 0,
+                'canalReservation' => $g['canalReservation'] ?? 0,
                 'nbOperations' => $nbOps,
                 'panierMoyen' => $nbOps > 0 ? (int) round($total / $nbOps) : 0,
                 'nbAgents' => $nbAgents[$id] ?? 0,
                 'ticketsAnnules' => $desist[$id]['annules'] ?? 0,
                 'ticketsReportes' => $desist[$id]['reportes'] ?? 0,
+                'remiseTotale' => $remiseParGare[$id]['total'] ?? 0,
+                'remiseNb' => $remiseParGare[$id]['nb'] ?? 0,
                 'serieJour' => array_map(fn ($j) => $serie[$id][$j] ?? 0, $joursAxis),
                 'agents' => $agents,
             ];
         }
         usort($parGare, fn ($a, $b) => $b['recetteTotale'] <=> $a['recetteTotale']);
 
-        // ── Recette par COMMERCIAL (ventes à bord) — complément de la recette par gare.
-        //    parGare (guichet) + commerciaux (à bord) + réservation (compte admin) partitionnent la
-        //    recette billetterie (gare XOR commercial XOR réservation). ──
-        $commerciaux = array_map(fn ($r) => [
-            'commercialId' => (int) $r['commercialid'],
-            'nom' => trim((($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? ''))) ?: '—',
-            'recetteBillets' => (int) $r['recette'],
-            'nbtickets' => (int) $r['nbtickets'],
-        ], $ticketRepository->recetteParCommercial($debut, $fin, $ent));
-        usort($commerciaux, fn ($a, $b) => $b['recetteBillets'] <=> $a['recetteBillets']);
+        // ── Recette par COMMERCIAL (ventes à bord : BILLETS + BAGAGES) — vue par vendeur. NB : cette recette
+        //    est aussi FONDUE dans la recette de la gare d'affectation du commercial (cf. RecetteGareService). ──
+        $comMap = [];
+        foreach ($ticketRepository->recetteParCommercial($debut, $fin, $ent) as $r) {
+            $id = (int) $r['commercialid'];
+            $comMap[$id]['nom'] = trim((($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? ''))) ?: '—';
+            $comMap[$id]['recetteBillets'] = (int) $r['recette'];
+            $comMap[$id]['nbtickets'] = (int) $r['nbtickets'];
+        }
+        foreach ($bagageRepository->recetteParCommercial($debut, $fin, $ent) as $r) {
+            $id = (int) $r['commercialid'];
+            $comMap[$id]['nom'] = $comMap[$id]['nom'] ?? (trim((($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? ''))) ?: '—');
+            $comMap[$id]['recetteBagages'] = (int) $r['recette'];
+            $comMap[$id]['nbbagages'] = (int) $r['nbbagages'];
+        }
+        $commerciaux = [];
+        foreach ($comMap as $id => $c) {
+            $rb = $c['recetteBillets'] ?? 0;
+            $rba = $c['recetteBagages'] ?? 0;
+            $commerciaux[] = [
+                'commercialId' => $id,
+                'nom' => $c['nom'],
+                'recetteBillets' => $rb,
+                'nbtickets' => $c['nbtickets'] ?? 0,
+                'recetteBagages' => $rba,
+                'nbbagages' => $c['nbbagages'] ?? 0,
+                'recette' => $rb + $rba, // total à bord du commercial (billets + bagages)
+            ];
+        }
+        usort($commerciaux, fn ($a, $b) => $b['recette'] <=> $a['recette']);
 
-        // Recette du 3e canal (billets issus de réservations, payés sur le compte admin).
-        $recetteReservation = (int) $ticketRepository->recettesReservation($debut, $fin, $ent);
+        // Total réservations payées (déjà réparties par gare de provenance dans parGare.canalReservation).
+        $recetteReservation = (int) array_sum(array_map(fn ($g) => $g['canalReservation'], $gares));
 
         return $this->json([
             'periode' => ['debut' => $debut->format('Y-m-d'), 'fin' => $fin->format('Y-m-d')],
@@ -314,6 +338,11 @@ final class GareStatsController extends AbstractController
             $cg[$r['gareid']]['libelle'] = $cg[$r['gareid']]['libelle'] ?? $r['garelibelle'];
             $cg[$r['gareid']]['enAttente'] = (int) $r['nb'];
         }
+        foreach ($courrierRepository->incidentsParGare($debut, $fin, $ent) as $r) { // annulés + perdus (garedepart)
+            $cg[$r['gareid']]['libelle'] = $cg[$r['gareid']]['libelle'] ?? $r['garelibelle'];
+            $cg[$r['gareid']]['annules'] = (int) $r['nbannules'];
+            $cg[$r['gareid']]['perdus'] = (int) $r['nbperdus'];
+        }
         $courriersParGare = [];
         foreach ($cg as $id => $g) {
             $courriersParGare[] = [
@@ -322,6 +351,8 @@ final class GareStatsController extends AbstractController
                 'emis' => $g['emis'] ?? 0,
                 'recus' => $g['recus'] ?? 0,
                 'enAttente' => $g['enAttente'] ?? 0,
+                'annules' => $g['annules'] ?? 0,
+                'perdus' => $g['perdus'] ?? 0,
             ];
         }
         usort($courriersParGare, fn ($a, $b) => ($b['emis'] + $b['recus']) <=> ($a['emis'] + $a['recus']));
@@ -337,6 +368,11 @@ final class GareStatsController extends AbstractController
             $bg[$r['gareid']]['libelle'] = $bg[$r['gareid']]['libelle'] ?? $r['garelibelle'];
             $bg[$r['gareid']]['livres'] = (int) $r['nb'];
         }
+        foreach ($bagageRepository->incidentsParGare($debut, $fin, $ent) as $r) { // annulés + perdus (garedepart)
+            $bg[$r['gareid']]['libelle'] = $bg[$r['gareid']]['libelle'] ?? $r['garelibelle'];
+            $bg[$r['gareid']]['annules'] = (int) $r['nbannules'];
+            $bg[$r['gareid']]['perdus'] = (int) $r['nbperdus'];
+        }
         $bagagesParGare = [];
         foreach ($bg as $id => $g) {
             $bagagesParGare[] = [
@@ -345,6 +381,8 @@ final class GareStatsController extends AbstractController
                 'emis' => $g['emis'] ?? 0,
                 'livres' => $g['livres'] ?? 0,
                 'poids' => $g['poids'] ?? 0,
+                'annules' => $g['annules'] ?? 0,
+                'perdus' => $g['perdus'] ?? 0,
             ];
         }
         usort($bagagesParGare, fn ($a, $b) => $b['emis'] <=> $a['emis']);
@@ -364,9 +402,7 @@ final class GareStatsController extends AbstractController
     public function pilotage(
         Request $request,
         Security $security,
-        TicketRepository $ticketRepository,
-        CourrierRepository $courrierRepository,
-        BagageRepository $bagageRepository
+        RecetteGareService $recetteGareService
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -380,8 +416,8 @@ final class GareStatsController extends AbstractController
         $prevFin = $debut->modify('-1 second');
         $prevDebut = $prevFin->setTimestamp($prevFin->getTimestamp() - $dur);
 
-        $cur = $this->recetteMap($debut, $fin, $ent, $ticketRepository, $courrierRepository, $bagageRepository);
-        $prev = $this->recetteMap($prevDebut, $prevFin, $ent, $ticketRepository, $courrierRepository, $bagageRepository);
+        $cur = $this->recetteMap($recetteGareService, $debut, $fin, $ent);
+        $prev = $this->recetteMap($recetteGareService, $prevDebut, $prevFin, $ent);
 
         $ids = array_unique(array_merge(array_keys($cur), array_keys($prev)));
         $parGare = [];
@@ -405,19 +441,17 @@ final class GareStatsController extends AbstractController
         ]);
     }
 
-    /** Recette totale (billets + courriers + bagages) par gare sur une période → [gareid => [libelle, recette]]. */
-    private function recetteMap(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $ent, TicketRepository $tr, CourrierRepository $cr, BagageRepository $br): array
+    /**
+     * Recette TOTALE composite par gare (billets guichet + commercial [gare d'affectation] + réservation
+     * payée + bagages + courriers) → [gareid => [libelle, recette]]. Aligné sur RecetteGareService pour que
+     * le pilotage N vs N-1 reflète la même définition de recette que le reste des surfaces gare.
+     */
+    private function recetteMap(RecetteGareService $svc, \DateTimeImmutable $debut, \DateTimeImmutable $fin, int $ent): array
     {
         $map = [];
-        $add = function (array $rows) use (&$map) {
-            foreach ($rows as $r) {
-                $map[$r['gareid']]['libelle'] = $map[$r['gareid']]['libelle'] ?? $r['garelibelle'];
-                $map[$r['gareid']]['recette'] = ($map[$r['gareid']]['recette'] ?? 0) + (int) $r['recette'];
-            }
-        };
-        $add($tr->recetteParGare($debut, $fin, $ent));
-        $add($cr->recetteParGare($debut, $fin, $ent));
-        $add($br->recetteParGare($debut, $fin, $ent));
+        foreach ($svc->parGare($debut, $fin, $ent) as $id => $g) {
+            $map[$id] = ['libelle' => $g['libelle'], 'recette' => (int) $g['recetteTotale']];
+        }
 
         return $map;
     }

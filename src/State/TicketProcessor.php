@@ -10,8 +10,10 @@ use App\Entity\Siege;
 use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\Voyage;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CapaciteService;
 use App\Domain\Service\ClientResolver;
+use App\Domain\Service\ConfigRemiseService;
 use App\Domain\Service\FideliteService;
 use App\Repository\TarifRepository;
 use Doctrine\DBAL\LockMode;
@@ -28,7 +30,9 @@ class TicketProcessor implements ProcessorInterface
         private TarifRepository $tarifRepository,
         private ClientResolver $clientResolver,
         private FideliteService $fideliteService,
-        private CapaciteService $capaciteService
+        private CapaciteService $capaciteService,
+        private ActiviteLogger $activiteLogger,
+        private ConfigRemiseService $configRemiseService
     )
     {
     }
@@ -144,6 +148,18 @@ class TicketProcessor implements ProcessorInterface
             $remise = $this->resoudreRemise($data, $tarifMontant); /*
                 - La remise est calculée à partir du type et de la valeur de remise 'pourcentage' ou 'montant' et du tarif
             */
+            // Plafond ANTI-ABUS : la remise manuelle ne peut dépasser le % configuré (config remise dédiée,
+            // null = pas de plafond). N'affecte PAS la récompense fidélité (autre branche).
+            $capPct = $this->configRemiseService->get($entrepriseId)->getMaxpourcentage();
+            if ($capPct !== null && $remise > 0 && $tarifMontant > 0) {
+                $pct = $remise / $tarifMontant * 100;
+                if ($pct > $capPct + 0.001) {
+                    throw new BadRequestHttpException(sprintf(
+                        'La remise de %d%% dépasse le plafond autorisé (%d%%) de votre compagnie.',
+                        (int) round($pct), $capPct
+                    ));
+                }
+            }
             // ── ÉTAT PRÉCÉDENT (désactivé) — le bénéficiaire était OBLIGATOIRE dès qu'une remise s'appliquait.
             // Le bénéficiaire est facultatif : on autorise désormais une remise SANS bénéficiaire.
             // if($remise > 0 && $data->getBeneficiaire() === null) {
@@ -177,7 +193,29 @@ class TicketProcessor implements ProcessorInterface
                 ->setCodeticket($codeticket)
                 ->setPrix($tarifMontant - $remise);
 
-            return $this->processor->process($data, $operation, $uriVariables, $context);
+            $result = $this->processor->process($data, $operation, $uriVariables, $context);
+
+            // AUDIT anti-abus : toute remise (manuelle ou fidélité) est tracée dans le journal d'activité
+            // — qui l'a posée (auteur), combien, pour qui, sur quel billet. Base de la détection des abus.
+            if ($remise > 0) {
+                $benef = $data->getBeneficiaire();
+                $this->activiteLogger->log(
+                    ActiviteLogger::TICKET_REMISE,
+                    sprintf(
+                        'Remise de %s FCFA (%s) sur le billet %s%s',
+                        number_format($remise, 0, ',', ' '),
+                        $data->isFideliteRecompense() ? 'récompense fidélité' : 'remise manuelle',
+                        $data->getCodeticket(),
+                        $benef !== null
+                            ? ' — bénéficiaire : ' . trim($benef->getNom() ?? '') . ($benef->getCategorie() ? ' (' . $benef->getCategorie() . ')' : '')
+                            : ''
+                    ),
+                    'Ticket',
+                    $data->getId()
+                );
+            }
+
+            return $result;
         });
     }
 

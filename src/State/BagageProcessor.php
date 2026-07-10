@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\TicketStatus;
+use App\Domain\Service\ActiviteLogger;
 use App\Entity\Bagage;
 use App\Entity\Dto\BagageInput;
 use App\Entity\Gare;
@@ -18,6 +19,7 @@ use App\Repository\BagageRepository;
 use App\Repository\TarifbagageRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -30,7 +32,9 @@ class BagageProcessor implements ProcessorInterface
         private VoyageRepository $voyageRepository,
         private TarifbagageRepository $tarifbagageRepository,
         private BagageRepository $bagageRepository,
-        private TicketRepository $ticketRepository
+        private TicketRepository $ticketRepository,
+        private ActiviteLogger $activiteLogger,
+        private EntityManagerInterface $em
     )
     {
     }
@@ -111,11 +115,17 @@ class BagageProcessor implements ProcessorInterface
             $identreprise
         );
 
+        // Canal de vente FIGÉ (snapshot) : si l'agent qui enregistre EST le commercial du voyage, la
+        // recette du bagage lui revient (comme Ticket::$commercial) ; sinon guichet → recette gare.
+        $estCommercial = $voyage?->getCommercial() && $voyage->getCommercial()->getId() === $userId;
+        $commercial = $estCommercial ? $this->security->getUser() : null;
+
         $bagage = new Bagage();
         $bagage
             ->setIdentreprise($identreprise)
             ->setCreatedBy($userId)
             ->setTicket($ticket)
+            ->setCommercial($commercial)
             ->setVoyage($voyage)
             // Le bagage SUIT le billet : provenance = gare de montée, destination = gare de descente.
             ->setGaredepart($ticket->getGare())
@@ -130,7 +140,10 @@ class BagageProcessor implements ProcessorInterface
             ->setCodebagage($this->generateCode($identreprise))
         ;
 
-        return $this->processor->process($bagage, $operation, $uriVariables, $context);
+        $bagage = $this->processor->process($bagage, $operation, $uriVariables, $context);
+        $this->auditForcage($bagage, 'enregistrement');
+
+        return $bagage;
     }
 
     private function handlePatch(
@@ -201,7 +214,46 @@ class BagageProcessor implements ProcessorInterface
             ->setUpdatedAt(new \DateTimeImmutable())
         ;
 
-        return $this->processor->process($bagage, $operation, $uriVariables, $context);
+        $bagage = $this->processor->process($bagage, $operation, $uriVariables, $context);
+        $this->auditForcage($bagage, 'modification');
+
+        return $bagage;
+    }
+
+    /**
+     * AUDIT anti sous-déclaration : trace tout bagage dont le MONTANT a été FORCÉ (≠ tarif de la grille).
+     * On journalise qui (auteur), sur quel bagage, le montant facturé, le tarif de référence et l'ÉCART
+     * (négatif = facturé SOUS le tarif = manque à gagner suspect ; positif = surdimensionné/fragile légitime ;
+     * « hors grille » = aucun tarif ne couvre ce poids). Base de la détection des minorations.
+     */
+    private function auditForcage(Bagage $bagage, string $action): void
+    {
+        if ($bagage->getMontantforce() !== true) {
+            return;
+        }
+
+        $montant = (int) $bagage->getMontant();
+        $tarifRef = $bagage->getTarifbagage()?->getMontant();
+        if ($tarifRef !== null) {
+            $ecart = $montant - (int) $tarifRef; // < 0 = facturé sous le tarif
+            $detail = sprintf(
+                'facturé %s FCFA vs tarif %s FCFA (écart %s%s F)',
+                number_format($montant, 0, ',', ' '),
+                number_format((int) $tarifRef, 0, ',', ' '),
+                $ecart > 0 ? '+' : '',
+                number_format($ecart, 0, ',', ' ')
+            );
+        } else {
+            $detail = sprintf('facturé %s FCFA hors grille tarifaire', number_format($montant, 0, ',', ' '));
+        }
+
+        $this->activiteLogger->log(
+            ActiviteLogger::BAGAGE_MONTANT_FORCE,
+            sprintf('Montant forcé (%s) sur le bagage %s (%s kg) : %s', $action, $bagage->getCodebagage(), $bagage->getPoids(), $detail),
+            'Bagage',
+            $bagage->getId()
+        );
+        $this->em->flush();
     }
 
     // NB : l'ancienne méthode resoudreGares() (choix manuel des gares + forçage à la gare de l'agent)

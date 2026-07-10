@@ -204,6 +204,132 @@ class ReservationRepository extends ServiceEntityRepository
         ];
     }
 
+    /**
+     * Recette RÉSERVATION reconnue AU PAIEMENT (option 2) : SUM des réservations payées (etatpaiement=PAYE)
+     * sur la période de PAIEMENT (datepaiement). L'émission du billet ne crée pas de recette (anti
+     * double-comptage : les billets de réservation sont exclus des recettes tickets). Inclut les no-shows
+     * payés (A_REGULARISER/EXPIREE) : l'argent est encaissé.
+     */
+    public function recettesPayees(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): float
+    {
+        $row = $this->createQueryBuilder('r')
+            ->select('COALESCE(SUM(r.prix), 0) AS total')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('r.datepaiement >= :debut')
+            ->andWhere('r.datepaiement <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return round((float) ($row ?? 0), 2);
+    }
+
+    /**
+     * Recette RÉSERVATION payée par GARE DE PROVENANCE (r.gare = gare de montée = gare qui a initié la
+     * réservation). Reconnue au paiement (datepaiement). @return array<int, array{gareid:int, garelibelle:string, nbreservations:int, recette:int}>
+     */
+    public function recettePayeeParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->join('r.gare', 'g')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('r.datepaiement >= :debut')
+            ->andWhere('r.datepaiement <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette RÉSERVATION payée PAR JOUR (sur datepaiement) — pour la série temporelle financière.
+     * @return array<int, array{label:string, montant:int}>
+     */
+    public function recettesPayeesParJour(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->select('DATE(r.datepaiement) AS label, COALESCE(SUM(r.prix), 0) AS montant')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('r.datepaiement >= :debut')
+            ->andWhere('r.datepaiement <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('label')
+            ->orderBy('label', 'ASC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette + nombre de RÉSERVATIONS payées regroupées par LIGNE (via le voyage réservé), reconnues au
+     * paiement (datepaiement) — complète le « détail par ligne » (billets directs + réservations).
+     * @return array<int, array{ligneid:int, nbreservations:int, recette:int}>
+     */
+    public function recettesPayeesParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->select('l.id AS ligneid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->join('r.voyage', 'v')
+            ->join('v.ligne', 'l')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('r.datepaiement >= :debut')
+            ->andWhere('r.datepaiement <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('l.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Réservations PAYÉES ventilées par gare de DÉPART EFFECTIVE du voyage (v.gareprovenance) avec l'origine
+     * de la ligne, pour la vue « départs effectifs » (complets vs partiels). Reconnue sur la période de
+     * DÉPART du voyage (v.datedepartprevue), cohérente avec la recette billets des départs.
+     * @return array<int, array{gareid:int, libelle:string, ville:?string, origineid:int, nbreservations:int, recette:int}>
+     */
+    public function departsPayesParGareProvenance(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->select('go.id AS gareid, go.libelle AS libelle, gv.nom AS ville, lo.id AS origineid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->join('r.voyage', 'v')
+            ->join('v.gareprovenance', 'go')
+            ->leftJoin('go.ville', 'gv')
+            ->join('v.ligne', 'l')
+            ->join('l.gareorigine', 'lo')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('v.datedepartprevue >= :debut')
+            ->andWhere('v.datedepartprevue <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('go.id')
+            ->addGroupBy('lo.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
     /** Trajets les plus réservés sur la période. @return array<int, array{montee:string, descente:string, total:int}> */
     public function topTrajets(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise, int $limit = 10): array
     {

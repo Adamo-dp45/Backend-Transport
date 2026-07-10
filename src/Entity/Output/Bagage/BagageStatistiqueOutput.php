@@ -14,7 +14,12 @@ final class BagageStatistiqueOutput
         public readonly float $recetteTotale,
         public readonly int $poidsTotal,
         /** @var RecetteBagageParJourDto[] */
-        public readonly array $recettesParJour
+        public readonly array $recettesParJour,
+        /**
+         * Bagages à montant forcé par agent (anti sous-déclaration).
+         * @var array<int, array{nom:string, nb:int, manque:int, nbsoustarif:int, nbhorsgrille:int}>
+         */
+        public readonly array $forcages = []
     )
     {
     }

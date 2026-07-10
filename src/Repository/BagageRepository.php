@@ -48,11 +48,9 @@ class BagageRepository extends ServiceEntityRepository
     ): array
     {
         return $this->createQueryBuilder('b')
-            ->select('b.createdBy AS agentid, COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nbbagages')
-            ->join('b.ticket', 't') // canal dérivé du billet
-            ->andWhere('b.identreprise = :ide')
+            ->select('b.createdBy AS agentid, COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nbbagages')            ->andWhere('b.identreprise = :ide')
             ->andWhere('b.statut IN (:statuts)')
-            ->andWhere('t.commercial IS NULL') // guichet : bagages enregistrés par le commercial exclus (recette à part)
+            ->andWhere('b.commercial IS NULL') // guichet : bagages enregistrés par le commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -77,11 +75,9 @@ class BagageRepository extends ServiceEntityRepository
                 'COALESCE(SUM(b.montant), 0) AS montant',
                 'COUNT(b.id) AS nbbagages',
                 'COALESCE(SUM(b.poids), 0) AS poids',
-            )
-            ->join('b.ticket', 't') // canal dérivé du billet
-            ->andWhere('b.identreprise = :ide')
+            )            ->andWhere('b.identreprise = :ide')
             ->andWhere('b.statut IN (:statuts)')
-            ->andWhere('t.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
+            ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -149,11 +145,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')
-            ->join('b.ticket', 't') // canal dérivé du billet
-            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
             ->andWhere('b.statut IN (:statuts)')
-            ->andWhere('t.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
+            ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -170,11 +164,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, DATE(b.createdAt) AS jour, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')
-            ->join('b.ticket', 't') // canal dérivé du billet
-            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
             ->andWhere('b.statut IN (:statuts)')
-            ->andWhere('t.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
+            ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -192,11 +184,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, b.createdBy AS agentid, COUNT(b.id) AS nb, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')
-            ->join('b.ticket', 't') // canal dérivé du billet
-            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
             ->andWhere('b.statut IN (:statuts)')
-            ->andWhere('t.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
+            ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -205,6 +195,106 @@ class BagageRepository extends ServiceEntityRepository
             ->setParameter('fin', $fin)
             ->groupBy('g.id')
             ->addGroupBy('b.createdBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Bagages à MONTANT FORCÉ par agent (createdBy) sur la période — détection de sous-déclaration.
+     * nb = bagages forcés ; manque = Σ(tarif − facturé) quand facturé SOUS le tarif (manque à gagner) ;
+     * nbsoustarif = combien sont sous le tarif ; nbhorsgrille = forcés sans tarif de référence (hors grille).
+     * @return array<int, array{agentid:int, nb:int, manque:int, nbsoustarif:int, nbhorsgrille:int}>
+     */
+    public function forcagesParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select(
+                'b.createdBy AS agentid',
+                'COUNT(b.id) AS nb',
+                'COALESCE(SUM(CASE WHEN tr.montant IS NOT NULL AND b.montant < tr.montant THEN tr.montant - b.montant ELSE 0 END), 0) AS manque',
+                'SUM(CASE WHEN tr.montant IS NOT NULL AND b.montant < tr.montant THEN 1 ELSE 0 END) AS nbsoustarif',
+                'SUM(CASE WHEN tr.id IS NULL THEN 1 ELSE 0 END) AS nbhorsgrille'
+            )
+            ->leftJoin('b.tarifbagage', 'tr')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.montantforce = :force')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('force', true)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('b.createdBy')
+            ->orderBy('manque', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette des bagages enregistrés À BORD (par le commercial), groupée par commercial. Complément de
+     * recetteParGare (guichet) : ensemble ils partitionnent la recette bagage active (gare XOR commercial).
+     */
+    public function recetteParCommercial(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('c.id AS commercialid, c.nom AS nom, c.prenom AS prenom, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
+            ->join('b.commercial', 'c')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('c.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette + nombre de bagages enregistrés par UN commercial, groupés PAR VOYAGE (pour son espace).
+     * @return array<int, array{voyageid:int, nbbagages:int, recette:int}>
+     */
+    public function recetteCommercialeParVoyage(int $commercialId, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('IDENTITY(b.voyage) AS voyageid, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.commercial = :com')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.voyage IS NOT NULL')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('com', $commercialId)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->groupBy('voyageid')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette des bagages enregistrés À BORD (commercial) regroupée par GARE D'AFFECTATION du commercial
+     * (User.gare), et non la gare de dépôt : le bagage du commercial alimente la recette de SA gare.
+     * Commerciaux sans gare exclus (jointure interne).
+     */
+    public function recetteCommercialeParGareAffectation(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
+            ->join('b.commercial', 'u')
+            ->join('u.gare', 'g')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
             ->getQuery()
             ->getArrayResult();
     }
@@ -246,6 +336,81 @@ class BagageRepository extends ServiceEntityRepository
             ->getArrayResult();
     }
 
+    /**
+     * Incidents bagages par gare de DÉPÔT (garedepart) : annulés + perdus, sur la période (createdAt).
+     * @return array<int, array{gareid:int, garelibelle:string, nbannules:int, nbperdus:int}>
+     */
+    public function incidentsParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select(
+                'g.id AS gareid',
+                'g.libelle AS garelibelle',
+                "SUM(CASE WHEN b.statut = 'ANNULE' THEN 1 ELSE 0 END) AS nbannules",
+                "SUM(CASE WHEN b.statut = 'PERDU' THEN 1 ELSE 0 END) AS nbperdus"
+            )
+            ->join('b.garedepart', 'g')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere("b.statut IN ('ANNULE', 'PERDU')")
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Recette + nombre de BAGAGES par LIGNE (via le voyage), tous canaux, sur la période (createdAt).
+     * Complète la recette « par ligne » (billets + réservations + courriers + bagages).
+     * @return array<int, array{ligneid:int, nbbagages:int, recette:int}>
+     */
+    public function recetteParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('l.id AS ligneid, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
+            ->join('b.voyage', 'v')
+            ->join('v.ligne', 'l')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('l.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Dépense BAGAGES par CLIENT (via le billet lié → t.client) sur la période — pour intégrer les bagages
+     * dans la « dépense » du client (stats clients). @return array<int, array{clientid:int, montant:int, nb:int}>
+     */
+    public function depenseParClient(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('c.id AS clientid, COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nb')
+            ->join('b.ticket', 't')
+            ->join('t.client', 'c')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('c.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
     /* Bordereau chauffeur
      */
     public function findByVoyage(int $voyageId, int $identreprise): array
@@ -270,6 +435,27 @@ class BagageRepository extends ServiceEntityRepository
             ->orderBy('b.codebagage', 'ASC')
             ->getQuery()
             ->getArrayResult();
+    }
+
+    /**
+     * Nombre de bagages (hors annulés) déposés à une gare donnée pour un voyage — bordereau de gare.
+     * garedepart = gare de dépôt : ce que cette gare charge dans le car.
+     */
+    public function countByVoyageEtGare(int $voyageId, int $gareId, int $identreprise): int
+    {
+        return (int) $this->createQueryBuilder('b')
+            ->select('COUNT(b.id)')
+            ->andWhere('b.voyage = :voyageId')
+            ->andWhere('b.garedepart = :gareId')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('voyageId', $voyageId)
+            ->setParameter('gareId', $gareId)
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     //    /**

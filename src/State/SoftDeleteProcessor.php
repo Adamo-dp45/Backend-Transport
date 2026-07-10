@@ -7,6 +7,7 @@ use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\DepannageStatus;
+use App\Domain\Enum\TicketStatus;
 use App\Domain\Service\ActiviteLogger;
 use App\Entity\Bagage;
 use App\Entity\Detailpersonnel;
@@ -49,6 +50,7 @@ class SoftDeleteProcessor implements ProcessorInterface
         // Suppression d'un ticket : réservée à la gare ÉMETTRICE (gare de montée) ; la lecture reste large
         if($data instanceof Ticket) {
             $this->gareGuard->assertEstGare($user, $data->getGare(), 'Seule la gare émettrice peut supprimer ce ticket');
+            $this->assertSuppressionBilletAutorisee($data);
         }
 
         // Suppression d'un bagage : réservée à la gare de DÉPÔT (garedepart) — la GareScopeExtension autorise
@@ -103,5 +105,40 @@ class SoftDeleteProcessor implements ProcessorInterface
         }
 
         return $this->processor->process($data, $operation, $uriVariables, $context);
+    }
+
+    /**
+     * ANTI « vente hors-livre » : un billet PAYÉ (VALIDE) ne se supprime plus une fois que le car a
+     * ATTEINT/DÉPASSÉ la gare de MONTÉE du passager (il a voyagé). Le retirer passe alors par une
+     * ANNULATION (tracée, avec motif, contrôlée). Intermédiaire-aware : un passager en aval reste
+     * supprimable tant que le car ne l'a pas rejoint ; avant le départ réel, la suppression est libre
+     * (correction d'une erreur de saisie). Ferme aussi l'incohérence « billet supprimé absent du
+     * manifeste mais compté en recette » puisqu'un billet payé embarqué ne quitte plus le livre.
+     */
+    private function assertSuppressionBilletAutorisee(Ticket $ticket): void
+    {
+        if ($ticket->getStatut() !== TicketStatus::STATUT_VALIDE->value) {
+            return; // billets déjà annulés/reportés : suppression = simple purge, hors recette
+        }
+
+        $voyage = $ticket->getVoyage();
+        $ligne = $voyage?->getLigne();
+        if ($voyage === null || $voyage->getDatedepartreelle() === null || $ligne === null) {
+            return; // voyage pas encore parti (ou hors ligne) : suppression libre
+        }
+
+        $ordreParGare = [];
+        foreach ($ligne->getArrets() as $a) {
+            $ordreParGare[$a->getGare()->getId()] = (int) $a->getOrdre();
+        }
+        $position = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
+        $ordrePosition = $position ? ($ordreParGare[$position->getId()] ?? 0) : 0;
+        $ordreMontee = $ordreParGare[$ticket->getGare()?->getId()] ?? PHP_INT_MAX;
+
+        if ($ordrePosition >= $ordreMontee) {
+            throw new BadRequestHttpException(
+                'Ce billet payé ne peut plus être supprimé : le car a atteint la gare de montée du passager. Utilisez une annulation si nécessaire.'
+            );
+        }
     }
 }

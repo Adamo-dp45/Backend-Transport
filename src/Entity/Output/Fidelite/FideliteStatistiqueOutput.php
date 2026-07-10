@@ -16,7 +16,17 @@ final class FideliteStatistiqueOutput
         public readonly int $recompensePourcentage,
         public readonly bool $programmeActif,
         /** @var TopMembreDto[] */
-        public readonly array $topMembres
+        public readonly array $topMembres,
+        /**
+         * Récompenses appliquées par agent (détection fidélité détournée).
+         * @var array<int, array{nom:string, nb:int, valeur:int}>
+         */
+        public readonly array $recompensesParAgent = [],
+        /**
+         * Cartes « captées » : membres dont les tampons proviennent majoritairement d'un seul vendeur.
+         * @var array<int, array{nom:string, contact:?string, tampons:int, vendeur:string, part:int, memeAgent:bool}>
+         */
+        public readonly array $cartesCaptees = []
     )
     {
     }

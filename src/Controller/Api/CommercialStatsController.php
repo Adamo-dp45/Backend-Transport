@@ -4,6 +4,8 @@ namespace App\Controller\Api;
 
 use App\Domain\Trait\PeriodeTrait;
 use App\Entity\User;
+use App\Repository\BagageRepository;
+use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -22,7 +24,7 @@ final class CommercialStatsController extends AbstractController
     use PeriodeTrait;
 
     #[Route('/api/stats/commercial', name: 'api_stats_commercial', methods: ['GET'])]
-    public function index(Request $request, Security $security, TicketRepository $ticketRepository): JsonResponse
+    public function index(Request $request, Security $security, TicketRepository $ticketRepository, BagageRepository $bagageRepository, ReservationRepository $reservationRepository): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -31,17 +33,41 @@ final class CommercialStatsController extends AbstractController
         $ent = $user->getEntreprise()->getId();
         [$debut, $fin] = $this->parsePeriode($request);
 
-        // ── Classement des commerciaux (ventes à bord) ──
-        $recetteCommerciale = 0;
+        // ── Classement des commerciaux (ventes à bord : BILLETS + BAGAGES fusionnés par commercial) ──
+        $parCommercial = [];
+        foreach ($ticketRepository->recetteParCommercial($debut, $fin, $ent) as $r) {
+            $id = (int) $r['commercialid'];
+            $parCommercial[$id]['nom'] = trim(($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? '')) ?: 'Commercial #' . $id;
+            $parCommercial[$id]['nbtickets'] = (int) $r['nbtickets'];
+            $parCommercial[$id]['recetteBillets'] = (int) $r['recette'];
+        }
+        foreach ($bagageRepository->recetteParCommercial($debut, $fin, $ent) as $r) {
+            $id = (int) $r['commercialid'];
+            $parCommercial[$id]['nom'] = $parCommercial[$id]['nom'] ?? (trim(($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? '')) ?: 'Commercial #' . $id);
+            $parCommercial[$id]['nbbagages'] = (int) $r['nbbagages'];
+            $parCommercial[$id]['recetteBagages'] = (int) $r['recette'];
+        }
+
+        $recetteCommerciale = 0;         // billets à bord
+        $recetteBagagesCommerciale = 0;  // bagages à bord
         $ventes = 0;
         $classement = [];
-        foreach ($ticketRepository->recetteParCommercial($debut, $fin, $ent) as $r) {
-            $rec = (int) $r['recette'];
-            $nb = (int) $r['nbtickets'];
-            $recetteCommerciale += $rec;
-            $ventes += $nb;
-            $nom = trim(($r['prenom'] ?? '') . ' ' . ($r['nom'] ?? '')) ?: 'Commercial #' . $r['commercialid'];
-            $classement[] = ['id' => (int) $r['commercialid'], 'nom' => $nom, 'nbtickets' => $nb, 'recette' => $rec];
+        foreach ($parCommercial as $id => $c) {
+            $rb = $c['recetteBillets'] ?? 0;
+            $rba = $c['recetteBagages'] ?? 0;
+            $nbt = $c['nbtickets'] ?? 0;
+            $recetteCommerciale += $rb;
+            $recetteBagagesCommerciale += $rba;
+            $ventes += $nbt;
+            $classement[] = [
+                'id' => $id,
+                'nom' => $c['nom'],
+                'nbtickets' => $nbt,
+                'recetteBillets' => $rb,
+                'nbbagages' => $c['nbbagages'] ?? 0,
+                'recetteBagages' => $rba,
+                'recette' => $rb + $rba, // total à bord du commercial (billets + bagages)
+            ];
         }
         usort($classement, fn ($a, $b) => $b['recette'] <=> $a['recette']);
 
@@ -50,7 +76,7 @@ final class CommercialStatsController extends AbstractController
         foreach ($ticketRepository->recetteParGare($debut, $fin, $ent) as $r) {
             $recetteGuichet += (int) $r['recette'];
         }
-        $recetteReservation = (int) $ticketRepository->recettesReservation($debut, $fin, $ent);
+        $recetteReservation = (int) $reservationRepository->recettesPayees($debut, $fin, $ent); // reconnue au paiement
         $recetteBillets = $recetteGuichet + $recetteCommerciale + $recetteReservation;
 
         // ── Meilleurs trajets du canal commercial ──
@@ -64,7 +90,9 @@ final class CommercialStatsController extends AbstractController
         }
 
         return new JsonResponse([
-            'recetteCommerciale' => $recetteCommerciale,
+            'recetteCommerciale' => $recetteCommerciale, // billets à bord
+            'recetteBagagesCommerciale' => $recetteBagagesCommerciale,
+            'recetteCommercialeTotale' => $recetteCommerciale + $recetteBagagesCommerciale,
             'ventes' => $ventes,
             'nbCommerciaux' => count($classement),
             'recetteGuichet' => $recetteGuichet,

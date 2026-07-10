@@ -96,6 +96,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('SUM(t.prix) AS total')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
+            ->andWhere('t.reservation IS NULL') // hors billets de réservation : leur recette est reconnue AU PAIEMENT de la réservation (anti double-comptage)
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -105,6 +106,29 @@ class TicketRepository extends ServiceEntityRepository
             ->getSingleResult();
 
         return round((float)($row['total'] ?? 0), 2);
+    }
+
+    /**
+     * Recette des ventes COMMERCIALES (vendeur à bord) regroupée par GARE D'AFFECTATION du commercial
+     * (sa gare de rattachement, User.gare), et NON la gare de montée : la vente du commercial alimente
+     * la recette de SA gare. Les commerciaux sans gare (centraux) sont exclus (jointure interne).
+     */
+    public function recetteCommercialeParGareAffectation(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(t.id) AS nbtickets, COALESCE(SUM(t.prix), 0) AS recette')
+            ->join('t.commercial', 'u')
+            ->join('u.gare', 'g')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
+            ->getQuery()
+            ->getArrayResult();
     }
 
     /**
@@ -176,6 +200,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('DATE(t.createdAt) AS label, SUM(t.prix) AS montant, COUNT(t.id) AS nbtickets')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
+            ->andWhere('t.reservation IS NULL') // ventes directes : la recette résa est reconnue au paiement (hors billetterie)
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -200,6 +225,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('v.ligne', 'l')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
+            ->andWhere('t.reservation IS NULL') // ventes directes (hors réservation)
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -219,6 +245,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('v.car', 'c')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
+            ->andWhere('t.reservation IS NULL') // ventes directes (hors réservation)
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -435,6 +462,25 @@ class TicketRepository extends ServiceEntityRepository
             ->getArrayResult();
     }
 
+    /**
+     * Recette + nombre de billets vendus par UN commercial, groupés PAR VOYAGE (pour son espace).
+     * @return array<int, array{voyageid:int, nbtickets:int, recette:int}>
+     */
+    public function recetteCommercialeParVoyage(int $commercialId, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('IDENTITY(t.voyage) AS voyageid, COUNT(t.id) AS nbtickets, COALESCE(SUM(t.prix), 0) AS recette')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.commercial = :com')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.voyage IS NOT NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('com', $commercialId)
+            ->groupBy('voyageid')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
     /** Descentes par gare (billets dont garedescente = la gare). Exclut les descentes nulles (legacy). */
     public function descentesParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
@@ -547,6 +593,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('l.gareorigine', 'lo')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.reservation IS NULL') // hors billets de réservation : leur recette est ajoutée à part (au paiement) — anti double-comptage
             ->andWhere('v.datedepartprevue >= :debut')
             ->andWhere('v.datedepartprevue <= :fin')
             ->setParameter('ide', $identreprise)
@@ -573,6 +620,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('l.gareorigine', 'lo')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.reservation IS NULL') // hors billets de réservation : recette ajoutée à part — anti double-comptage
             ->andWhere('v.datedepartprevue >= :debut')
             ->andWhere('v.datedepartprevue <= :fin')
             ->setParameter('ide', $identreprise)
@@ -608,6 +656,30 @@ class TicketRepository extends ServiceEntityRepository
             ->getArrayResult();
     }
 
+    /**
+     * TOTAL des remises accordées (billets VALIDE, remise > 0) sur la période — TOUS bénéficiaires confondus,
+     * Y COMPRIS sans bénéficiaire (celui-ci est facultatif). À utiliser pour le total/taux/moyenne, car
+     * remisesParBeneficiaire (jointure interne) exclut les remises sans bénéficiaire.
+     * @return array{total:int, nb:int}
+     */
+    public function remisesTotales(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('t')
+            ->select('COALESCE(SUM(t.remise), 0) AS total', 'COUNT(t.id) AS nb')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.remise > 0')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['total' => (int) $row['total'], 'nb' => (int) $row['nb']];
+    }
+
     /** Remises accordées (billets VALIDE, remise > 0) par bénéficiaire (avec sa catégorie). */
     public function remisesParBeneficiaire(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
@@ -623,6 +695,134 @@ class TicketRepository extends ServiceEntityRepository
             ->setParameter('debut', $debut)
             ->setParameter('fin', $fin)
             ->groupBy('b.id')
+            ->orderBy('total', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Annulations de billets par AGENT qui les a annulés (updatedBy), sur la période d'annulation
+     * (datedesistement) : nb, montant remboursé (SUM prix), et nb « auto-annulé » (vendu ET annulé par le
+     * MÊME agent = createdBy == updatedBy → signal fort d'annulation après encaissement).
+     * @return array<int, array{agentid:int, nb:int, montant:int, nbself:int}>
+     */
+    public function annulationsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select(
+                't.updatedBy AS agentid',
+                'COUNT(t.id) AS nb',
+                'COALESCE(SUM(t.prix), 0) AS montant',
+                'SUM(CASE WHEN t.createdBy = t.updatedBy THEN 1 ELSE 0 END) AS nbself'
+            )
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'ANNULE'")
+            ->andWhere('t.datedesistement >= :debut')
+            ->andWhere('t.datedesistement <= :fin')
+            ->andWhere('t.updatedBy IS NOT NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('t.updatedBy')
+            ->orderBy('montant', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Suppressions de billets par AGENT qui les a supprimés (deletedBy), sur la période de suppression
+     * (deletedAt) — détection de « vente hors-livre » (billet créé puis retiré du livre). montant = Σ prix
+     * des billets VALIDE supprimés (recette qui disparaît des listes) ; nbapresdepart = supprimés APRÈS le
+     * départ réel du voyage (`v.datedepartreelle <= t.deletedAt`) = signal fort (le passager a voyagé).
+     * @return array<int, array{agentid:int, nb:int, montant:int, nbapresdepart:int}>
+     */
+    public function suppressionsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select(
+                't.deletedBy AS agentid',
+                'COUNT(t.id) AS nb',
+                "COALESCE(SUM(CASE WHEN t.statut = 'VALIDE' THEN t.prix ELSE 0 END), 0) AS montant",
+                'SUM(CASE WHEN v.datedepartreelle IS NOT NULL AND v.datedepartreelle <= t.deletedAt THEN 1 ELSE 0 END) AS nbapresdepart'
+            )
+            ->leftJoin('t.voyage', 'v')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NOT NULL')
+            ->andWhere('t.deletedAt >= :debut')
+            ->andWhere('t.deletedAt <= :fin')
+            ->andWhere('t.deletedBy IS NOT NULL')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('t.deletedBy')
+            ->orderBy('montant', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Remises accordées au GUICHET par AGENT (createdBy) — remises à bord exclues (voir remisesParCommercial).
+     * @return array<int, array{agentid:int, total:int, nb:int}>
+     */
+    public function remisesParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('t.createdBy AS agentid, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.remise > 0')
+            ->andWhere('t.commercial IS NULL')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('t.createdBy')
+            ->orderBy('total', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Remises accordées À BORD par COMMERCIAL. @return array<int, array{commercialid:int, nom:string, prenom:string, total:int, nb:int}>
+     */
+    public function remisesParCommercial(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('c.id AS commercialid, c.nom AS nom, c.prenom AS prenom, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
+            ->join('t.commercial', 'c')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.remise > 0')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('c.id')
+            ->orderBy('total', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Remises accordées par GARE (gare de montée = gare de vente au guichet) — repère où se concentrent
+     * les remises (signal anti-abus). @return array<int, array{gareid:int, garelibelle:string, total:int, nb:int}>
+     */
+    public function remisesParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
+            ->join('t.gare', 'g')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.remise > 0')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('g.id')
             ->orderBy('total', 'DESC')
             ->getQuery()
             ->getArrayResult();
@@ -819,6 +1019,78 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.deletedAt IS NULL')
             ->setParameter('ide', $identreprise)
             ->groupBy('t.client')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Récompenses fidélité appliquées PAR AGENT (createdBy du billet-récompense) sur la période :
+     * nb + valeur offerte (Σ remise). Anti « fidélité détournée » : qui distribue/encaisse le plus de récompenses.
+     * @return array<int, array{agentid:int, nb:int, valeur:int}>
+     */
+    public function recompensesParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('t.createdBy AS agentid', 'COUNT(t.id) AS nb', 'COALESCE(SUM(t.remise), 0) AS valeur')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.fideliteRecompense = true')
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.createdBy IS NOT NULL')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('t.createdBy')
+            ->orderBy('valeur', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Tampons (billets accumulateurs VALIDE hors récompense, depuis l'adhésion) répartis PAR MEMBRE et par
+     * VENDEUR (createdBy) — détection des cartes « captées » par un seul agent. Cumulatif (pas de période).
+     * @return array<int, array{clientid:int, nom:?string, contact:?string, agentid:int, nb:int}>
+     */
+    public function accumulateursParMembreVendeur(int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('c.id AS clientid', 'c.nom AS nom', 'c.contact AS contact', 't.createdBy AS agentid', 'COUNT(t.id) AS nb')
+            ->join('t.client', 'c')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere('c.fidelite = true')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.fideliteRecompense = false')
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.createdAt >= c.dateadhesion')
+            ->andWhere('t.createdBy IS NOT NULL')
+            ->setParameter('ide', $identreprise)
+            ->groupBy('c.id')
+            ->addGroupBy('t.createdBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Récompenses fidélité PAR MEMBRE et par VENDEUR (createdBy du billet-récompense) — complément de
+     * accumulateursParMembreVendeur pour repérer « le même agent nourrit ET encaisse la carte ».
+     * @return array<int, array{clientid:int, agentid:int, nb:int}>
+     */
+    public function recompensesParMembreVendeur(int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select('c.id AS clientid', 't.createdBy AS agentid', 'COUNT(t.id) AS nb')
+            ->join('t.client', 'c')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere('c.fidelite = true')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.fideliteRecompense = true')
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.createdBy IS NOT NULL')
+            ->setParameter('ide', $identreprise)
+            ->groupBy('c.id')
+            ->addGroupBy('t.createdBy')
             ->getQuery()
             ->getArrayResult();
     }

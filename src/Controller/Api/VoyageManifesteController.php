@@ -8,6 +8,7 @@ use App\Domain\Enum\TicketStatus;
 use App\Entity\User;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
+use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -34,7 +35,8 @@ final class VoyageManifesteController extends AbstractController
         VoyageRepository $voyageRepository,
         TicketRepository $ticketRepository,
         CourrierRepository $courrierRepository,
-        BagageRepository $bagageRepository
+        BagageRepository $bagageRepository,
+        ReservationRepository $reservationRepository
     ): JsonResponse {
         $this->denyAccessUnlessGranted('VOIR', 'Voyage');
 
@@ -90,6 +92,14 @@ final class VoyageManifesteController extends AbstractController
                 BagageStatus::STATUT_PERDU->value,
             ], true)
         );
+        // Réservations PAYÉES du voyage : recette reconnue AU PAIEMENT (module réservation), attribuée à la
+        // gare de provenance (r.gare). Le billet émis depuis un bon ne recompte pas (exclu des billets).
+        $reservations = $reservationRepository->findBy([
+            'voyage' => $id,
+            'identreprise' => $entId,
+            'etatpaiement' => 'PAYE',
+            'deletedAt' => null,
+        ]);
 
         // --- Agrégation PAR GARE ---
         $gares = [];
@@ -107,16 +117,33 @@ final class VoyageManifesteController extends AbstractController
             $courriersDeposes = array_filter($courriers, fn ($c) => ($c->getGaredepart()?->getId() ?? $origineId) === $gid);
             $bagagesCharges = array_filter($bagages, fn ($b) => ($b->getGaredepart()?->getId() ?? $origineId) === $gid);
 
-            // Recette attribuée à la gare où c'est encaissé (montée billet / dépôt colis-bagage) → pas de double-comptage.
-            // Les ventes COMMERCIALES (vendeur à bord) sont exclues ici : leur recette va au commercial (bloc 'commerciaux').
-            $recetteBillets = array_sum(array_map(
+            // RECETTE RÉELLE de la gare (cohérent avec RecetteGareService) :
+            //  - GUICHET : billets vendus au comptoir ici (montée ici), hors commercial & hors réservation ;
+            //  - COMMERCIAL : billets vendus À BORD par un commercial RATTACHÉ à cette gare (gare d'affectation),
+            //    où qu'il ait vendu le long de la ligne → sa recette revient à SA gare.
+            //  - Réservation exclue des billets (payée compte admin, comptée à part ci-dessous).
+            $recetteBilletsGuichet = array_sum(array_map(
                 fn ($t) => (int) $t->getPrix(),
-                // guichet uniquement : hors ventes commerciales (recette du commercial) ET hors billets de
-                // réservation (payés sur le compte admin, cf. Ticket::$reservation).
                 array_filter($montees, fn ($t) => $t->getCommercial() === null && $t->getReservation() === null)
             ));
+            $recetteBilletsCommercialGare = array_sum(array_map(
+                fn ($t) => (int) $t->getPrix(),
+                array_filter($tickets, fn ($t) => $t->getReservation() === null
+                    && $t->getCommercial() !== null && $t->getCommercial()->getGare()?->getId() === $gid)
+            ));
+            $recetteBillets = $recetteBilletsGuichet + $recetteBilletsCommercialGare;
             $recetteCourriers = array_sum(array_map(fn ($c) => (int) $c->getMontant(), $courriersDeposes));
-            $recetteBagages = array_sum(array_map(fn ($b) => (int) $b->getMontant(), $bagagesCharges));
+            // Bagages : guichet déposés ici + bagages enregistrés À BORD par un commercial rattaché à cette gare.
+            $recetteBagages = array_sum(array_map(
+                fn ($b) => (int) $b->getMontant(),
+                array_filter($bagagesCharges, fn ($b) => $b->getCommercial() === null)
+            )) + array_sum(array_map(
+                fn ($b) => (int) $b->getMontant(),
+                array_filter($bagages, fn ($b) => $b->getCommercial() !== null && $b->getCommercial()->getGare()?->getId() === $gid)
+            ));
+            // Réservations payées initiées ICI (gare de provenance = r.gare).
+            $reservationsGare = array_filter($reservations, fn ($r) => ($r->getGare()?->getId() ?? $origineId) === $gid);
+            $recetteReservations = array_sum(array_map(fn ($r) => (int) $r->getPrix(), $reservationsGare));
 
             $gares[] = [
                 'id' => $gid,
@@ -136,7 +163,8 @@ final class VoyageManifesteController extends AbstractController
                 'recette' => $recetteBillets,
                 'recetteCourriers' => $recetteCourriers,
                 'recetteBagages' => $recetteBagages,
-                'recetteTotale' => $recetteBillets + $recetteCourriers + $recetteBagages,
+                'recetteReservations' => $recetteReservations,
+                'recetteTotale' => $recetteBillets + $recetteCourriers + $recetteBagages + $recetteReservations,
             ];
         }
 
@@ -184,7 +212,8 @@ final class VoyageManifesteController extends AbstractController
                     'id' => $cid,
                     'nom' => trim(($c->getPrenom() ?? '') . ' ' . ($c->getNom() ?? '')) ?: ('#' . $cid),
                     'nb' => 0,
-                    'recette' => 0,
+                    'recette' => 0,       // total à bord (billets + bagages)
+                    'recetteBagages' => 0,
                     'trajets' => [],
                 ];
             }
@@ -207,6 +236,27 @@ final class VoyageManifesteController extends AbstractController
             $commerciaux[$cid]['trajets'][$tk]['nb']++;
             $commerciaux[$cid]['trajets'][$tk]['recette'] += $prix;
         }
+        // Bagages enregistrés À BORD (commercial) : recette attribuée au commercial (pas à la gare).
+        foreach ($bagages as $b) {
+            $c = $b->getCommercial();
+            if ($c === null) {
+                continue;
+            }
+            $cid = $c->getId();
+            if (!isset($commerciaux[$cid])) {
+                $commerciaux[$cid] = [
+                    'id' => $cid,
+                    'nom' => trim(($c->getPrenom() ?? '') . ' ' . ($c->getNom() ?? '')) ?: ('#' . $cid),
+                    'nb' => 0,
+                    'recette' => 0,
+                    'recetteBagages' => 0,
+                    'trajets' => [],
+                ];
+            }
+            $montant = (int) $b->getMontant();
+            $commerciaux[$cid]['recetteBagages'] += $montant;
+            $commerciaux[$cid]['recette'] += $montant; // total à bord = billets + bagages
+        }
         // Réindexe : trajets triés par ordre de montée le long de la ligne, commerciaux par recette décroissante
         $commerciaux = array_map(function ($c) {
             $trajets = array_values($c['trajets']);
@@ -216,15 +266,14 @@ final class VoyageManifesteController extends AbstractController
         }, array_values($commerciaux));
         usort($commerciaux, fn ($a, $b) => $b['recette'] <=> $a['recette']);
 
-        // Scission billets par CANAL (invariant : gares + commerciaux + réservation = recette billets totale)
+        // Scission billets DIRECTS par canal (invariant : gares [guichet] + commerciaux = billets hors résa).
+        // Les billets issus d'une réservation sont EXCLUS ici (leur recette = réservations payées ci-dessous).
         $recetteBilletsCommerciaux = array_sum(array_map(
             fn ($t) => (int) $t->getPrix(),
-            array_filter($tickets, fn ($t) => $t->getCommercial() !== null)
+            array_filter($tickets, fn ($t) => $t->getCommercial() !== null && $t->getReservation() === null)
         ));
-        $recetteBilletsReservation = array_sum(array_map(
-            fn ($t) => (int) $t->getPrix(),
-            array_filter($tickets, fn ($t) => $t->getReservation() !== null)
-        ));
+        // Réservations PAYÉES du voyage : recette reconnue au paiement (canal réservation, gare de provenance).
+        $recetteReservations = array_sum(array_map(fn ($r) => (int) $r->getPrix(), $reservations));
 
         return $this->json([
             'voyage' => [
@@ -238,15 +287,23 @@ final class VoyageManifesteController extends AbstractController
             ],
             'totaux' => [
                 'passagers' => count($tickets),
-                'recetteBillets' => $totalBillets = array_sum(array_map(fn ($t) => (int) $t->getPrix(), $tickets)),
+                'recetteBillets' => $totalBillets = array_sum(array_map(
+                    fn ($t) => (int) $t->getPrix(),
+                    array_filter($tickets, fn ($t) => $t->getReservation() === null) // billets directs (hors réservation)
+                )),
                 'recetteBilletsCommerciaux' => $recetteBilletsCommerciaux,
-                'recetteBilletsReservation' => $recetteBilletsReservation,
-                'recetteBilletsGares' => $totalBillets - $recetteBilletsCommerciaux - $recetteBilletsReservation,
+                'recetteBilletsGares' => $totalBillets - $recetteBilletsCommerciaux,
+                'recetteReservations' => $recetteReservations,
                 'courriers' => count($courriers),
                 'recetteCourriers' => $totalCourriers = array_sum(array_map(fn ($c) => (int) $c->getMontant(), $courriers)),
                 'bagages' => count($bagages),
                 'recetteBagages' => $totalBagages = array_sum(array_map(fn ($b) => (int) $b->getMontant(), $bagages)),
-                'recetteTotale' => $totalBillets + $totalCourriers + $totalBagages,
+                'recetteBagagesCommerciaux' => $recetteBagagesCommerciaux = array_sum(array_map(
+                    fn ($b) => (int) $b->getMontant(),
+                    array_filter($bagages, fn ($b) => $b->getCommercial() !== null)
+                )),
+                'recetteBagagesGares' => $totalBagages - $recetteBagagesCommerciaux,
+                'recetteTotale' => $totalBillets + $recetteReservations + $totalCourriers + $totalBagages,
             ],
             'gares' => $gares,
             'troncons' => $troncons,

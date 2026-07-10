@@ -91,6 +91,32 @@ class DesistementProcessor implements ProcessorInterface
      */
     private function annuler(Ticket $ticket, DesistementInput $data, User $user, \DateTimeImmutable $now, Operation $operation, array $uriVariables, array $context): Ticket
     {
+        // ANTI « annulation après encaissement » (1) motif obligatoire : toute annulation doit être justifiée.
+        if (trim((string) $data->motif) === '') {
+            throw new BadRequestHttpException('Le motif est obligatoire pour annuler un billet (remboursement).');
+        }
+
+        // ANTI « annulation après encaissement » (2) : une fois que le car a ATTEINT/DÉPASSÉ la gare de MONTÉE
+        // du passager, le service est en cours/rendu → plus de remboursement par annulation (report possible).
+        // Intermédiaire-aware : un passager qui monte en aval peut être annulé tant que le car n'a pas atteint
+        // sa gare (position = garecourante). Avant le départ réel du voyage, l'annulation reste libre.
+        $voyage = $ticket->getVoyage();
+        $ligne = $voyage->getLigne();
+        if ($voyage->getDatedepartreelle() !== null && $ligne !== null) {
+            $ordreParGare = [];
+            foreach ($ligne->getArrets() as $a) {
+                $ordreParGare[$a->getGare()->getId()] = (int) $a->getOrdre();
+            }
+            $position = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
+            $ordrePosition = $position ? ($ordreParGare[$position->getId()] ?? 0) : 0;
+            $ordreMontee = $ordreParGare[$ticket->getGare()?->getId()] ?? PHP_INT_MAX;
+            if ($ordrePosition >= $ordreMontee) {
+                throw new BadRequestHttpException(
+                    'Le car a déjà atteint la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
+                );
+            }
+        }
+
         $ticket
             ->setStatut(TicketStatus::STATUT_ANNULE->value)
             ->setDatedesistement($now)

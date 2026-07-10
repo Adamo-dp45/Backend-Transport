@@ -27,12 +27,14 @@ class ActiviteLogger
     public const TICKET_ANNULE = 'TICKET_ANNULE';
     public const TICKET_REPORTE = 'TICKET_REPORTE';
     public const TICKET_SUPPRIME = 'TICKET_SUPPRIME';
+    public const TICKET_REMISE = 'TICKET_REMISE'; // remise appliquée sur un billet (audit anti-abus)
     public const COURRIER_ANNULE = 'COURRIER_ANNULE';
     public const COURRIER_LIVRE = 'COURRIER_LIVRE';
     public const COURRIER_PERDU = 'COURRIER_PERDU';
     public const COLIS_PERDU = 'COLIS_PERDU';
     public const BAGAGE_PERDU = 'BAGAGE_PERDU';
     public const BAGAGE_ANNULE = 'BAGAGE_ANNULE';
+    public const BAGAGE_MONTANT_FORCE = 'BAGAGE_MONTANT_FORCE'; // montant forcé ≠ tarif (audit anti sous-déclaration)
 
     public function __construct(
         private EntityManagerInterface $em,

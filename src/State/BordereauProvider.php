@@ -11,6 +11,8 @@ use App\Entity\Output\Bordereau\BordereauVoyageDto;
 use App\Entity\User;
 use App\Entity\Voyage;
 use App\Domain\Enum\TicketStatus;
+use App\Repository\BagageRepository;
+use App\Repository\CourrierRepository;
 use App\Repository\GareRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
@@ -26,6 +28,8 @@ class BordereauProvider implements ProviderInterface
         private readonly TicketRepository $ticketRepository,
         private readonly VoyageRepository $voyageRepository,
         private readonly GareRepository $gareRepository,
+        private readonly BagageRepository $bagageRepository,
+        private readonly CourrierRepository $courrierRepository,
         private readonly RequestStack $requestStack
     )
     {
@@ -70,6 +74,10 @@ class BordereauProvider implements ProviderInterface
         // Occupation au DÉPART de cette gare : ce que le car emporte quand il sort d'ici
         [$occDepart, $libreDepart] = $this->occupationAuDepart($voyage, (int)$gareId);
 
+        // Cargo déposé à cette gare pour ce voyage (comptes seuls) : aide de réconciliation gare→car
+        $nbBagages   = $this->bagageRepository->countByVoyageEtGare((int)$voyageId, (int)$gareId, $identreprise);
+        $nbCourriers = $this->courrierRepository->countByVoyageEtGare((int)$voyageId, (int)$gareId, $identreprise);
+
         $passagers = array_map(
             fn($p) => new BordereauPassagerDto(
                 codeticket: $p['codeticket'],
@@ -103,7 +111,9 @@ class BordereauProvider implements ProviderInterface
             generele: (new \DateTime())->format('d/m/Y à H:i'),
             passagers: $passagers,
             placesoccupeesdepart: $occDepart,
-            placeslibresdepart: $libreDepart
+            placeslibresdepart: $libreDepart,
+            nbbagages: $nbBagages,
+            nbcourriers: $nbCourriers
         );
     }
 

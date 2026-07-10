@@ -203,6 +203,16 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     #[Groups(['read:Bagage', 'read:Voyage'])]
     private ?Ticket $ticket = null;
 
+    /**
+     * Commercial (vendeur À BORD) ayant enregistré ce bagage, FIGÉ à l'enregistrement (snapshot).
+     * Non nul UNIQUEMENT si l'agent qui enregistre est le commercial du voyage : la recette du bagage
+     * va alors AU COMMERCIAL et non à la gare de dépôt. Nul = enregistrement au guichet → recette gare.
+     * (On ne dérive PAS du billet : le commercial pourrait rattacher un billet qui n'est pas le sien.)
+     */
+    #[ORM\ManyToOne]
+    #[Groups(['read:Bagage'])]
+    private ?User $commercial = null;
+
     #[ORM\ManyToOne]
     #[Groups(['read:Bagage', 'read:Voyage', 'write:Bagage'])]
     private ?Gare $garedepart = null; // Gare d'origine du bagage (= gare de l'agent s'il y est rattaché)
@@ -328,6 +338,18 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     public function setTicket(?Ticket $ticket): static
     {
         $this->ticket = $ticket;
+
+        return $this;
+    }
+
+    public function getCommercial(): ?User
+    {
+        return $this->commercial;
+    }
+
+    public function setCommercial(?User $commercial): static
+    {
+        $this->commercial = $commercial;
 
         return $this;
     }

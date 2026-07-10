@@ -9,6 +9,7 @@ use App\Entity\Output\Bagage\BagageStatistiqueOutput;
 use App\Entity\Output\Bagage\RecetteBagageParJourDto;
 use App\Entity\User;
 use App\Repository\BagageRepository;
+use App\Repository\UserRepository;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -19,7 +20,8 @@ class BagageStatsProvider implements ProviderInterface
     public function __construct(
         private Security $security,
         private RequestStack $requestStack,
-        private BagageRepository $bagageRepository
+        private BagageRepository $bagageRepository,
+        private UserRepository $userRepository
     )
     {
     }
@@ -48,6 +50,18 @@ class BagageStatsProvider implements ProviderInterface
             $this->bagageRepository->recettesParJourDetail($dateDebut, $dateFin, $identreprise)
         );
 
+        // Bagages à MONTANT FORCÉ par agent (détection sous-déclaration) — noms résolus
+        $rawForcages = $this->bagageRepository->forcagesParAgent($dateDebut, $dateFin, $identreprise);
+        $agentIds = array_filter(array_map(fn ($r) => (int) $r['agentid'], $rawForcages));
+        $noms = empty($agentIds) ? [] : $this->userRepository->findInfosByIds($agentIds);
+        $forcages = array_map(fn ($r) => [
+            'nom' => trim((($noms[$r['agentid']]['prenom'] ?? '') . ' ' . ($noms[$r['agentid']]['nom'] ?? ''))) ?: '—',
+            'nb' => (int) $r['nb'],
+            'manque' => (int) $r['manque'],
+            'nbsoustarif' => (int) $r['nbsoustarif'],
+            'nbhorsgrille' => (int) $r['nbhorsgrille'],
+        ], $rawForcages);
+
         return new BagageStatistiqueOutput(
             totalBagages: array_sum($statuts),
             enregistres: $statuts['ENREGISTRE'] ?? 0,
@@ -57,7 +71,8 @@ class BagageStatsProvider implements ProviderInterface
             annules: $statuts['ANNULE'] ?? 0, // bagages annulés via l'annulation du billet du client
             recetteTotale: $recetteTotale,
             poidsTotal: $poidsTotal,
-            recettesParJour: $recettesParJour
+            recettesParJour: $recettesParJour,
+            forcages: $forcages
         );
     }
 }

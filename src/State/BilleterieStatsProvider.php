@@ -10,6 +10,7 @@ use App\Entity\Output\Billetterie\RecetteParCarDto;
 use App\Entity\Output\Billetterie\RecetteParJourDto;
 use App\Entity\Output\Billetterie\RecetteParTrajetDto;
 use App\Entity\User;
+use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -21,7 +22,8 @@ class BilleterieStatsProvider implements ProviderInterface
     public function __construct(
         private Security $security,
         private RequestStack $requestStack,
-        private TicketRepository $ticketRepository
+        private TicketRepository $ticketRepository,
+        private ReservationRepository $reservationRepository
     )
     {
     }
@@ -63,12 +65,14 @@ class BilleterieStatsProvider implements ProviderInterface
             $this->ticketRepository->recettesParCar($dateDebut, $dateFin, $identreprise)
         );
 
-        // Ventilation par canal : guichet (méthode dédiée) + réservation (dédiée) ; le commercial se
-        // déduit du total pour garantir guichet + commercial + réservation = recetteTotale.
-        $recetteTotale = $this->ticketRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
+        // Recette billets ventilée par 3 CANAUX : guichet (comptoir) + commercial (à bord) + réservation
+        // (payée au paiement, compte admin). Les ventes directes (guichet + commercial) sont « hors résa » ;
+        // on y ADDITIONNE les réservations payées pour que la recette totale reflète tous les canaux.
+        $recetteDirecte = $this->ticketRepository->recettesTotales($dateDebut, $dateFin, $identreprise); // hors résa
         $recetteGuichet = $this->ticketRepository->recettesGuichet($dateDebut, $dateFin, $identreprise);
-        $recetteReservation = $this->ticketRepository->recettesReservation($dateDebut, $dateFin, $identreprise);
-        $recetteCommercial = round($recetteTotale - $recetteGuichet - $recetteReservation, 2);
+        $recetteCommercial = round($recetteDirecte - $recetteGuichet, 2); // le reste des ventes directes = à bord
+        $recetteReservation = $this->reservationRepository->recettesPayees($dateDebut, $dateFin, $identreprise);
+        $recetteTotale = round($recetteDirecte + $recetteReservation, 2); // 3 canaux réunis
 
         return new BilleterieStatistiqueOutput(
             totalTickets:      $this->ticketRepository->countTotal($dateDebut, $dateFin, $identreprise),

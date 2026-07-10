@@ -2,6 +2,7 @@
 
 namespace App\Controller\Api;
 
+use App\Domain\Service\RecetteGareService;
 use App\Entity\User;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
@@ -13,10 +14,12 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
- * Tableau de bord de SA gare pour un utilisateur rattaché : recette + compteurs (billets/courriers/
- * bagages) sur une période (jour / mois / tout). Réutilise les 'recetteParGare' des repos (recette
- * encaissée à la gare : montée pour le billet, garedepart pour courrier/bagage), filtrés sur sa gare.
- * Aucune fuite : ne renvoie que les chiffres de la gare de l'utilisateur courant.
+ * Tableau de bord de SA gare pour un utilisateur rattaché : recette COMPOSITE + compteurs sur une période
+ * (jour / mois / tout). La recette d'une gare = billets guichet (montée) + ventes de SES commerciaux
+ * rattachés (billets + bagages, via la gare d'affectation) + réservations payées (gare de provenance) +
+ * bagages/courriers déposés, ventilée par CANAL (guichet / commercial / réservation) — source unique
+ * RecetteGareService. On y ajoute les INCIDENTS de la gare (billets désistés, bagages/courriers annulés ou
+ * perdus). Aucune fuite : ne renvoie que les chiffres de la gare de l'utilisateur courant.
  */
 final class GareDashboardController extends AbstractController
 {
@@ -24,9 +27,10 @@ final class GareDashboardController extends AbstractController
     public function dashboard(
         Request $request,
         Security $security,
+        RecetteGareService $recetteGareService,
         TicketRepository $ticketRepository,
-        CourrierRepository $courrierRepository,
-        BagageRepository $bagageRepository
+        BagageRepository $bagageRepository,
+        CourrierRepository $courrierRepository
     ): JsonResponse {
         // Recette = donnée financière : réservée à l'admin de gare (et admins entreprise/super).
         if (!$this->isGranted('ROLE_ADMIN_GARE') && !$this->isGranted('ROLE_ADMIN') && !$this->isGranted('ROLE_SUPER_ADMIN')) {
@@ -46,21 +50,41 @@ final class GareDashboardController extends AbstractController
         $periode = in_array($periode, ['jour', 'mois', 'tout'], true) ? $periode : 'mois';
         [$debut, $fin] = $this->intervalle($periode);
 
-        $billets = $this->ligneGare($ticketRepository->recetteParGare($debut, $fin, $entId), $gareId);
-        $courriers = $this->ligneGare($courrierRepository->recetteParGare($debut, $fin, $entId), $gareId);
-        $bagages = $this->ligneGare($bagageRepository->recetteParGare($debut, $fin, $entId), $gareId);
+        // Recette composite de SA gare (billets guichet + commercial rattaché + réservation + bagages + courriers).
+        $gares = $recetteGareService->parGare($debut, $fin, $entId);
+        $g = $gares[$gareId] ?? [];
 
-        $rBillets = (int) ($billets['recette'] ?? 0);
-        $rCourriers = (int) ($courriers['recette'] ?? 0);
-        $rBagages = (int) ($bagages['recette'] ?? 0);
+        $billetsRecette = (int) (($g['billetsGuichet'] ?? 0) + ($g['billetsCommercial'] ?? 0));
+        $billetsCount = (int) (($g['nbBilletsGuichet'] ?? 0) + ($g['nbBilletsCommercial'] ?? 0));
+
+        // Incidents de la gare (billets désistés, bagages/courriers annulés ou perdus déposés ici).
+        $desist = $this->ligneGare($ticketRepository->desistementsParGare($debut, $fin, $entId), $gareId);
+        $incBagages = $this->ligneGare($bagageRepository->incidentsParGare($debut, $fin, $entId), $gareId);
+        $incCourriers = $this->ligneGare($courrierRepository->incidentsParGare($debut, $fin, $entId), $gareId);
 
         return $this->json([
             'gare' => ['id' => $gareId, 'libelle' => $gare->getLibelle()],
             'periode' => $periode,
-            'billets' => ['count' => (int) ($billets['nbtickets'] ?? 0), 'recette' => $rBillets],
-            'courriers' => ['count' => (int) ($courriers['nbcourriers'] ?? 0), 'recette' => $rCourriers],
-            'bagages' => ['count' => (int) ($bagages['nbbagages'] ?? 0), 'recette' => $rBagages],
-            'recetteTotale' => $rBillets + $rCourriers + $rBagages,
+            'billets' => ['count' => $billetsCount, 'recette' => $billetsRecette],
+            'courriers' => ['count' => (int) ($g['nbCourriers'] ?? 0), 'recette' => (int) ($g['recetteCourriers'] ?? 0)],
+            'bagages' => ['count' => (int) ($g['nbBagages'] ?? 0), 'recette' => (int) ($g['recetteBagages'] ?? 0)],
+            'reservations' => ['count' => (int) ($g['nbReservations'] ?? 0), 'recette' => (int) ($g['reservation'] ?? 0)],
+            // Ventilation par canal de vente
+            'canaux' => [
+                'guichet' => (int) ($g['canalGuichet'] ?? 0),
+                'commercial' => (int) ($g['canalCommercial'] ?? 0),
+                'reservation' => (int) ($g['canalReservation'] ?? 0),
+            ],
+            'recetteTotale' => (int) ($g['recetteTotale'] ?? 0),
+            // Incidents (comptes seuls) : ce que la gare a émis puis annulé / perdu / désisté sur la période
+            'incidents' => [
+                'ticketsAnnules' => (int) ($desist['nbannules'] ?? 0),
+                'ticketsReportes' => (int) ($desist['nbreportes'] ?? 0),
+                'bagagesAnnules' => (int) ($incBagages['nbannules'] ?? 0),
+                'bagagesPerdus' => (int) ($incBagages['nbperdus'] ?? 0),
+                'courriersAnnules' => (int) ($incCourriers['nbannules'] ?? 0),
+                'courriersPerdus' => (int) ($incCourriers['nbperdus'] ?? 0),
+            ],
         ]);
     }
 

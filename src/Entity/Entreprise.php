@@ -340,6 +340,7 @@ class Entreprise extends EntityBase
         return $this;
     }
 
+
     /**
      * @return Collection<int, User>
      */

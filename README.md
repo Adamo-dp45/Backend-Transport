@@ -119,6 +119,8 @@
 eager_loading:
     max_joins: 50 # Vu qu'une entité peut porter plus de 4 relations or 'ApiPlatform' a une limite de jointures de l'eager-loading '30' par défaut
 
+- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
+
 - On a mis en place le force brute `security.yaml` - `login_throttling`, au delà l'authentification échoue avec `TooManyLoginAttemptsAuthenticationException`, avant même de vérifier le mot de passe. Ça marche bien malgré `stateless: true` : le comptage est stocké dans le **cache** (pool `cache.rate_limiter`), pas dans la session.
     > Pour configurer le statut HTTP renvoyé quand c'est bloqué dépend de ton `failure_handler` LexikJWT → il sort un **401** avec le message d'erreur de l'exception. Si tu veux un **429 (Too Many Requests)** propre, il faut un failure handler maison qui teste `instanceof TooManyLoginAttemptsAuthenticationException` ; sinon le 401 standard suffit.
     > pour ça on a créer un `LoginFailureHandler` pour Voir le message « bloqué » quand le limiter s'applique via `failure_handler` dans `security.yaml`

@@ -13,6 +13,7 @@ use App\Repository\ApprovisionnementRepository;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
 use App\Repository\DepannageRepository;
+use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -28,7 +29,8 @@ class FinancierStatsProvider implements ProviderInterface
         private DepannageRepository $depannageRepository,
         private TicketRepository $ticketRepository,
         private CourrierRepository $courrierRepository,
-        private BagageRepository $bagageRepository
+        private BagageRepository $bagageRepository,
+        private ReservationRepository $reservationRepository
     )
     {
     }
@@ -44,22 +46,27 @@ class FinancierStatsProvider implements ProviderInterface
         [$dateDebut, $dateFin] = $this->parsePeriode($request);
 
         // Totaux
-        $recettesTickets = $this->ticketRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
+        $recettesTickets = $this->ticketRepository->recettesTotales($dateDebut, $dateFin, $identreprise); // hors réservation
+        $recettesReservations = $this->reservationRepository->recettesPayees($dateDebut, $dateFin, $identreprise); // reconnues au paiement
         $recettesCourriers = $this->courrierRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
         $recettesBagages = $this->bagageRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
-        $recettesTotales = $recettesTickets + $recettesCourriers + $recettesBagages;
+        $recettesTotales = $recettesTickets + $recettesReservations + $recettesCourriers + $recettesBagages;
         $coutDepannages = $this->depannageRepository->coutTotal($dateDebut, $dateFin, $identreprise);
         $coutApprovisionnements = $this->approvisionnementRepository->coutTotal($dateDebut, $dateFin, $identreprise);
         $beneficeNet = $recettesTotales - $coutDepannages - $coutApprovisionnements;
 
-        // Recettes par jour — fusion tickets + courriers + bagages
+        // Recettes par jour — fusion tickets (hors résa) + réservations payées + courriers + bagages
         $rawTickets   = $this->ticketRepository->recettesParJour($dateDebut, $dateFin, $identreprise);
+        $rawReservations = $this->reservationRepository->recettesPayeesParJour($dateDebut, $dateFin, $identreprise);
         $rawCourriers = $this->courrierRepository->recettesParJourDetail($dateDebut, $dateFin, $identreprise);
         $rawBagages   = $this->bagageRepository->recettesParJourDetail($dateDebut, $dateFin, $identreprise);
 
         $recettesIndex = [];
         foreach ($rawTickets as $row) {
             $recettesIndex[$row['label']]['tickets'] = (float)$row['montant'];
+        }
+        foreach ($rawReservations as $row) {
+            $recettesIndex[$row['label']]['reservations'] = (float)$row['montant'];
         }
         foreach ($rawCourriers as $row) {
             $recettesIndex[$row['label']]['courriers'] = (float)$row['montant'];
@@ -75,7 +82,7 @@ class FinancierStatsProvider implements ProviderInterface
                 */
                 label: $label,
                 montant: round(
-                    ($vals['tickets'] ?? 0) + ($vals['courriers'] ?? 0) + ($vals['bagages'] ?? 0),
+                    ($vals['tickets'] ?? 0) + ($vals['reservations'] ?? 0) + ($vals['courriers'] ?? 0) + ($vals['bagages'] ?? 0),
                     2
                 ),
             ),
@@ -118,6 +125,7 @@ class FinancierStatsProvider implements ProviderInterface
         return new FinancierStatistiqueOutput(
             recettesTotales: $recettesTotales,
             recettesTickets: $recettesTickets,
+            recettesReservations: $recettesReservations,
             recettesCourriers: $recettesCourriers,
             recettesBagages: $recettesBagages,
             coutDepannages: $coutDepannages,

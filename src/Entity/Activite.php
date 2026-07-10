@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use ApiPlatform\Doctrine\Orm\Filter\DateFilter;
 use ApiPlatform\Doctrine\Orm\Filter\OrderFilter;
 use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
 use ApiPlatform\Metadata\ApiFilter;
@@ -48,6 +49,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
     'type' => 'exact',
 ])]
 #[ApiFilter(OrderFilter::class, properties: ['createdAt', 'id'])]
+#[ApiFilter(DateFilter::class, properties: ['createdAt'])]
 class Activite extends EntityBase implements EntrepriseOwnedInterface
 {
     use IdEntrepriseTrait;

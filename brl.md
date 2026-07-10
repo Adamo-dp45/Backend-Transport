@@ -25,14 +25,6 @@
 - 
 
 - 
-The ogre's bride, Please excuse my younger brothers, love unseen beneath the clear night sky, oh boy was i wrong about her
-
-
-
-
-
-
-
 J'ai une réflexion concernant le panneau d'affichage des sièges dans le `TicketForm` (ou tout autre écran de sélection des sièges).
 
 Une des entreprises qui souhaite utiliser l'application m'a indiqué que la disposition de ses sièges est différente de celle que nous affichons actuellement. De mon côté, je souhaiterais conserver la disposition actuelle comme disposition par défaut.
@@ -59,137 +51,18 @@ L'objectif serait d'avoir un système suffisamment flexible pour afficher diffé
 
 
 
-Pour bagage on vas plutôt choisir le bagage.commercial car le commercial pourrait sélectionné un ticket qui ne l'appartient pas
 
+Les cas de survente..
 
+quest ce quon a omis
 
-afficher la recette bagage commerciale dans la vue du commercial (et réconcilier la caisse) — n'est pas faite : pour l'instant le bagage commercial est exclu de la gare mais pas ajouté au total du commercial (il reste dans le total entreprise). Il faut un BagageRepository::recetteParCommercial + l'intégrer dans CommercialStatsController/manifeste/caisse.
+pour la partie suppression : 
+    Je me qu'on devrait enlever l'action supprimer sur certaines resources(du genre tout ce qui conçerne l'argent) pour éviter de créer une confusion !! vu qu'un agent pourrait émettre un ticket ou enregistrer un courrier et la supprimer avec une intention de vole :: bagage courrier
 
-
-
-
-
-
-
-
-
-- 
-Les bagages enregistrer par le commercial doivent compter dans sa recette pas dans celle de la gare comme on l'a fais pour ticket => mais maintant va compter dans celle de la gare mais on doit connaitre le detail aussi
-Si la gare émet un billet de réservation je me dis que ça doit compter dans ses billets émis mais pas dans ça recette ! => !!
-Billet de réservation émis par la gare → compte dans ses billets émis mais pas sa recette (séparer COUNT de SUM dans recetteParGare) => mais maintenant on vas les compter dans sa recette
-- 
-
-
-Termine.. et on vas clarifier quelque chose concernant les recettes.. :: D'abord et affiche le aussi.. mainis termine il y'a une rectification qu'on vas faire ensuite
-
-- La recette totale de l'entreprise (La recette totale représente tout ce que l'entreprise a vendu, quel que soit le canal de vente) :
-    > Tickets vendus aux différents guichets
-    > Tickets vendus par les commerciaux
-    > Réservations payées
-    > Bagages enregistrés (agent + commerciaux)
-    > Courriers enregistrés
-
-- La recette d'une gare :
-    > Tickets vendus au guichet de la gare
-    > Tickets vendus et bagages enregistrés par les commerciaux rattachés à cette gare
-        > Le commercial vend à partir d'une gare mais la recette revient à sa gare d'origines :: Ajouter la recette du commercial à sa gare rattaché
-    > Réservations initiées par cette gare .. payés (du genre si elle est la gare de provenance)
-    > Bagages enregistrés par cette gare
-    > Courriers déposés dans cette gare
-    - Ensuite on affiche les détails pour savoir si le paiement a été effectué :: recette en ayant les détails :
-        > au guichet
-        > par un commercial
-        > en ligne(réservation)
-
-- La recette du commercial :
-    > Les tickets qu'il a vendus
-    > Les bagages qu'il a enregistrés
-
-- La recette du voyage (toutes les ventes rattachées à ce voyage) :
-    > Tickets + bagages + courriers + Les réservations payées (ou les tickets issus de ces réservations, mais jamais les deux) de ce voyage
-
-
-la recette (..total et gare) doit prendre en compte les réservation payé même si le billet n'est pas encore émis
-stats des bagages annulés
-
-
-## Un point d'attention concernant les réservations
-
-Il y a un cas qu'il faudra trancher dans ton application.
-
-Tu m'as expliqué que :
-
-1. Le client réserve.
-2. Il paie.
-3. Il reçoit un **bon de réservation**.
-4. Plus tard, la gare émet le ticket.
-
-Pour éviter tout **double comptage**, il faudra choisir une seule règle :
-
-* **Option A (celle que je recommande)** : la recette est reconnue **au moment du paiement de la réservation**. L'émission du ticket ne crée pas une nouvelle recette ; elle ne fait que matérialiser le droit au transport.
-* Option B : la recette est reconnue à l'émission du ticket (mais alors les réservations payées ne doivent pas être comptabilisées avant).
-
-
-
-
-
-Je structurerais ton tableau de bord comme ceci :
-Encaissements : qui a réellement reçu l'argent (guichet, commercial, paiement en ligne, etc.).
-
-Recettes
-    Recette totale
-    Recette par gare
-    Recette par commercial
-    Recette bagages
-    Recette courriers
-Encaissements
-    Encaissement guichet
-    Encaissement commerciaux
-    Encaissement paiements en ligne
-
-
-
-
-
-
-Un exemple :
-
-La gare de d'Abidjan prépare un voyage et affecte un commercial, le commercial vend 10 tickets au cour du voyage, même si l'argent est dans sa caisse, ces ventes ont été réalisées pour la gare de d'Abidjan donc la recette de la gare de d'Abidjan est = ventes au guichet + Ventes des commerciaux et les réservations même logique
-
-:: Au final un commercial est comme un agent de guichet mais qui vend en cour de route pour sa gare
-
-
-
-
-- Dans la partie courrier j'ai mis en commentaire (modepaiement, etatpaiement, datepaiement) donc met commentaire leur utilisation dans dans le frontend
-- Dans le tableau de bord de la gare affiché les stats de ses tickets désister, bagage et courrier annulés ou déclarer comme perdu
-- Dans la statistique performences lignes(ligne) je crois qu'il prend en compte les tickets désister
-
-Aussi :
-
-- manifest ?? indiquer les billets venant de la réservation de la manière on a indiquer pour commerciaux et gares => je crois qu'il est fais côté backend .. aussi les bagages du commercial..
-- Performance commerciale : ajouter les bagages du commercial
-- Dans la création de tickets indiquer les billets qui ont été émis via une réservation
-
-- Pour le cas du détournement :
-    > Comment on fais pour conté la rémise abusive d'un client (Remise abusive — le bénéficiaire est devenu optionnel : un agent applique une remise arbitraire, encaisse le plein tarif, empoche la différence. La recette montre le prix net. Vecteur réel)
-        > Dans les stats comment on fais pour savoir qu'il y'a eu remise et par quel agent !! aussi par quel commercial
-    > Annulation/désistement après encaissement — vendre (cash en poche) puis passer le billet ANNULE/REPORTE : il sort de la recette (VALIDE only), le siège se libère. Tracé (désistements par gare) mais le cash n'est pas réconcilié contre les annulations => Un peu traçé par l'activité
-    > Suppression de billet après encaissement (soft-delete). Tracé (journal d'activité) mais même logique. => Un peu traçé par l'activité
-        > Je me qu'on devrait enlever l'action supprimer sur certaines resources(du genre tout ce qui conçerne l'argent) pour éviter de créer une confusion !! vu qu'un agent pourrait émettre un ticket ou enregistrer un courrier et la supprimer avec une intention de vole
-    > Sous-déclaration colis/bagage — poids/valeur/montant forcé saisis plus bas que la réalité → tarif moindre enregistré, différence empochée. Le poids/valeur sont déclaratifs => ça je laisee vu notre réalité
-    > Vente/transport hors-système — encaisser sans émettre le billet (siège occupé physiquement) ou transporter un colis non enregistré. Indétectable sans comptage physique
-- Courrier « payé à la réception » — encaissement à l'arrivée peu réconcilié. => le courrier ne se paye pas à la reception on avaiit abondonné cette idée
-- Récompense fidélité détournée — utiliser les tampons d'un client complice pour offrir un billet à un passager payant, empocher le cash
-
-C. Ce qui limite déjà la fraude (en place) : journal d'activité (annul/suppr/perdu + auteur), recette gare = guichet (commercial/résa isolés), bordereau de gare, verrou pessimiste (pas de double-vente concurrente), createdAt serveur (pas d'antidatage), réservation → compte admin (l'agent ne touche pas ce cash).
-
-D. Renforcements recommandés (par ordre d'impact) :ùy
+D. Renforcements recommandés (par ordre d'impact) :
     Remise : motif/bénéficiaire obligatoire au-delà d'un seuil + plafond de remise par agent.
     Rapport « recette annulée/supprimée par agent » (réconcilier annulations vs encaissements — repère les agents à fort taux d'annulation).
-    Priorité amont : marquer le billet aval évincé (déjà flaggé).
     montantforce bagage : rapport des montants forcés / écarts par agent.
-    Bordereau chauffeur : comptage passagers physiques vs billets.
 
 
 
@@ -199,29 +72,85 @@ D. Renforcements recommandés (par ordre d'impact) :ùy
 
 
 
+On vas revenir sur la réservation, explique moi le principe ou fonctionnement ou cycle de vie du système de réservation.
 
+Aussi à quelle moment une réservation en attente et une réservation payé expire ?
 
+Places ocuupés = réservations en attente non expiré + réservation payé + tickets .. 
 
+Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser, sans planification, il faut le lancer manuellement.
 
+Le cron d'expiration ne touche que les réservations EN_ATTENTE (non payées) — il libère la place si le client ne paie pas à temps
 
-
-Une question : le app:reservations:expirer est-il planifié quelque part (cron/tâche) ? C'est lui qui matérialise le passage en À régulariser — sans planification, il faut le lancer manuellement.
-Ce que le code fait aujourd'hui : le cron d'expiration ne touche que les réservations EN_ATTENTE (non payées) — il libère la place si le client ne paie pas à temps. Je voulais dire qu'une réservation payée ne se fait pas « annuler pour non-paiement » (puisqu'elle est payée).
-La correction = découpler le paiement de l'attribution du siège. Payer devient possible sans car → la réservation passe PAYÉE et génère un bon de réservation (sans siège). Le billet avec siège est émis ensuite (à la gare, ou dès qu'un car est affecté). C'est exactement ton intuition « le ticket de réservation ≠ le ticket de la gare ». C'est un prérequis au mobile, donc à traiter avant.
+Je voulais dire qu'une réservation payée ne se fait pas « annuler pour non-paiement » (puisqu'elle est payée). La correction = découpler le paiement de l'attribution du siège. Payer devient possible sans car → la réservation passe PAYÉE et génère un bon de réservation (sans siège). Le billet avec siège est émis ensuite (à la gare, ou dès qu'un car est affecté). C'est exactement ton intuition « le ticket de réservation ≠ le ticket de la gare ». C'est un prérequis au mobile, donc à traiter avant.
 
 Aussi :
-- Vu qu'on peut vendre une place réservé, comment on fais dans le cas ou on vend toutes les places et que le client qui a réservé arrive ?
-
-Explique moi le principe ou fonctionnement ou cycle de vie du système de réservation de l'application.. Dans le ..rés.. à quelle moment une réservation en attente et une réservation payé expire ? Places ocuupés = réservations en attente non expiré + réservation payé + tickets .. 
+- Vu qu'on peut vendre une place réservé, comment on fais dans le cas ou on vend toutes les places et que le client qui a réservé arrive ? est ce qu'on peut emettre le bon sur un autre même voyage
 
 
 
-aussi sache que je privilégie les provider aux controllers comme tu l'a fais avec (BilletterieStatsController, CommercialStatsController, CourrierStatsDetailsController, DepartStatsController, FlotteStatsDetailsController),  (BilleterieStatsProvider, CourrierStatsProvider, FlotteActiviteStatsProvider) ce qui provoqué 2 appel dans le controller du frontend :: lequel est le mieux les controllers ou provider vu que j'utilise API Platform
-
-- Mieux géré le commercial du genre s'il se connecte.. un truc mieux pour gérer son espace là ou il pourra avancer son curseur etc...
-- Réecris les modules met à jour la page d'aide
 
 
+En utilisant les bonnes pratiques
+
+
+
+Voici comment installer Flutter sur Windows, étape par étape :
+
+## 1. Prérequis
+- Windows 10 ou plus récent (64 bits), au moins ~2 Go d'espace disque libre
+- **Git for Windows** installé (nécessaire pour les mises à jour de Flutter) — [git-scm.com](https://git-scm.com/download/win)
+- Windows PowerShell 5.0+ (normalement déjà présent)
+
+## 2. Télécharger le SDK Flutter
+- Va sur [docs.flutter.dev/install](https://docs.flutter.dev/install)
+- Télécharge l'archive `flutter_windows_<version>-stable.zip`
+
+## 3. Extraire le SDK
+- Extrais le zip dans un dossier **sans espaces ni caractères spéciaux**, et **sans privilèges élevés requis** (donc pas dans `C:\Program Files`)
+- Exemple recommandé : `C:\src\flutter` ou `C:\Users\<toi>\develop\flutter`
+
+## 4. Ajouter Flutter au PATH
+- Tape "env" dans la barre de recherche Windows → "Modifier les variables d'environnement système"
+- Sous "Variables utilisateur", sélectionne `Path` → "Modifier" → "Nouveau"
+- Ajoute le chemin vers le dossier `bin` de Flutter, par exemple : `C:\src\flutter\bin`
+- Valide avec OK partout
+
+## 5. Vérifier l'installation
+Ouvre un **nouveau** terminal (PowerShell ou CMD) et lance :
+```
+flutter doctor
+```
+Cette commande vérifie tout ton environnement et te dit précisément ce qu'il manque (Android SDK, licences, etc.).
+
+## 6. Compléter selon tes besoins
+- **Pour Android** : installe Android Studio, puis le SDK Android via le SDK Manager. Si `flutter doctor` signale un souci de licence, lance `flutter doctor --android-licenses`.
+- **Pour l'éditeur** : installe VS Code, puis ajoute les extensions **Flutter** et **Dart** (recherche-les dans l'onglet Extensions).
+
+## 7. Créer ton premier projet
+```
+flutter create mon_projet
+cd mon_projet
+flutter run
+```
+
+Vu que tu bosses déjà sur ton projet Expo/React Native, tu connais probablement déjà les réflexes CLI — `flutter doctor` est un peu l'équivalent de `expo doctor`. Dis-moi si tu bloques sur une étape en particulier (souvent le PATH ou les licences Android sont les points chauds).
+
+
+
+
+
+
+
+
+Rien d'incorrect à corriger. Une amélioration possible (cosmétique) : la courbe « recette par jour » de Recettes pourrait être empilée par type — dis-moi si ça t'intéresse.
+
+#4 — Détection du conflit de siège (billet aval « déclassé »)
+Faisable et bien cadré. Plan : champ Ticket.enConflit (+ migration) ; à la vente/priorité-amont, SiegeStateProvider/processor détecte qu'un billet aval partage un tronçon avec le nouveau billet amont sur le même siège → on le marque (comme le marqueur « revendu ») ; affichage d'un badge « siège à réattribuer » sur le billet (table + fiche + grille sièges) et, en option, une alerte à la gare aval. Je dois d'abord relire CapaciteService + la logique « revendu » pour être exact. => Priorité amont : marquer le billet aval évincé (déjà flaggé).
+
+Conflit de siège (#4)	non géré	🟠 Gap opérationnel réel
+Perf des stats	N+1 évités, mais endpoints lourds	🟡 Prévoir index/cache à volume élevé
+Infra (backups, monito, déploiement)	non abordé ici	🟡 À cadrer côté ops
 
 
 
@@ -240,40 +169,16 @@ Cette dernière est importante, car une des entreprises qui souhaite utiliser l'
 
 
 
+Base temporelle de la ligne : le cargo est filtré sur sa date de saisie (createdAt), les billets sur la date de départ du voyage. Écart mineur sur des périodes courtes, sans impact sur des périodes normales.
 
-
-
-
-
-
-
-- Fais moi un système d'autocomplétion dans un formulaire de recherche sur plusieurs ressources dans une application Symfony
-
-
-
-- - 
 Bref : je garde la feature et j'ajoute le fetch-join. (À noter : la vraie lourdeur de cette liste, c'est plutôt courriers/bagages/detailpersonnels hydratés en entier juste pour un .length — sujet à part si tu veux l'optimiser un jour.)
 
 Voyage « réservation » : il n'y a aucun type distinct — un voyage est réservable implicitement (futur + capacité). Je n'ai rien ajouté ; dis-moi si tu veux un flag explicite un jour.
 
-Note : j'ai tranché « agent = guichet » par cohérence avec la caisse (surface #1). Si tu voulais que le classement agent inclue aussi ce qu'ils émettent (réservations) ou vendent à bord, dis-le et j'ajuste.
 
-Le point fragile : cette réaccommodation est manuelle et non détectée. Aucun mécanisme ne signale à Bouaké que son billet a perdu son siège au profit d'Abidjan ; la gare aval ne le découvre qu'à l'embarquement. Si tu veux, on pourra plus tard ajouter une détection/marquage du billet aval en conflit (un peu comme le marqueur « revendu » existant). Mais en l'état : capacité garantie, siège aval potentiellement à réattribuer à la main. comment se passe la rétr
-- - 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+aussi sache que je privilégie les provider aux controllers comme tu l'a fais avec (BilletterieStatsController, CommercialStatsController, CourrierStatsDetailsController, DepartStatsController, FlotteStatsDetailsController),  (BilleterieStatsProvider, CourrierStatsProvider, FlotteActiviteStatsProvider) ce qui provoqué 2 appel dans le controller du frontend :: lequel est le mieux les controllers ou provider vu que j'utilise API Platform
+- Réecris les modules met à jour la page d'aide
+- Fais moi un système d'autocomplétion dans un formulaire de recherche sur plusieurs ressources dans une application Symfony
 - - 
 - Dépenses : 2 types (Dépense générale et gare)
     Objetdepense -> libelle          Objetdepensegare..
@@ -303,9 +208,6 @@ Le point fragile : cette réaccommodation est manuelle et non détectée. Aucun 
 - Plus de configuration nécessaire
 
 **Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
-
-
-
 
 
 

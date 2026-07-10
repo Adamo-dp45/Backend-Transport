@@ -9,8 +9,9 @@ final class TopClientDto
         public readonly string $nom,
         public readonly ?string $contact,
         public readonly int $nbBillets,
-        public readonly int $depense,      // total payé (FCFA) sur la période
-        public readonly bool $membre       // membre du programme de fidélité
+        public readonly int $depense,       // total payé (FCFA) sur la période = billets + bagages
+        public readonly int $depenseBagages, // dont bagages (FCFA)
+        public readonly bool $membre        // membre du programme de fidélité
     )
     {
     }
