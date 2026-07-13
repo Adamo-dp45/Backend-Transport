@@ -30,7 +30,8 @@ class FinancierStatsProvider implements ProviderInterface
         private TicketRepository $ticketRepository,
         private CourrierRepository $courrierRepository,
         private BagageRepository $bagageRepository,
-        private ReservationRepository $reservationRepository
+        private ReservationRepository $reservationRepository,
+        private \App\Domain\Service\ConfigRecetteService $configRecetteService
     )
     {
     }
@@ -50,7 +51,9 @@ class FinancierStatsProvider implements ProviderInterface
         $recettesReservations = $this->reservationRepository->recettesPayees($dateDebut, $dateFin, $identreprise); // reconnues au paiement
         $recettesCourriers = $this->courrierRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
         $recettesBagages = $this->bagageRepository->recettesTotales($dateDebut, $dateFin, $identreprise);
-        $recettesTotales = $recettesTickets + $recettesReservations + $recettesCourriers + $recettesBagages;
+        // Config entreprise : certaines compagnies excluent les courriers de leur chiffre d'affaires.
+        $courriersHorsCa = $this->configRecetteService->courriersHorsCa($identreprise);
+        $recettesTotales = $recettesTickets + $recettesReservations + ($courriersHorsCa ? 0 : $recettesCourriers) + $recettesBagages;
         $coutDepannages = $this->depannageRepository->coutTotal($dateDebut, $dateFin, $identreprise);
         $coutApprovisionnements = $this->approvisionnementRepository->coutTotal($dateDebut, $dateFin, $identreprise);
         $beneficeNet = $recettesTotales - $coutDepannages - $coutApprovisionnements;
@@ -82,7 +85,8 @@ class FinancierStatsProvider implements ProviderInterface
                 */
                 label: $label,
                 montant: round(
-                    ($vals['tickets'] ?? 0) + ($vals['reservations'] ?? 0) + ($vals['courriers'] ?? 0) + ($vals['bagages'] ?? 0),
+                    ($vals['tickets'] ?? 0) + ($vals['reservations'] ?? 0)
+                        + ($courriersHorsCa ? 0 : ($vals['courriers'] ?? 0)) + ($vals['bagages'] ?? 0),
                     2
                 ),
             ),

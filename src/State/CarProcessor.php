@@ -80,18 +80,23 @@ class CarProcessor implements ProcessorInterface
      */
     private function synchroniserSieges(Car $car, int $identreprise): void
     {
-        $siegesGauche = $car->getSiegesGauche() ?? 0;
-        $siegesDroite = $car->getSiegesDroite() ?? 0;
         $nbrSiege = $car->getNbrsiege() ?? 0;
-
-        if($nbrSiege < 0 || $siegesGauche < 0 || $siegesDroite < 0) {
+        if($nbrSiege < 0) {
             throw new BadRequestHttpException('Le nombre de sièges ne peut pas être négatif');
         }
-        if($nbrSiege > 0 && ($siegesGauche + $siegesDroite) === 0) {
-            throw new BadRequestHttpException('Indiquez au moins un siège à gauche ou à droite pour disposer les sièges');
+
+        // MODÈLE UNIQUE : la GRILLE (plansieges). Si aucune n'est fournie, on en génère une STANDARD depuis
+        // gauche/droite et on la MATÉRIALISE → le car finit toujours avec une grille explicite (source unique,
+        // éditable). Les dispositions particulières (droite d'abord, banquette, bus atypiques) se saisissent
+        // directement en plan explicite (via le générateur du formulaire).
+        $grille = $car->getPlansieges();
+        if(empty($grille)) {
+            $grille = $this->grilleStandard($nbrSiege, $car->getSiegesGauche() ?? 0, $car->getSiegesDroite() ?? 0);
+            $car->setPlansieges($grille);
         }
 
-        $plan = $this->calculerPlan($nbrSiege, $siegesGauche, $siegesDroite); // numero => [rangee, colonne, cote]
+        $plan = $this->calculerPlanDepuisMap($grille); // numero => [rangee, colonne, 'GRILLE']
+        $car->setNbrsiege(count($plan)); // le nombre de sièges est DÉRIVÉ de la grille
 
         /** @var array<int, Siege> $existants */
         $existants = [];
@@ -136,28 +141,76 @@ class CarProcessor implements ProcessorInterface
     }
 
     /**
-     * Plan théorique des sièges : numéro => [rangée, colonne, côté].
-     * Côté gauche d'abord puis droite, numérotation séquentielle.
+     * Grille STANDARD par défaut (gauche | allée | droite), numérotée gauche→droite rangée par rangée.
+     * Utilisée quand aucun plan explicite n'est fourni. Renvoie une grille au même format que plansieges
+     * (rangées de cellules : numéro ou null = allée) → matérialisée sur le car.
      *
+     * @return array<int, array<int, ?int>>
+     */
+    private function grilleStandard(int $nbrSiege, int $siegesGauche, int $siegesDroite): array
+    {
+        if($nbrSiege <= 0) {
+            return [];
+        }
+        // Aucune colonne définie : repli sur une seule rangée pleine largeur.
+        if(($siegesGauche + $siegesDroite) === 0) {
+            return [range(1, $nbrSiege)];
+        }
+
+        $grille = [];
+        $numero = 1;
+        $allee = ($siegesGauche > 0 && $siegesDroite > 0);
+        while($numero <= $nbrSiege) {
+            $rangee = [];
+            for($c = 1; $c <= $siegesGauche && $numero <= $nbrSiege; $c++) {
+                $rangee[] = $numero++;
+            }
+            if($allee) {
+                $rangee[] = null; // allée centrale
+            }
+            for($c = 1; $c <= $siegesDroite && $numero <= $nbrSiege; $c++) {
+                $rangee[] = $numero++;
+            }
+            $grille[] = $rangee;
+        }
+
+        return $grille;
+    }
+
+    /**
+     * Plan à partir d'une GRILLE explicite (Phase 2) : tableau de rangées, cellules = numéro de siège ou
+     * null/0 (trou/allée). rangée = index de ligne (1-based), colonne = index de colonne ABSOLU (1-based),
+     * côté 'GRILLE'. Gère n'importe quelle disposition (siège chauffeur, portes, rangées mixtes, PMR…).
+     *
+     * @param array<int, mixed> $grille
      * @return array<int, array{0:int,1:int,2:string}>
      */
-    private function calculerPlan(int $nbrSiege, int $siegesGauche, int $siegesDroite): array
+    private function calculerPlanDepuisMap(array $grille): array
     {
         $plan = [];
-        if($nbrSiege <= 0 || ($siegesGauche + $siegesDroite) === 0) {
-            return $plan;
-        }
-        $numero = 1;
-        $rangee = 1;
-        while($numero <= $nbrSiege) {
-            for($col = 1; $col <= $siegesGauche && $numero <= $nbrSiege; $col++) {
-                $plan[$numero++] = [$rangee, $col, 'GAUCHE'];
-            }
-            for($col = 1; $col <= $siegesDroite && $numero <= $nbrSiege; $col++) {
-                $plan[$numero++] = [$rangee, $col, 'DROITE'];
-            }
+        $rangee = 0;
+        foreach($grille as $ligne) {
             $rangee++;
+            if(!is_array($ligne)) {
+                continue;
+            }
+            $colonne = 0;
+            foreach($ligne as $cellule) {
+                $colonne++;
+                $numero = (int) $cellule;
+                if($numero <= 0) {
+                    continue; // trou / allée
+                }
+                if(isset($plan[$numero])) {
+                    throw new BadRequestHttpException(sprintf('Le siège n°%d apparaît plusieurs fois dans le plan.', $numero));
+                }
+                $plan[$numero] = [$rangee, $colonne, 'GRILLE'];
+            }
         }
+        if(empty($plan)) {
+            throw new BadRequestHttpException('Le plan de sièges est vide : indiquez au moins un numéro de siège.');
+        }
+
         return $plan;
     }
 

@@ -8,7 +8,9 @@ final class AgentStatistiqueOutput
         public readonly int $totalAgents,
         public readonly int $agentsActifs,
         /** @var AgentPerformanceDto[] */
-        public readonly array $performances
+        public readonly array $performances,
+        /** @var AgentActionsCritiquesDto[] */
+        public readonly array $actionsCritiques = []
     )
     {
     }

@@ -29,12 +29,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
 /**
  * Réservation d'une PLACE sur un tronçon d'un voyage (montée → descente), SANS siège précis.
  *
- * Le siège concret n'est attribué qu'à la CONFIRMATION (émission du billet), moment où un car est
- * forcément affecté → permet de réserver à l'avance, avant l'affectation du car (capacité bornée
- * par 'voyage.placesprevues' tant qu'il n'y a pas de car, puis par la capacité réelle du car).
+ * Le siège concret n'est attribué qu'à l'ÉMISSION DU BILLET, moment où un car est forcément affecté
+ * → permet de réserver à l'avance, avant l'affectation du car (capacité bornée par
+ * 'voyage.placesprevues' tant qu'il n'y a pas de car, puis par la capacité réelle du car).
  *
- * Une réservation EN_ATTENTE « tient » une place : elle compte dans la capacité du tronçon, côté
- * réservation ET côté vente de billets (cf. App\Domain\Service\CapaciteService).
+ * Une réservation NON émise ne « tient » PAS physiquement de place : elle est seulement INDICATIVE
+ * (surréservation tolérée — la vente au guichet peut consommer une place « réservée »). Seul un billet
+ * VALIDE, créé à l'émission, compte dans la capacité du tronçon (cf. App\Domain\Service\CapaciteService).
  */
 #[ORM\Entity(repositoryClass: ReservationRepository::class)]
 #[ApiResource(
@@ -66,17 +67,6 @@ use Symfony\Component\Serializer\Attribute\Groups;
             openapi: new Operation(
                 summary: 'Création d\'une réservation (place tenue)',
                 description: 'Réserve une place sur un tronçon ; le siège est attribué à la confirmation.',
-                security: [['bearerAuth' => []]]
-            )
-        ),
-        new Patch(
-            security: "is_granted('SUPPRIMER', object)",
-            uriTemplate: '/reservations/{id}/remove',
-            requirements: ['id' => '\d+'],
-            input: false,
-            processor: SoftDeleteProcessor::class,
-            openapi: new Operation(
-                summary: 'Mise en corbeille d\'une réservation',
                 security: [['bearerAuth' => []]]
             )
         ),

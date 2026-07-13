@@ -233,6 +233,50 @@ class BagageRepository extends ServiceEntityRepository
     }
 
     /**
+     * Annulations de bagages PAR AGENT qui les a annulés (updatedBy), sur la période d'annulation (updatedAt) :
+     * nb + montant (recette annulée). Un bagage ANNULE est figé → updatedAt ≈ moment de l'annulation.
+     * @return array<int, array{agentid:int, nb:int, montant:int}>
+     */
+    public function annulationsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('b.updatedBy AS agentid', 'COUNT(b.id) AS nb', 'COALESCE(SUM(b.montant), 0) AS montant')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere("b.statut = 'ANNULE'")
+            ->andWhere('b.updatedBy IS NOT NULL')
+            ->andWhere('b.updatedAt >= :debut')
+            ->andWhere('b.updatedAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('b.updatedBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Suppressions de bagages PAR AGENT qui les a supprimés (deletedBy), sur la période (deletedAt) :
+     * nb + montant (recette retirée du livre).
+     * @return array<int, array{agentid:int, nb:int, montant:int}>
+     */
+    public function suppressionsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('b')
+            ->select('b.deletedBy AS agentid', 'COUNT(b.id) AS nb', 'COALESCE(SUM(b.montant), 0) AS montant')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NOT NULL')
+            ->andWhere('b.deletedBy IS NOT NULL')
+            ->andWhere('b.deletedAt >= :debut')
+            ->andWhere('b.deletedAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('b.deletedBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
      * Recette des bagages enregistrés À BORD (par le commercial), groupée par commercial. Complément de
      * recetteParGare (guichet) : ensemble ils partitionnent la recette bagage active (gare XOR commercial).
      */

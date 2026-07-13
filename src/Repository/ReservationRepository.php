@@ -98,7 +98,7 @@ class ReservationRepository extends ServiceEntityRepository
     public function statsParStatut(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('r')
-            ->select('r.statut AS statut, COUNT(r.id) AS total, COALESCE(SUM(CASE WHEN r.etatpaiement = :paye THEN r.prix ELSE 0 END), 0) AS recette')
+            ->select('r.statut AS statut, COUNT(r.id) AS total, COALESCE(SUM(CASE WHEN r.etatpaiement = :paye THEN r.prix + r.penalitemontant ELSE 0 END), 0) AS recette')
             ->andWhere('r.identreprise = :ide')
             ->andWhere('r.deletedAt IS NULL')
             ->andWhere('r.createdAt BETWEEN :debut AND :fin')
@@ -208,12 +208,13 @@ class ReservationRepository extends ServiceEntityRepository
      * Recette RÉSERVATION reconnue AU PAIEMENT (option 2) : SUM des réservations payées (etatpaiement=PAYE)
      * sur la période de PAIEMENT (datepaiement). L'émission du billet ne crée pas de recette (anti
      * double-comptage : les billets de réservation sont exclus des recettes tickets). Inclut les no-shows
-     * payés (A_REGULARISER/EXPIREE) : l'argent est encaissé.
+     * payés (A_REGULARISER/EXPIREE) : l'argent est encaissé. Inclut aussi la PÉNALITÉ de no-show
+     * (penalitemontant, encaissée physiquement au guichet à la régularisation) : c'est de la recette réelle.
      */
     public function recettesPayees(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): float
     {
         $row = $this->createQueryBuilder('r')
-            ->select('COALESCE(SUM(r.prix), 0) AS total')
+            ->select('COALESCE(SUM(r.prix + r.penalitemontant), 0) AS total')
             ->andWhere('r.identreprise = :ide')
             ->andWhere('r.deletedAt IS NULL')
             ->andWhere('r.etatpaiement = :paye')
@@ -236,7 +237,7 @@ class ReservationRepository extends ServiceEntityRepository
     public function recettePayeeParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('r')
-            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix + r.penalitemontant), 0) AS recette')
             ->join('r.gare', 'g')
             ->andWhere('r.identreprise = :ide')
             ->andWhere('r.deletedAt IS NULL')
@@ -259,7 +260,7 @@ class ReservationRepository extends ServiceEntityRepository
     public function recettesPayeesParJour(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('r')
-            ->select('DATE(r.datepaiement) AS label, COALESCE(SUM(r.prix), 0) AS montant')
+            ->select('DATE(r.datepaiement) AS label, COALESCE(SUM(r.prix + r.penalitemontant), 0) AS montant')
             ->andWhere('r.identreprise = :ide')
             ->andWhere('r.deletedAt IS NULL')
             ->andWhere('r.etatpaiement = :paye')
@@ -283,7 +284,7 @@ class ReservationRepository extends ServiceEntityRepository
     public function recettesPayeesParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('r')
-            ->select('l.id AS ligneid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->select('l.id AS ligneid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix + r.penalitemontant), 0) AS recette')
             ->join('r.voyage', 'v')
             ->join('v.ligne', 'l')
             ->andWhere('r.identreprise = :ide')
@@ -309,7 +310,7 @@ class ReservationRepository extends ServiceEntityRepository
     public function departsPayesParGareProvenance(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('r')
-            ->select('go.id AS gareid, go.libelle AS libelle, gv.nom AS ville, lo.id AS origineid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix), 0) AS recette')
+            ->select('go.id AS gareid, go.libelle AS libelle, gv.nom AS ville, lo.id AS origineid, COUNT(r.id) AS nbreservations, COALESCE(SUM(r.prix + r.penalitemontant), 0) AS recette')
             ->join('r.voyage', 'v')
             ->join('v.gareprovenance', 'go')
             ->leftJoin('go.ville', 'gv')

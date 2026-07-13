@@ -12,11 +12,12 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 /**
  * Capacité en PLACES d'un voyage par tronçon, partagée entre la vente de billets et la réservation.
  *
- * Une place est « tenue » par un billet VALIDE OU une réservation active (EN_ATTENTE non expirée).
- * La capacité effective est celle du car affecté (nb de sièges) ou, à défaut, la capacité
- * prévisionnelle du voyage ('placesprevues') tant qu'aucun car n'est affecté.
+ * Une place n'est « tenue » que par un billet VALIDE (émis). Une réservation NON émise ne consomme PAS
+ * de capacité : elle reste INDICATIVE (surréservation tolérée) et n'est comptée que par placesReservees()
+ * pour informer l'agent. La capacité effective est celle du car affecté (nb de sièges) ou, à défaut, la
+ * capacité prévisionnelle du voyage ('placesprevues') tant qu'aucun car n'est affecté.
  *
- * Modèle par segment élémentaire de la ligne : sur chaque segment, le nombre de places tenues qui le
+ * Modèle par segment élémentaire de la ligne : sur chaque segment, le nombre de billets VALIDE qui le
  * recouvrent doit rester < capacité. Cohérent avec la priorité « par tronçon » de la billetterie.
  */
 class CapaciteService

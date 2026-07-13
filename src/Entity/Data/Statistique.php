@@ -53,6 +53,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/financiere',
             provider: FinancierStatsProvider::class,
             input: false,
@@ -87,6 +88,7 @@ use App\State\StockStatsProvider;
         ),
         // -- Pour le DG -- //
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/billetterie',
             provider: BilleterieStatsProvider::class,
             input: false,
@@ -96,6 +98,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/agent',
             provider: AgentStatsProvider::class,
             input: false,
@@ -105,6 +108,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/clients',
             provider: ClientStatsProvider::class,
             input: false,
@@ -116,6 +120,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/fidelite',
             provider: FideliteStatsProvider::class,
             input: false,
@@ -127,6 +132,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/reservations',
             provider: ReservationStatsProvider::class,
             input: false,
@@ -138,6 +144,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/personnel',
             provider: PersonnelStatsProvider::class,
             input: false,
@@ -147,6 +154,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/flotte/activite',
             provider: FlotteActiviteStatsProvider::class,
             input: false,
@@ -156,6 +164,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/ligne/performance',
             provider: LigneStatsProvider::class,
             input: false,
@@ -167,6 +176,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/courriers',
             provider: CourrierStatsProvider::class,
             input: false,
@@ -176,6 +186,7 @@ use App\State\StockStatsProvider;
             )
         ),
         new Get(
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/stats/bagages',
             provider: BagageStatsProvider::class,
             input: false,

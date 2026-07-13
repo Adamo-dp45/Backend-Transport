@@ -30,7 +30,11 @@
         > Gestion des comptes utilisateurs et de l'entreprise
         > Gestion et attribution des rôles
         > Gestion des permissions RBAC
-        > Hiérarchie de gestion des comptes (via `UserManagementGuard`) : nul ne se gère soi-même (profil dédié) ; fondateur & admins entreprise gérés uniquement par le super admin ; un agent rattaché à une gare ne gère que les utilisateurs simples de SA gare (jamais un admin de gare) ; un utilisateur central sans gare gère tout le monde sauf les admins
+        > Hiérarchie de gestion des comptes (via `UserManagementGuard`) : nul ne se gère soi-même (profil dédié) ; fondateur & admins entreprise gérés uniquement par le super admin ; un agent rattaché à une gare ne gère que les utilisateurs simples de SA gare (jamais un admin de gare) ; un utilisateur central sans gare gère tout le monde sauf les admins ; le super admin est protégé (ni suspension ni modification, même par un autre super admin)
+
+    > Le module `Système` (super admin) : Maintenance
+        > Mode maintenance GLOBAL de la plateforme (singleton, hors périmètre entreprise) piloté par le super admin : quand il est actif, seul le super admin accède à l'application ; tous les autres voient une page de maintenance
+        > Verrou DUR côté interface FT ET côté API (BK) via `MaintenanceSubscriber` (kernel.request) : les requêtes non-super-admin renvoient 503, sauf whitelist (login/refresh/logout, `/api/me`, lecture de l'état) ; fail-open si l'état ne peut pas être lu (on n'enferme jamais à cause d'un hoquet)
 
     > Le module `Personnel` ou `RH` : Typepersonnel, Personnel, Detailpersonnel
         > Gestion des employés de la compagnie
@@ -71,50 +75,54 @@
             > Le bordereau de gare qui est un document filtré par gare d'émission et liste les tickets vendus depuis une gare spécifique pour un voyage destiné au chef de gare qui fait le bilan de sa caisse..
             > !! chauffeur qui est un document global pour le voyage entier, sans filtre de gare et liste tout ce que le chauffeur transporte comme tous les tickets, tous les courriers embarqués sur et tous les bagages embarqués sur ce voyage remis à la gare d'arrivée
         > Si on peut annuler un voyage alors le car devient disponile et les places remboursées
+        > Commercial à bord (vendeur mobile) : un `Voyage` peut porter un `commercial` (User) + une `garecourante` qui AVANCE au fil du trajet (réception + auto-avance) ; il vend depuis la position réelle du car et dispose d'un espace dédié `/mon-espace`
+        > Départ partiel : une gare intermédiaire peut démarrer un voyage depuis SA gare (provenance effective = elle) ; ventes et réservations sont alors bornées à cette provenance et au-delà
 
-    > Le module `Billetterie` : Ticket
-        > Émission des tickets PAR TRONÇON : un ticket a une gare de montée (`gare`) et une gare de descente (`garedescente`), toutes deux arrêts de la ligne du voyage (descente après montée)
-        > Calcul automatique du montant via la grille `Tarif` GLOBALE (montée → descente)
-        > La gare de montée est FORCÉE à la gare de l'agent (un agent ne vend qu'au départ de sa gare) ; la gare de destination (terminus) ne peut pas vendre
-        > Capacité PAR TRONÇON : un même siège peut être revendu sur des tronçons disjoints d'un voyage, avec priorité à la gare AMONT (une vente d'une gare en aval ne grise/bloque pas l'amont)
-        > Suivi du nombre de places vendues et de la recette par voyage
-        > Si on annule un ticket on décrémente les places occupées du voyage
+    > Le module `Billetterie` : Ticket, Client, Beneficiaire
+        > Émission PAR TRONÇON : gare de montée (`gare`) + descente (`garedescente`), toutes deux arrêts de la ligne (descente après montée) ; montant via la grille `Tarif` GLOBALE ; gare de montée FORCÉE à la gare de l'agent (le terminus ne vend pas)
+        > Capacité PAR TRONÇON avec PRIORITÉ À LA GARE AMONT : un même siège peut être revendu sur des tronçons disjoints (une vente d'une gare en aval ne bloque pas l'amont) ; siège libéré en route (`garedescentereelle` + `/tickets/{id}/descendre`) pour revendre après une descente anticipée
+        > Client : entité `Client` (téléphone = clé, find-or-create via `ClientResolver`, snapshotée sur le ticket)
+        > Remise : `remisetype`/`remisevaleur` → `remise` (FCFA), plafond configurable (config remise dédiée `ConfigRemise`), bénéficiaire optionnel, audit anti-abus (`ActiviteLogger`)
+        > Désistement `/tickets/{id}/desister` : REPORT (nouveau billet sur un autre voyage) ou ANNULATION (remboursement, motif OBLIGATOIRE) ; bloqués une fois le car passé à la gare de montée (intermédiaire-aware) ; les bagages liés sont annulés en cascade
+        > Vendeur à bord : un ticket peut porter un `commercial` (snapshot) → sa recette revient à la GARE D'AFFECTATION du commercial, pas à la gare de montée
+
+    > Le module `Réservation` : Reservation, ParametreReservation
+        > Réserver une PLACE (pas un siège) à l'avance, en INVITÉ (sans compte) ; paiement Mobile Money SIMULÉ ; capacité prévisionnelle partagée avec la vente (`CapaciteService`)
+        > Recette reconnue AU PAIEMENT (pas à l'émission), par gare de provenance ; le billet émis à partir de la réservation ne recompte pas (anti double-comptage : `t.reservation IS NULL` côté tickets)
+        > Expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER`
+        > Régularisation d'un no-show : report sur un nouveau départ avec PÉNALITÉ (config par entreprise `ParametreReservation`) + complément tarifaire ; la pénalité, encaissée physiquement au guichet, est comptée en recette
+        > API PUBLIQUE `/api/reservation/*` (multi-tenant via `?slug=`) consommée par les apps mobiles (Flutter + React Native)
+
+    > Le module `Fidélité` : ProgrammeFidelite
+        > Carte à tampons opt-in, sur le nombre de voyages ; état ENTIÈREMENT DÉRIVÉ de l'historique des billets (aucun compteur stocké → aucune dérive)
+        > Récompense = remise sur un billet (`fideliteRecompense`), gardée à la vente (client membre + programme actif + récompense réellement acquise) ; auditée
 
     > Le module `Courrier` : Tarifcourrier, Courrier, Detailcourrier
-        > Pour calculer la taxe d'un colis `Detailcourrier` on se base sur valeur, à la création on cherche le `TarifCourrier` dont `valeur_min <= valeur <= valeur_max` et on affecte son `montanttaxe` ou `montant` du colis
-        > Gares & voyage : si un voyage est affecté, `garedepart`/`garearrivee` doivent être des arrêts de SA ligne (départ avant arrivée) et la gare de départ est forcée à la gare de l'agent. Sans voyage, le courrier reste `EN_ATTENTE` (gares nulles, affectées plus tard)
-        > On a géré le tarif des colis via un système de `grille tarifaire` ou tranches `10 001 - 50 000 FCFA → taxe fixe 3 000` et on peut le faire aussi avec le poids du colis `k`
-        > !! que le `statut` du courrier suit automatiquement le voyage on a `VoyageClotureStautSubscriber` qui gère la transition `EN_TRANSIT → RECEPTIONNE` qui correspond à l'accusé de réception à la gare d'arrivée qui confirme l'arrivée des colis
-        > !! la transition du statut `RECEPTIONNE → LIVRE` qui correspond à la remise au destinataire avec potentiellement un paiement, c'est l'agent de la gare d'arrivée qui confirme la remise au destinataire via l'endpoint `../livrer`
-        > !! le paiement de la taxe on a 2 types, à l'envoi ou à la reception du courrier
-        > La recette totale du courrier se base sur le mode de paiement
+        > Taxe par colis (`Detailcourrier`) via grille tarifaire (tranches de valeur `valeur_min <= valeur <= valeur_max → montanttaxe`)
+        > Gares OBLIGATOIRES dès la création (`garedepart` forcée à la gare de l'agent, `garearrivee` saisie) ; VOYAGE optionnel (affecté après) ; s'il y a un voyage, les gares doivent être des arrêts de sa ligne (départ avant arrivée)
+        > Statut suivant le voyage : `EN_TRANSIT → RECEPTIONNE` (réception à la gare intermédiaire, via `VoyageClotureStautSubscriber`) puis `RECEPTIONNE → LIVRE` (remise au destinataire via `../livrer`)
+        > Annulation ET suppression gardées (seulement `EN_ATTENTE` + gare émettrice) et AUDITÉES (`COURRIER_ANNULE` / `COURRIER_SUPPRIME`)
+        > Recette reconnue à la création ; peut être EXCLUE du chiffre d'affaires par entreprise (config recette `ConfigRecette.courriershorsca`)
 
     > Le module `Bagage` : Tarifbagage, Bagage
-        > On a 2 façon de faire
-            > Le modèle `A` déclaration à l'achat qui permet au client de déclarer ses bagages en achetant son ticket de voyage. Le prix est calculé et inclus immédiatement
-            > !! `B` facturation au chargement qui au chargement du car les bagages du client sont pesés physiquement et un ticket de pesée séparé est émis qui est un reçu distinct du ticket de voyage qui documente le poids, la nature et le coût des bagages.. et lie le bagage au client
-        > Le tarif du bagage est basée sur le poids
-        > Gares & voyage : le bagage circule sur un voyage ; sa gare de descente (`garedescente`) est un arrêt de la ligne, après sa gare d'origine (`garedepart`, forcée à la gare de l'agent). La livraison (`EMBARQUE → LIVRE`) se fait quand la gare intermédiaire de descente réceptionne le voyage, ou à la clôture au terminus
-        > Pour gérer l'automatisation du statut du bagage on a `VoyageClotureStautSubscriber` qui écoute les changements sur `Voyage` et va causer un soucis si on a clôturé le voyage avant de déclarer que le bagage est perdu
-        > La recette totale du bagage se base sur le moment ou le bagage est embarqué
+        > Bagage TOUJOURS lié à un billet : il SUIT le billet (voyage, gares, identité, canal de vente) ; tarif basé sur le POIDS
+        > Le montant peut être FORCÉ (≠ tarif de la grille) — tracé + audit anti sous-déclaration (`BAGAGE_MONTANT_FORCE`, écarts par agent)
+        > Recette reconnue dès `ENREGISTRE` ; livraison `EMBARQUE → LIVRE` à la réception de la gare intermédiaire de descente ou à la clôture au terminus
+        > Annulation ET suppression gardées (seulement `ENREGISTRE` + gare de dépôt) et AUDITÉES (`BAGAGE_ANNULE` / `BAGAGE_SUPPRIME`)
+
+    > Le module `Recette` (3 canaux) : source unique `RecetteGareService`
+        > GUICHET (billets/bagages/courriers émis à la gare) + COMMERCIAL (ventes à bord → gare d'affectation du vendeur) + RÉSERVATION (payée, gare de provenance)
+        > Config de composition du CA par entreprise : plafond de remise (`ConfigRemise`), courriers hors CA (`ConfigRecette`), pénalité de réservation (`ParametreReservation`)
+
+    > Le module `Journal d'activité` & anti-fraude : Activite
+        > `ActiviteLogger` trace les événements critiques (voyage, ticket annulé/reporté/supprimé/remisé, courrier & bagage annulé/supprimé/perdu, montant bagage forcé, récompense fidélité…) avec l'auteur et la cible
+        > Détection : remises / annulations / suppressions / forçages par agent, taux d'annulation par agent, cartes de fidélité « captées » (« actions critiques par agent »)
 
     > Le module `Tableau de bord` & `Rapports`
-        > Exploitation
-            > Nombre de voyages par période
-            > Taux de remplissage
-            > Voyages par statut 
-        > Financier
-            > Recettes billetterie
-            > Coût des dépannages
-            > Coût approvisionnements
-        > Stock
-            > Stock actuel par pièce
-            > Pièces critiques
-            > Mouvements récents
-        > Flotte
-            > Véhicules les plus en panne
-            > Véhicules par état
-            > Coût de maintenance par véhicule
+        > Exploitation (voyages par période, taux de remplissage, par statut), Financier (recettes par CANAL, coûts dépannage/appro, bénéfice net), Stock, Flotte
+        > Détails : par gare (`RecetteGareService`), par ligne, par commercial, départs effectifs, clients, fidélité, réservations, agents (encaissements + actions critiques), billetterie (désistements, remises, matrice Origine-Destination, heures de pointe)
+        > Manifeste / feuille de route par voyage (occupation par tronçon + recettes par gare) ; bordereau de gare + bordereau chauffeur ; exports xlsx / PDF
+        > Accès selon le rôle : admin entreprise = dashboard global ; agent / admin de gare = « Ma gare » ; utilisateur central sans gare = dashboard global SANS la partie financière (réservée à l'admin)
 
 eager_loading:
     max_joins: 50 # Vu qu'une entité peut porter plus de 4 relations or 'ApiPlatform' a une limite de jointures de l'eager-loading '30' par défaut

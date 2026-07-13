@@ -91,6 +91,10 @@ class SiegeStateProvider implements ProviderInterface
 
         // Carte siegeId => ticket bloquant (pour exposer l'occupant et permettre le « dégrisage »/revente)
         $siegesOccupes = [];
+        // Nb d'occupants RÉELS au point d'embarquement ($ordreMontee) par siège : sert à n'autoriser la
+        // libération/revente QUE s'il y a un SEUL occupant (sinon libérer l'un ne libère pas le siège →
+        // c'est un conflit amont/aval, pas une revente).
+        $nbOccupants = [];
         // Nb de billets VALIDE par siège sur le voyage : ≥ 2 = siège REVENDU (réutilisé sur des tronçons disjoints)
         $ventesParSiege = [];
         foreach ($tickets as $ticket) {
@@ -123,6 +127,7 @@ class SiegeStateProvider implements ProviderInterface
             // des gares en aval (tm > ordreMontee) ne grisent pas le siège — la gare amont reste prioritaire.
             if ($tm <= $ordreMontee && $td > $ordreMontee) {
                 $siegesOccupes[$siegeId] = $ticket;
+                $nbOccupants[$siegeId] = ($nbOccupants[$siegeId] ?? 0) + 1;
             }
         }
 
@@ -136,10 +141,11 @@ class SiegeStateProvider implements ProviderInterface
                 continue;
             }
             $siege->setStatut('OCCUPE');
-            // Infos de l'occupant → siège « libérable » (revente) UNIQUEMENT en mode par tronçon et si
-            // l'occupant a embarqué STRICTEMENT avant le point de revente (il peut donc y descendre).
+            // Infos de l'occupant → siège « libérable » (revente) UNIQUEMENT en mode par tronçon, si le
+            // siège n'a qu'UN SEUL occupant (sinon libérer l'un ne le libère pas — conflit amont/aval), et
+            // si cet occupant a embarqué STRICTEMENT avant le point de revente (il peut donc y descendre).
             // S'il embarque justement à cette gare, il monte ici : pas de libération possible.
-            if ($parSegment) {
+            if ($parSegment && ($nbOccupants[$siege->getId()] ?? 0) === 1) {
                 $tmOcc = $ordreParGare[$bloquant->getGare()?->getId()] ?? null;
                 if ($tmOcc !== null && $tmOcc < $ordreMontee) {
                     $siege->setOccupantTicketId($bloquant->getId());

@@ -25,7 +25,8 @@ class LigneStatsProvider implements ProviderInterface
         private LigneRepository $ligneRepository,
         private ReservationRepository $reservationRepository,
         private CourrierRepository $courrierRepository,
-        private BagageRepository $bagageRepository
+        private BagageRepository $bagageRepository,
+        private \App\Domain\Service\ConfigRecetteService $configRecetteService
     )
     {
     }
@@ -54,8 +55,11 @@ class LigneStatsProvider implements ProviderInterface
             $bagagesParLigne[(int) $r['ligneid']] = ['nb' => (int) $r['nbbagages'], 'recette' => (float) $r['recette']];
         }
 
+        // Config entreprise : exclure les courriers du grand total si demandé (ils restent affichés à part).
+        $courriersHorsCa = $this->configRecetteService->courriersHorsCa($identreprise);
+
         $performances = array_map(
-            function ($row) use ($resaParLigne, $courriersParLigne, $bagagesParLigne) {
+            function ($row) use ($resaParLigne, $courriersParLigne, $bagagesParLigne, $courriersHorsCa) {
                 $id = (int) $row['id'];
                 $recetteBillets = round((float) $row['recette'] + ($resaParLigne[$id]['recette'] ?? 0), 2); // billets directs + réservations
                 $recetteCourriers = round($courriersParLigne[$id]['recette'] ?? 0, 2);
@@ -72,7 +76,7 @@ class LigneStatsProvider implements ProviderInterface
                     recetteCourriers: $recetteCourriers,
                     nbbagages: $bagagesParLigne[$id]['nb'] ?? 0,
                     recetteBagages: $recetteBagages,
-                    recette: round($recetteBillets + $recetteCourriers + $recetteBagages, 2), // grand total
+                    recette: round($recetteBillets + ($courriersHorsCa ? 0 : $recetteCourriers) + $recetteBagages, 2), // grand total
                 );
             },
             $this->ligneRepository->findAllAvecStats($dateDebut, $dateFin, $identreprise)

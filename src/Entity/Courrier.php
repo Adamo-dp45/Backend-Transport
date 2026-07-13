@@ -257,7 +257,7 @@ class Courrier extends EntityBase implements EntrepriseOwnedInterface, MultiGare
     private ?int $montant = null;
 
     #[ORM\Column(length: 50)]
-    #[Groups(['read:Courrier'])]
+    #[Groups(['read:Courrier', 'read:Voyage'])]
     private ?string $statut = CourrierStatus::STATUT_EN_ATTENTE->value;
 
     #[ORM\Column(nullable: true)]

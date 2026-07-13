@@ -31,9 +31,11 @@ class ActiviteLogger
     public const COURRIER_ANNULE = 'COURRIER_ANNULE';
     public const COURRIER_LIVRE = 'COURRIER_LIVRE';
     public const COURRIER_PERDU = 'COURRIER_PERDU';
+    public const COURRIER_SUPPRIME = 'COURRIER_SUPPRIME';
     public const COLIS_PERDU = 'COLIS_PERDU';
     public const BAGAGE_PERDU = 'BAGAGE_PERDU';
     public const BAGAGE_ANNULE = 'BAGAGE_ANNULE';
+    public const BAGAGE_SUPPRIME = 'BAGAGE_SUPPRIME';
     public const BAGAGE_MONTANT_FORCE = 'BAGAGE_MONTANT_FORCE'; // montant forcé ≠ tarif (audit anti sous-déclaration)
 
     public function __construct(

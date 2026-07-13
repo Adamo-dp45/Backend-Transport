@@ -157,6 +157,17 @@ class Car extends EntityBase implements EntrepriseOwnedInterface, HasSoftDeleteG
     #[Groups(['read:Car', 'write:Car', 'read:Voyage'])]
     private ?int $sieges_droite = null;
 
+    /**
+     * PLAN de sièges (SOURCE UNIQUE de la disposition) : grille = tableau de rangées, chaque rangée =
+     * tableau de cellules (numéro de siège, ou null = trou/allée). Ex. [[3,4,5,null,2,1],[8,9,10,null,7,6],…].
+     * Si absent à l'enregistrement, une grille STANDARD est générée depuis sieges_gauche/sieges_droite et
+     * matérialisée ici. Gère toutes les dispositions (droite d'abord, banquette, chauffeur, portes, PMR…).
+     * @var array<int, array<int, ?int>>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    #[Groups(['read:Car', 'write:Car', 'read:Voyage'])]
+    private ?array $plansieges = null;
+
     public function __construct()
     {
         $this->depannages = new ArrayCollection();
@@ -404,6 +415,20 @@ class Car extends EntityBase implements EntrepriseOwnedInterface, HasSoftDeleteG
     public function setSiegesDroite(int $sieges_droite): static
     {
         $this->sieges_droite = $sieges_droite;
+
+        return $this;
+    }
+
+    /** @return array<int, array<int, ?int>>|null */
+    public function getPlansieges(): ?array
+    {
+        return $this->plansieges;
+    }
+
+    /** @param array<int, array<int, ?int>>|null $plansieges */
+    public function setPlansieges(?array $plansieges): static
+    {
+        $this->plansieges = ($plansieges === null || $plansieges === []) ? null : $plansieges;
 
         return $this;
     }

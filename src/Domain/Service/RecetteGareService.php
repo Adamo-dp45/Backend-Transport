@@ -25,7 +25,8 @@ class RecetteGareService
         private TicketRepository $ticketRepository,
         private BagageRepository $bagageRepository,
         private CourrierRepository $courrierRepository,
-        private ReservationRepository $reservationRepository
+        private ReservationRepository $reservationRepository,
+        private ConfigRecetteService $configRecetteService
     )
     {
     }
@@ -89,15 +90,20 @@ class RecetteGareService
             $gares[(int) $r['gareid']]['nbCourriers'] = (int) $r['nbcourriers'];
         }
 
+        // Config entreprise : exclure les courriers du chiffre d'affaires composite (ils restent affichés
+        // via recetteCourriers, mais ne comptent ni dans recetteTotale ni dans le canal guichet).
+        $courriersHorsCa = $this->configRecetteService->courriersHorsCa($identreprise);
+
         // Agrégats + ventilation par canal
         foreach ($gares as &$g) {
             $g['recetteBillets'] = $g['billetsGuichet'] + $g['billetsCommercial'] + $g['reservation'];
             $g['recetteBagages'] = $g['bagagesGuichet'] + $g['bagagesCommercial'];
             $g['recetteCourriers'] = $g['courriers'];
-            $g['recetteTotale'] = $g['recetteBillets'] + $g['recetteBagages'] + $g['recetteCourriers'];
-            // Canal (tous types) : guichet = billets guichet + bagages guichet + courriers ;
+            $courriersCa = $courriersHorsCa ? 0 : $g['courriers'];
+            $g['recetteTotale'] = $g['recetteBillets'] + $g['recetteBagages'] + $courriersCa;
+            // Canal (tous types) : guichet = billets guichet + bagages guichet + courriers (hors CA si exclus) ;
             // commercial = billets + bagages commerciaux ; réservation = réservations payées.
-            $g['canalGuichet'] = $g['billetsGuichet'] + $g['bagagesGuichet'] + $g['courriers'];
+            $g['canalGuichet'] = $g['billetsGuichet'] + $g['bagagesGuichet'] + $courriersCa;
             $g['canalCommercial'] = $g['billetsCommercial'] + $g['bagagesCommercial'];
             $g['canalReservation'] = $g['reservation'];
             $g['nbBagages'] = $g['nbBagagesGuichet'] + $g['nbBagagesCommercial'];

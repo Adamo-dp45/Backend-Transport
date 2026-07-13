@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Trait\PeriodeTrait;
+use App\Entity\Output\Agent\AgentActionsCritiquesDto;
 use App\Entity\Output\Agent\AgentDetailVoyageDto;
 use App\Entity\Output\Agent\AgentPerformanceDto;
 use App\Entity\Output\Agent\AgentStatistiqueOutput;
@@ -120,10 +121,81 @@ class AgentStatsProvider implements ProviderInterface
         // Tri par recette encaissée décroissante
         usort($performances, fn ($a, $b) => $b->recetteTotale <=> $a->recetteTotale);
 
+        // ── Actions critiques par agent (traçabilité anti-fraude) ──
+        // Un agent apparaît keyed par son id, quel que soit son rôle dans l'action (vendeur / annuleur /
+        // suppresseur). On agrège toutes les sources puis on ne garde que ceux ayant au moins un incident.
+        $crit = [];
+        $ligne = static function (int $id) use (&$crit) {
+            $crit[$id] ??= [
+                'ventesBillets' => 0, 'ventesAnnulees' => 0,
+                'annulTickets' => 0, 'annulBagages' => 0, 'annulCourriers' => 0,
+                'supprTickets' => 0, 'supprBagages' => 0, 'supprCourriers' => 0,
+            ];
+        };
+        foreach ($this->ticketRepository->tauxAnnulationParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['ventesBillets']  = (int) $r['nbemis'];
+            $crit[$id]['ventesAnnulees'] = (int) $r['nbannules'];
+        }
+        foreach ($this->ticketRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['annulTickets'] = (int) $r['nb'];
+        }
+        foreach ($this->ticketRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['supprTickets'] = (int) $r['nb'];
+        }
+        foreach ($this->bagageRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['annulBagages'] = (int) $r['nb'];
+        }
+        foreach ($this->bagageRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['supprBagages'] = (int) $r['nb'];
+        }
+        foreach ($this->courrierRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['annulCourriers'] = (int) $r['nb'];
+        }
+        foreach ($this->courrierRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            $id = (int) $r['agentid']; $ligne($id);
+            $crit[$id]['supprCourriers'] = (int) $r['nb'];
+        }
+
+        $nomsCrit = empty($crit) ? [] : $this->userRepository->findInfosByIds(array_keys($crit));
+        $actionsCritiques = [];
+        foreach ($crit as $id => $r) {
+            $incidents = $r['ventesAnnulees'] + $r['annulTickets'] + $r['annulBagages'] + $r['annulCourriers']
+                + $r['supprTickets'] + $r['supprBagages'] + $r['supprCourriers'];
+            if ($incidents === 0) {
+                continue; // agent sans action critique sur la période
+            }
+            $actionsCritiques[] = new AgentActionsCritiquesDto(
+                id:             $id,
+                nom:            $nomsCrit[$id]['nom'] ?? '—',
+                prenom:         $nomsCrit[$id]['prenom'] ?? '',
+                ventesBillets:  $r['ventesBillets'],
+                ventesAnnulees: $r['ventesAnnulees'],
+                tauxAnnulation: $r['ventesBillets'] > 0 ? round($r['ventesAnnulees'] / $r['ventesBillets'] * 100, 1) : 0.0,
+                annulTickets:   $r['annulTickets'],
+                annulBagages:   $r['annulBagages'],
+                annulCourriers: $r['annulCourriers'],
+                supprTickets:   $r['supprTickets'],
+                supprBagages:   $r['supprBagages'],
+                supprCourriers: $r['supprCourriers'],
+            );
+        }
+        // Tri : taux d'annulation décroissant, puis nombre total de suppressions
+        usort($actionsCritiques, fn ($a, $b) =>
+            [$b->tauxAnnulation, $b->supprTickets + $b->supprBagages + $b->supprCourriers]
+            <=> [$a->tauxAnnulation, $a->supprTickets + $a->supprBagages + $a->supprCourriers]
+        );
+
         return new AgentStatistiqueOutput(
             totalAgents:  $totalAgents,
             agentsActifs: count($performances),
             performances: $performances,
+            actionsCritiques: $actionsCritiques,
         );
     }
 }

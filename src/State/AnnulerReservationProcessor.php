@@ -30,7 +30,7 @@ class AnnulerReservationProcessor implements ProcessorInterface
         /** @var Reservation $reservation */
         $reservation = $data;
 
-        if ($reservation->getStatut() !== ReservationStatus::STATUT_EN_ATTENTE->value) {
+        if($reservation->getStatut() !== ReservationStatus::STATUT_EN_ATTENTE->value) {
             throw new BadRequestHttpException('Seule une réservation en attente peut être annulée (une réservation confirmée a un billet : passez par le désistement).');
         }
 

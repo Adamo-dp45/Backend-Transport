@@ -6,16 +6,19 @@ use ApiPlatform\Doctrine\Common\State\RemoveProcessor;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\BagageStatus;
+use App\Domain\Enum\CourrierStatus;
 use App\Domain\Enum\DepannageStatus;
 use App\Domain\Enum\TicketStatus;
 use App\Domain\Service\ActiviteLogger;
 use App\Entity\Bagage;
+use App\Entity\Courrier;
 use App\Entity\Detailpersonnel;
 use App\Entity\Interface\HasLockGuard;
 use App\Entity\Interface\HasSoftDeleteGuard;
 use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\Voyage;
+use App\Repository\UserRepository;
 use App\Security\GareGuard;
 use App\Security\VoyageGuard;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -30,7 +33,8 @@ class SoftDeleteProcessor implements ProcessorInterface
         private Security $security,
         private VoyageGuard $voyageGuard,
         private GareGuard $gareGuard,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private UserRepository $userRepository
     )
     {
     }
@@ -61,6 +65,17 @@ class SoftDeleteProcessor implements ProcessorInterface
             if($data->getStatut() !== BagageStatus::STATUT_ENREGISTRE->value) {
                 throw new BadRequestHttpException('Seul un bagage enregistré (pas encore embarqué) peut être supprimé. Statut actuel : ' . $data->getStatut());
             }
+        }
+
+        // Suppression d'un courrier : mêmes garanties que l'annulation — seulement tant qu'il est EN_ATTENTE
+        // (pas encore parti) et réservée à la gare ÉMETTRICE (déduite du créateur). Sans ce garde, un courrier
+        // à n'importe quel statut/gare pouvait être supprimé sans trace (faille comblée).
+        if($data instanceof Courrier) {
+            if($data->getStatut() !== CourrierStatus::STATUT_EN_ATTENTE->value) {
+                throw new BadRequestHttpException('Seul un courrier en attente peut être supprimé. Statut actuel : ' . $data->getStatut());
+            }
+            $createur = $data->getCreatedBy() ? $this->userRepository->find($data->getCreatedBy()) : null;
+            $this->gareGuard->assertEstGare($user, $createur?->getGare(), 'Seule la gare émettrice peut supprimer ce courrier');
         }
 
         if($data instanceof HasSoftDeleteGuard) { /*
@@ -94,12 +109,28 @@ class SoftDeleteProcessor implements ProcessorInterface
             ;
         }
 
-        // Suppression de billet : événement critique tracé dans le journal d'activité.
+        // Suppressions : événements critiques tracés dans le journal d'activité (auteur = suppresseur).
         if($data instanceof Ticket) {
             $this->activiteLogger->log(
                 ActiviteLogger::TICKET_SUPPRIME,
                 'Billet ' . $data->getCodeticket() . ' supprimé',
                 'Ticket',
+                $data->getId()
+            );
+        }
+        if($data instanceof Bagage) {
+            $this->activiteLogger->log(
+                ActiviteLogger::BAGAGE_SUPPRIME,
+                'Bagage ' . $data->getCodebagage() . ' supprimé',
+                'Bagage',
+                $data->getId()
+            );
+        }
+        if($data instanceof Courrier) {
+            $this->activiteLogger->log(
+                ActiviteLogger::COURRIER_SUPPRIME,
+                'Courrier ' . $data->getCodecourrier() . ' supprimé',
+                'Courrier',
                 $data->getId()
             );
         }

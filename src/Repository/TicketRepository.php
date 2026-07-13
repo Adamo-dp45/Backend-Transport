@@ -657,6 +657,34 @@ class TicketRepository extends ServiceEntityRepository
     }
 
     /**
+     * Taux d'annulation des VENTES d'un agent : parmi les billets qu'il a ÉMIS au guichet (createdBy, hors
+     * réservation, hors vente à bord), combien sont désormais ANNULE. nbemis (dénominateur) + nbannules.
+     * @return array<int, array{agentid:int, nbemis:int, nbannules:int}>
+     */
+    public function tauxAnnulationParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('t')
+            ->select(
+                't.createdBy AS agentid',
+                'COUNT(t.id) AS nbemis',
+                "SUM(CASE WHEN t.statut = 'ANNULE' THEN 1 ELSE 0 END) AS nbannules"
+            )
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.reservation IS NULL')
+            ->andWhere('t.commercial IS NULL')
+            ->andWhere('t.createdBy IS NOT NULL')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('t.createdBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
      * TOTAL des remises accordées (billets VALIDE, remise > 0) sur la période — TOUS bénéficiaires confondus,
      * Y COMPRIS sans bénéficiaire (celui-ci est facultatif). À utiliser pour le total/taux/moyenne, car
      * remisesParBeneficiaire (jointure interne) exclut les remises sans bénéficiaire.

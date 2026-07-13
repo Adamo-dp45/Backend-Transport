@@ -306,6 +306,50 @@ class CourrierRepository extends ServiceEntityRepository
     }
 
     /**
+     * Annulations de courriers PAR AGENT qui les a annulés (updatedBy), sur la période (updatedAt) :
+     * nb + montant. Un courrier ANNULE est figé → updatedAt ≈ moment de l'annulation.
+     * @return array<int, array{agentid:int, nb:int, montant:int}>
+     */
+    public function annulationsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('c')
+            ->select('c.updatedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant), 0) AS montant')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere("c.statut = 'ANNULE'")
+            ->andWhere('c.updatedBy IS NOT NULL')
+            ->andWhere('c.updatedAt >= :debut')
+            ->andWhere('c.updatedAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('c.updatedBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Suppressions de courriers PAR AGENT qui les a supprimés (deletedBy), sur la période (deletedAt) :
+     * nb + montant (recette retirée du livre).
+     * @return array<int, array{agentid:int, nb:int, montant:int}>
+     */
+    public function suppressionsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('c')
+            ->select('c.deletedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant), 0) AS montant')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NOT NULL')
+            ->andWhere('c.deletedBy IS NOT NULL')
+            ->andWhere('c.deletedAt >= :debut')
+            ->andWhere('c.deletedAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('c.deletedBy')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
      * Incidents courriers par gare de DÉPÔT (garedepart) : annulés + perdus, sur la période (createdAt).
      * @return array<int, array{gareid:int, garelibelle:string, nbannules:int, nbperdus:int}>
      */
