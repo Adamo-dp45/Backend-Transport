@@ -25,6 +25,14 @@
 - 
 
 - 
+- Stripe
+
+
+next
+
+
+
+
 - Les cas de survente.. pour ticket et resa
     Pour la partie place réservée vendue
         (A) — recommandée : les réservations PAYÉES comptent dans la capacité. Une résa CONFIRMEE+PAYE non émise réserve une vraie place (billets VALIDE + résa payées ≤ capacité), pendant que les résa EN_ATTENTE non payées restent indicatives. On protège celui qui a payé sans bloquer sur des réservations spéculatives. Impact ciblé : placesDisponibles() soustrait les résa payées non émises, et le guichet est averti/bloqué quand il ne reste que des places « dues » à des réservations payées. :: mais est que la place est débloqué apres un certain temps
