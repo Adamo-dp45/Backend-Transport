@@ -25,12 +25,60 @@
 - 
 
 - 
+- Propose moi un meilleur design pour l'affichage des sièges de sorte à ce qu'on se sente dans un véhicule
 - Stripe
-
-
 next
 
 
+
+Salut Claude, j'ai développé une application de compagnie de transport mutli-entreprise en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Aussi j'ai listé quelques informations sur les modules de l'application dans le README.md du BK-Transport
+
+Ignore les fichiers brl.md des 2 projets, ce sont juste des brouillons
+
+Analyse les 2 projets pour bien pour comprendre
+
+
+
+Salut Claude, dans la session précédente on a travailler l'application de compagnie de transport multi-entreprise en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+
+
+
+
+Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+
+
+
+
+Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+
+
+
+refare le pdf des bordereaux et éviter les couleurs
+
+php bin/console app:reservations:expirer
+*/5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
 
 
 - Les cas de survente.. pour ticket et resa

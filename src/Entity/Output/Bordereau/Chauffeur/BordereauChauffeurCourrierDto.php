@@ -11,8 +11,7 @@ final class BordereauChauffeurCourrierDto
         public readonly string $garedepart,
         public readonly string $garearrivee,
         public readonly int $nbcolis,
-        public readonly float $montant,
-        public readonly string $modepaiement
+        public readonly float $montant
     )
     {
     }

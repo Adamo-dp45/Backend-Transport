@@ -66,8 +66,7 @@ class BordereauChauffeurProvider implements ProviderInterface
                 garedepart: $c['garedepart'],
                 garearrivee: $c['garearrivee'],
                 nbcolis: (int)$c['nbcolis'],
-                montant: (int)$c['montant'],
-                modepaiement: $c['modepaiement']
+                montant: (int)$c['montant']
             ),
             $rawCourriers
         );

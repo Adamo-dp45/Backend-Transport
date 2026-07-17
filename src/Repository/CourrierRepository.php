@@ -444,7 +444,6 @@ class CourrierRepository extends ServiceEntityRepository
                 'c.nomexpediteur',
                 'c.nomdestinataire',
                 'c.montant',
-                'c.modepaiement',
                 'gd.libelle AS garedepart',
                 'ga.libelle AS garearrivee',
                 'COUNT(dc.id) AS nbcolis',
