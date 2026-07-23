@@ -5,6 +5,7 @@ namespace App\State\Public;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Service\EntreprisePubliqueResolver;
+use App\Domain\Service\ReservationConfigService;
 use App\Entity\Output\Reservation\CompagniePubliqueDto;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -13,7 +14,8 @@ final class CompagniePubliqueProvider implements ProviderInterface
 {
     public function __construct(
         private EntreprisePubliqueResolver $resolver,
-        private RequestStack $requestStack
+        private RequestStack $requestStack,
+        private ReservationConfigService $config
     )
     {
     }
@@ -28,7 +30,8 @@ final class CompagniePubliqueProvider implements ProviderInterface
             libelle: $e->getLibelle(),
             sigle: $e->getSigle(),
             contact: $e->getContact1(),
-            siteweb: $e->getSiteweb()
+            siteweb: $e->getSiteweb(),
+            delaiPaiementMinutes: $this->config->getParametre((int) $e->getId())->getDelaiPaiementMinutes()
         );
     }
 }

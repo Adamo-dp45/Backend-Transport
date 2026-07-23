@@ -80,6 +80,7 @@ final class GareDashboardController extends AbstractController
             'incidents' => [
                 'ticketsAnnules' => (int) ($desist['nbannules'] ?? 0),
                 'ticketsReportes' => (int) ($desist['nbreportes'] ?? 0),
+                'ticketsReportesEviction' => (int) ($desist['nbreportesEviction'] ?? 0), // dont relogements d'évincés (compagnie)
                 'bagagesAnnules' => (int) ($incBagages['nbannules'] ?? 0),
                 'bagagesPerdus' => (int) ($incBagages['nbperdus'] ?? 0),
                 'courriersAnnules' => (int) ($incCourriers['nbannules'] ?? 0),

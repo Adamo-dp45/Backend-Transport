@@ -29,6 +29,41 @@ class ClientRepository extends ServiceEntityRepository
         ]);
     }
 
+    /**
+     * Nombre de bagages ACTIFS par client, pour un lot d'IDs, en UNE requête (DQL COUNT joignant
+     * billets→bagages). Le bagage n'a pas de lien direct au client : il suit le billet. On exclut
+     * billets et bagages supprimés (deletedAt) pour rester cohérent avec les listes affichées.
+     * Les clients sans bagage n'apparaissent pas dans le résultat (le provider retombe alors sur 0).
+     *
+     * @param int[] $clientIds
+     * @return array<int, int> map clientId => nombre de bagages
+     */
+    public function bagagesCountByClientIds(array $clientIds): array
+    {
+        if (empty($clientIds)) {
+            return [];
+        }
+
+        $rows = $this->createQueryBuilder('c')
+            ->select('c.id AS cid', 'COUNT(b.id) AS cnt')
+            ->join('c.tickets', 't')
+            ->join(\App\Entity\Bagage::class, 'b', 'WITH', 'b.ticket = t')
+            ->andWhere('c.id IN (:ids)')
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('b.deletedAt IS NULL')
+            ->groupBy('c.id')
+            ->setParameter('ids', $clientIds)
+            ->getQuery()
+            ->getScalarResult();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['cid']] = (int) $row['cnt'];
+        }
+
+        return $map;
+    }
+
     // -- Statistiques fidélité -- //
 
     /** Nombre de clients actifs de l'entreprise. */

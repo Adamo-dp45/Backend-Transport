@@ -19,7 +19,8 @@ final class ReservationSuiviProvider implements ProviderInterface
     public function __construct(
         private EntreprisePubliqueResolver $resolver,
         private RequestStack $requestStack,
-        private ReservationRepository $reservationRepository
+        private ReservationRepository $reservationRepository,
+        private ReservationPubliqueMapper $mapper
     )
     {
     }
@@ -43,6 +44,6 @@ final class ReservationSuiviProvider implements ProviderInterface
             throw new NotFoundHttpException('Réservation introuvable');
         }
 
-        return (new ReservationPubliqueMapper())->versDto($reservation);
+        return $this->mapper->versDto($reservation);
     }
 }

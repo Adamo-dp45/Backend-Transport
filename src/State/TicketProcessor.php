@@ -17,6 +17,7 @@ use App\Domain\Service\ConfigRemiseService;
 use App\Domain\Service\FideliteService;
 use App\Repository\TarifRepository;
 use Doctrine\DBAL\LockMode;
+use App\Security\VoyageGuard;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -32,7 +33,8 @@ class TicketProcessor implements ProcessorInterface
         private FideliteService $fideliteService,
         private CapaciteService $capaciteService,
         private ActiviteLogger $activiteLogger,
-        private ConfigRemiseService $configRemiseService
+        private ConfigRemiseService $configRemiseService,
+        private VoyageGuard $voyageGuard
     )
     {
     }
@@ -109,6 +111,21 @@ class TicketProcessor implements ProcessorInterface
             if ($userGare !== null && $monteeId !== $userGare->getId()) {
                 throw new BadRequestHttpException('Vous ne pouvez vendre que des tickets au départ de votre gare (' . $userGare->getLibelle() . ')');
             }
+            /*
+                Le car doit encore être là. Même garde que la réservation
+                (ReservationCreationService) : les deux aboutissent au même siège du même car, il
+                serait absurde que l'une refuse ce que l'autre vend.
+
+                Volontairement HORS du cas commercial ci-dessus : le vendeur À BORD encaisse aussi
+                après le départ (passagers montés sans avoir payé), et sa gare de vente est par
+                construction la position du car. Le contraindre ici lui interdirait de travailler dès
+                que le car s'ébranle.
+            */
+            $this->voyageGuard->assertMonteeNonDepassee(
+                $voyage,
+                $garemontee,
+                'Le car a déjà quitté ' . $garemontee->getLibelle() . ' : plus de vente possible sur ce départ.'
+            );
         }
 
         // Canal de vente FIGÉ sur le billet (snapshot). Vente EN ROUTE → recette du COMMERCIAL ;

@@ -4,6 +4,7 @@ namespace App\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
+use App\Domain\Service\ReservationEcheanceService;
 use App\Entity\Output\Bordereau\BordereauGareDto;
 use App\Entity\Output\Bordereau\BordereauOutput;
 use App\Entity\Output\Bordereau\BordereauPassagerDto;
@@ -14,6 +15,7 @@ use App\Domain\Enum\TicketStatus;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
 use App\Repository\GareRepository;
+use App\Repository\PassageRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -30,7 +32,9 @@ class BordereauProvider implements ProviderInterface
         private readonly GareRepository $gareRepository,
         private readonly BagageRepository $bagageRepository,
         private readonly CourrierRepository $courrierRepository,
-        private readonly RequestStack $requestStack
+        private readonly RequestStack $requestStack,
+        private readonly ReservationEcheanceService $echeance,
+        private readonly PassageRepository $passageRepository
     )
     {
     }
@@ -78,6 +82,17 @@ class BordereauProvider implements ProviderInterface
         $nbBagages   = $this->bagageRepository->countByVoyageEtGare((int)$voyageId, (int)$gareId, $identreprise);
         $nbCourriers = $this->courrierRepository->countByVoyageEtGare((int)$voyageId, (int)$gareId, $identreprise);
 
+        // Horaires de passage du car à CETTE gare : PRÉVU (somme des tronçons) vs RÉEL (Passage), retard,
+        // temps d'arrêt. Le retard se situe sur l'arrivée réelle, ou sur le départ pour l'origine (qui
+        // n'a pas d'arrivée). Négatif = le car était en avance.
+        $heurePrevue = $this->echeance->heurePassage($voyage, $gare);
+        $passage = $this->passageRepository->findOneParVoyageGare((int) $voyageId, (int) $gareId);
+        $arrivee = $passage?->getArriveeReelle();
+        $reference = $arrivee ?? $passage?->getDepartReelle();
+        $retard = ($heurePrevue !== null && $reference !== null)
+            ? (int) round(($reference->getTimestamp() - $heurePrevue->getTimestamp()) / 60)
+            : null;
+
         $passagers = array_map(
             fn($p) => new BordereauPassagerDto(
                 codeticket: $p['codeticket'],
@@ -103,7 +118,12 @@ class BordereauProvider implements ProviderInterface
             gare: new BordereauGareDto(
                 id: $gare->getId(),
                 libelle: $gare->getLibelle(),
-                ville: $gare->getVille()?->getNom()
+                ville: $gare->getVille()?->getNom(),
+                heurePrevue: $heurePrevue?->format('H:i'),
+                arriveeReelle: $arrivee?->format('H:i'),
+                departReelle: $passage?->getDepartReelle()?->format('H:i'),
+                retardMinutes: $retard,
+                tempsArretMinutes: $passage?->getTempsArretMinutes(),
             ),
             nbtickets: $stats['nbtickets'],
             recette: $stats['recette'],

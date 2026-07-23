@@ -3,11 +3,15 @@
 namespace App\Controller\Api;
 
 use App\Domain\Enum\BagageStatus;
+use App\Domain\Service\CapaciteService;
 use App\Domain\Enum\CourrierStatus;
+use App\Domain\Enum\ReservationStatus;
 use App\Domain\Enum\TicketStatus;
+use App\Domain\Service\ReservationEcheanceService;
 use App\Entity\User;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
+use App\Repository\PassageRepository;
 use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
@@ -36,7 +40,10 @@ final class VoyageManifesteController extends AbstractController
         TicketRepository $ticketRepository,
         CourrierRepository $courrierRepository,
         BagageRepository $bagageRepository,
-        ReservationRepository $reservationRepository
+        ReservationRepository $reservationRepository,
+        CapaciteService $capaciteService,
+        ReservationEcheanceService $echeance,
+        PassageRepository $passageRepository
     ): JsonResponse {
         $this->denyAccessUnlessGranted('VOIR', 'Voyage');
 
@@ -78,6 +85,15 @@ final class VoyageManifesteController extends AbstractController
             'statut' => TicketStatus::STATUT_VALIDE->value, // reporté/annulé = ne compte plus
             'deletedAt' => null,
         ]);
+        /*
+            Billets ÉVINCÉS par la priorité amont : leur siège a été repris par un passager monté plus
+            tôt, ils ne monteront donc pas. Le manifeste est la feuille de route du chauffeur et du chef
+            de gare : y annoncer ces passagers décrirait un car que personne ne peut occuper. Ils
+            restent dans les RECETTES (ils ont payé) — seules montées, descentes et occupation les
+            excluent.
+        */
+        $evinces = $capaciteService->billetsEvinces($voyage, $entId);
+        $ticketsABord = array_filter($tickets, fn ($t) => !isset($evinces[$t->getId()]));
         $courriers = array_filter(
             $courrierRepository->findBy(['voyage' => $id, 'deletedAt' => null]),
             fn ($c) => $c->getStatut() !== CourrierStatus::STATUT_ANNULE->value
@@ -100,17 +116,42 @@ final class VoyageManifesteController extends AbstractController
             'etatpaiement' => 'PAYE',
             'deletedAt' => null,
         ]);
+        /*
+            À BORD ≠ PAYÉ. Une réservation A_REGULARISER a bien été payée, mais son client ne s'est PAS
+            présenté : elle sera reportée sur un autre départ, personne ne montera pour elle. La compter
+            gonflait l'occupation d'un passager fantôme. Seules les CONFIRMEE sans billet embarqueront
+            (leur billet sera émis avant le départ) ; celles qui ont déjà un billet sont comptées via lui.
+
+            La liste complète ci-dessus reste la base des RECETTES : l'argent d'un no-show est encaissé.
+        */
+        $reservationsABord = array_filter(
+            $reservations,
+            fn ($r) => $r->getTicket() === null
+                && $r->getStatut() === ReservationStatus::STATUT_CONFIRMEE->value
+        );
 
         // --- Agrégation PAR GARE ---
+        // Passages réels (arrivée / départ horodatés) indexés par gare : retard et temps d'arrêt par étape.
+        $passages = $passageRepository->findParVoyageIndexeParGare($id);
         $gares = [];
         foreach ($arrets as $a) {
             $g = $a->getGare();
             $gid = $g->getId();
             $estTerminus = $a->getOrdre() === $ordreTerminus;
 
+            /*
+                DEUX populations à ne pas confondre :
+                 - $montees      : tout ce qui a été VENDU au départ d'ici → base des RECETTES, un
+                                   passager évincé a payé et sa recette reste acquise à la gare ;
+                 - $monteesABord : ce qui embarque réellement → base du COMPTAGE de la feuille de route.
+            */
             $montees = array_filter($tickets, fn ($t) => $t->getGare()?->getId() === $gid);
-            $descentes = array_filter($tickets, function ($t) use ($gid, $estTerminus) {
-                $d = $t->getGaredescente();
+            $monteesABord = array_filter($ticketsABord, fn ($t) => $t->getGare()?->getId() === $gid);
+            // Descente EFFECTIVE : le manifeste dit qui descend RÉELLEMENT ici. Un passager sorti en
+            // route (garedescentereelle) descend à SA gare, pas à celle inscrite sur son billet —
+            // sinon on l'annonce au chef de gare d'une descente qu'il n'atteindra jamais.
+            $descentes = array_filter($ticketsABord, function ($t) use ($gid, $estTerminus) {
+                $d = $t->getGaredescenteEffective();
                 return $d ? $d->getId() === $gid : $estTerminus; // descente nulle = terminus
             });
             // Courriers/bagages déposés ICI : la recette y est encaissée (paiement à l'envoi/dépôt)
@@ -145,14 +186,31 @@ final class VoyageManifesteController extends AbstractController
             $reservationsGare = array_filter($reservations, fn ($r) => ($r->getGare()?->getId() ?? $origineId) === $gid);
             $recetteReservations = array_sum(array_map(fn ($r) => (int) $r->getPrix(), $reservationsGare));
 
+            // Horaires de passage à cette gare : PRÉVU (somme des tronçons) vs RÉEL (Passage), retard,
+            // temps d'arrêt. Le retard se situe sur l'arrivée réelle, ou sur le départ pour l'origine.
+            $heurePrevue = $echeance->heurePassage($voyage, $g);
+            $passage = $passages[$gid] ?? null;
+            $arrivee = $passage?->getArriveeReelle();
+            $reference = $arrivee ?? $passage?->getDepartReelle();
+            $retard = ($heurePrevue !== null && $reference !== null)
+                ? (int) round(($reference->getTimestamp() - $heurePrevue->getTimestamp()) / 60)
+                : null;
+
             $gares[] = [
                 'id' => $gid,
                 'libelle' => $g->getLibelle(),
                 'ville' => $g->getVille()?->getNom(),
                 'ordre' => $a->getOrdre(),
                 'role' => $a->getOrdre() === 0 ? 'depart' : ($estTerminus ? 'terminus' : 'intermediaire'),
-                'montees' => count($montees),
+                'heurePrevue' => $heurePrevue?->format('H:i'),
+                'arriveeReelle' => $arrivee?->format('H:i'),
+                'departReelle' => $passage?->getDepartReelle()?->format('H:i'),
+                'retardMinutes' => $retard,
+                'tempsArretMinutes' => $passage?->getTempsArretMinutes(),
+                'montees' => count($monteesABord),
                 'descentes' => count($descentes),
+                // Vendus ici mais évincés par la priorité amont : ils ne monteront pas, la gare doit le savoir.
+                'evinces' => count($montees) - count($monteesABord),
                 'courriersDeposes' => count($courriersDeposes),
                 'courriersArrivee' => count(array_filter($courriers, fn ($c) => $c->getGarearrivee()?->getId() === $gid)),
                 'bagagesCharges' => count($bagagesCharges),
@@ -174,13 +232,30 @@ final class VoyageManifesteController extends AbstractController
         for ($i = 0; $i < $n - 1; $i++) {
             $ordreI = $arrets[$i]->getOrdre();
             $aBord = 0;
-            foreach ($tickets as $t) {
+            foreach ($ticketsABord as $t) {
                 $tm = $ordreParGare[$t->getGare()?->getId()] ?? null;
-                $td = $t->getGaredescente() ? ($ordreParGare[$t->getGaredescente()->getId()] ?? null) : $ordreTerminus;
+                // Descente EFFECTIVE : un passager descendu en route n'occupe plus le car au-delà,
+                // et son siège a pu être revendu. Le compter jusqu'à sa descente VENDUE gonflait
+                // l'occupation et faisait apparaître deux passagers là où il n'y en a qu'un.
+                $descenteEff = $t->getGaredescenteEffective();
+                $td = $descenteEff ? ($ordreParGare[$descenteEff->getId()] ?? null) : $ordreTerminus;
                 if ($tm === null || $td === null) {
                     continue;
                 }
                 if ($tm <= $ordreI && $td > $ordreI) { // billet à bord sur ce tronçon
+                    $aBord++;
+                }
+            }
+            /*
+                Réservations PAYÉES sans billet encore émis : elles occuperont une place à bord, le
+                billet sera émis avant le départ. Les omettre sous-estimait le car — le chauffeur
+                voyait moins de monde qu'il n'en transportera. Celles qui ONT un billet sont déjà
+                comptées ci-dessus (le billet porte la réservation).
+            */
+            foreach ($reservationsABord as $r) {
+                $rm = $ordreParGare[$r->getGare()?->getId()] ?? null;
+                $rd = $ordreParGare[$r->getGaredescente()?->getId()] ?? $ordreTerminus;
+                if ($rm !== null && $rm <= $ordreI && $rd > $ordreI) {
                     $aBord++;
                 }
             }

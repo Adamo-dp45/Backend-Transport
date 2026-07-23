@@ -81,8 +81,17 @@ class EmissionBilletService
     }
 
     /**
-     * Premier siège du car LIBRE sur tout le tronçon [montée, descente) (aucun billet VALIDE ne le
-     * recouvre). Renvoie null si tout est occupé.
+     * Premier siège du car libre AU POINT DE MONTÉE de la réservation. Renvoie null si tous sont
+     * occupés à cet instant.
+     *
+     * Même règle que le plan des sièges et que CapaciteService : PRIORITÉ ABSOLUE À LA GARE AMONT.
+     * On testait auparavant le CHEVAUCHEMENT du tronçon entier — si Bouaké avait rempli le car de
+     * Bouaké à Korhogo, plus aucun siège ne paraissait libre et une réservation payée depuis Abidjan
+     * devenait impossible à honorer (« remboursement à prévoir »), alors que le car est vide au départ
+     * d'Abidjan. Le surbooking qui en découle est assumé : c'est l'aval qui cède.
+     *
+     * $ordreDescente n'entre plus dans le choix (seule la montée compte) mais reste au contrat :
+     * l'appelant l'a validé juste avant, et le retirer masquerait ce contrôle.
      *
      * @param array<int,int> $ordreParGare
      */
@@ -117,7 +126,8 @@ class EmissionBilletService
         foreach ($sieges as $siege) {
             $occupe = false;
             foreach ($intervallesParSiege[$siege->getId()] ?? [] as [$tm, $td]) {
-                if ($tm < $ordreDescente && $td > $ordreMontee) {
+                // Occupé à l'instant de la montée seulement : ce qui part d'une gare en aval ne compte pas.
+                if ($tm <= $ordreMontee && $td > $ordreMontee) {
                     $occupe = true;
                     break;
                 }

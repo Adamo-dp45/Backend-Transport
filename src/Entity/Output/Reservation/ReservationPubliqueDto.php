@@ -19,6 +19,12 @@ final class ReservationPubliqueDto
         public readonly ?string $montee,
         public readonly ?string $descente,
         public readonly ?string $codevoyage,
+        /*
+            Heure attendue du car À LA GARE DE MONTÉE du client (départ du voyage + durée de l'arrêt),
+            donc l'heure à laquelle il doit être là — et celle qui borne 'dateexpiration'. Distincte
+            de 'datedepartprevue', qui reste l'heure de départ du voyage depuis SON origine.
+        */
+        public readonly ?string $heurepassage,
         public readonly ?string $datedepartprevue,
         public readonly bool $bonDisponible,
         public readonly ?string $billetEmis,

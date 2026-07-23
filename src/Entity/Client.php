@@ -15,6 +15,7 @@ use App\Entity\Interface\EntrepriseOwnedInterface;
 use App\Entity\Interface\HasSoftDeleteGuard;
 use App\Repository\ClientRepository;
 use App\State\AdhererFideliteProcessor;
+use App\State\ClientProvider;
 use App\State\EntrepriseInjectionProcessor;
 use App\State\ResilierFideliteProcessor;
 use App\State\SoftDeleteProcessor;
@@ -56,6 +57,7 @@ use Symfony\Component\Validator\Constraints as Assert;
         new GetCollection(
             // Les vendeurs de billets doivent pouvoir rechercher un client existant
             security: "is_granted('VOIR', 'Client') or is_granted('VOIR', 'Ticket')",
+            provider: ClientProvider::class, // enrichit chaque client de 'bagagesCount' (DQL COUNT groupé)
             openapi: new Operation(
                 summary: 'La liste des clients',
                 description: 'Permet de voir la liste des clients',
@@ -65,6 +67,7 @@ use Symfony\Component\Validator\Constraints as Assert;
         new Get(
             security: "is_granted('VOIR', object) or is_granted('VOIR', 'Ticket')",
             requirements: ['id' => '\d+'],
+            provider: ClientProvider::class, // renseigne 'bagagesCount' du client
             openapi: new Operation(
                 summary: 'Le client',
                 description: 'Permet de voir un client',
@@ -197,6 +200,11 @@ class Client extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     #[ORM\OneToMany(targetEntity: Ticket::class, mappedBy: 'client')]
     private Collection $tickets;
 
+    // Transient (NON mappé) : nb de bagages actifs du client, renseigné par ClientProvider via un
+    // DQL COUNT (billets→bagages) — évite d'hydrater les billets ligne par ligne dans le listing.
+    #[Groups(['read:Client'])]
+    private ?int $bagagesCount = null;
+
     public function __construct()
     {
         $this->tickets = new ArrayCollection();
@@ -325,6 +333,18 @@ class Client extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     public function getTicketsCount(): int
     {
         return $this->tickets->count();
+    }
+
+    public function getBagagesCount(): ?int
+    {
+        return $this->bagagesCount;
+    }
+
+    public function setBagagesCount(?int $bagagesCount): static
+    {
+        $this->bagagesCount = $bagagesCount;
+
+        return $this;
     }
 
     public function getSoftDeleteBlockers(): array

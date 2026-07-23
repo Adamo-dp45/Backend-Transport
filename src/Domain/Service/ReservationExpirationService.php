@@ -21,7 +21,8 @@ class ReservationExpirationService
     public function __construct(
         private ReservationRepository $reservationRepository,
         private ReservationConfigService $config,
-        private EntityManagerInterface $em
+        private EntityManagerInterface $em,
+        private ReservationEcheanceService $echeance
     )
     {
     }
@@ -41,13 +42,19 @@ class ReservationExpirationService
         $expireesDefinitives = 0;
         $fenetreParEntreprise = [];
         foreach ($this->reservationRepository->findARegulariser() as $resa) {
-            $depart = $resa->getVoyage()?->getDatedepartprevue();
-            if ($depart === null) {
+            $voyage = $resa->getVoyage();
+            /*
+                Fenêtre comptée depuis le passage du car À LA GARE DU CLIENT, pas depuis le départ du
+                voyage : c'est à ce moment-là qu'il a été no-show. Sur une ligne longue, l'ancrer sur
+                l'origine amputait la fenêtre de plusieurs heures pour qui montait en cours de route.
+            */
+            $reference = $voyage === null ? null : $this->echeance->heurePassage($voyage, $resa->getGare());
+            if ($reference === null) {
                 continue;
             }
             $ide = (int) $resa->getIdentreprise();
             $fenetreParEntreprise[$ide] ??= $this->config->getParametre($ide)->getFenetreRegularisationJours();
-            $limite = $depart->modify('+' . $fenetreParEntreprise[$ide] . ' days');
+            $limite = $reference->modify('+' . $fenetreParEntreprise[$ide] . ' days');
             if ($limite < $now) {
                 $resa->setStatut(ReservationStatus::STATUT_EXPIREE->value);
                 $expireesDefinitives++;

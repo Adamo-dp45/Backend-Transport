@@ -26,6 +26,7 @@ class ActiviteLogger
     // Billetterie / courrier / bagage — événements critiques (annulation, suppression, perte, livraison)
     public const TICKET_ANNULE = 'TICKET_ANNULE';
     public const TICKET_REPORTE = 'TICKET_REPORTE';
+    public const TICKET_REPORTE_EVICTION = 'TICKET_REPORTE_EVICTION'; // report d'un billet évincé (imputable compagnie, pas au client)
     public const TICKET_SUPPRIME = 'TICKET_SUPPRIME';
     public const TICKET_REMISE = 'TICKET_REMISE'; // remise appliquée sur un billet (audit anti-abus)
     public const COURRIER_ANNULE = 'COURRIER_ANNULE';

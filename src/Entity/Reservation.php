@@ -15,12 +15,14 @@ use App\Domain\Enum\ReservationStatus;
 use App\Entity\Interface\EntrepriseOwnedInterface;
 use App\Entity\Interface\MultiGareScopedInterface;
 use App\Entity\Output\Reservation\RegularisationApercuOutput;
+use App\Entity\Output\Reservation\ReportPossibleDto;
 use App\Repository\ReservationRepository;
 use App\State\AnnulerReservationProcessor;
 use App\State\ConfirmerReservationProcessor;
 use App\State\EmettreBilletReservationProcessor;
 use App\State\RegularisationApercuProvider;
 use App\State\RegulariserReservationProcessor;
+use App\State\ReportsPossiblesProvider;
 use App\State\ReservationProcessor;
 use App\State\SoftDeleteProcessor;
 use Doctrine\ORM\Mapping as ORM;
@@ -33,9 +35,10 @@ use Symfony\Component\Serializer\Attribute\Groups;
  * → permet de réserver à l'avance, avant l'affectation du car (capacité bornée par
  * 'voyage.placesprevues' tant qu'il n'y a pas de car, puis par la capacité réelle du car).
  *
- * Une réservation NON émise ne « tient » PAS physiquement de place : elle est seulement INDICATIVE
- * (surréservation tolérée — la vente au guichet peut consommer une place « réservée »). Seul un billet
- * VALIDE, créé à l'émission, compte dans la capacité du tronçon (cf. App\Domain\Service\CapaciteService).
+ * Une réservation TIENT sa place tant que son échéance court, même sans billet émis : payée, jusqu'à
+ * l'heure de présentation ; impayée, le temps court du paiement. On ne vend donc plus par-dessus —
+ * c'est ce qui évite d'encaisser un client à qui aucun billet ne pourra être émis. Le hold se libère
+ * seul à l'échéance (cf. ReservationStatus::tenantsPlace et App\Domain\Service\CapaciteService).
  */
 #[ORM\Entity(repositoryClass: ReservationRepository::class)]
 #[ApiResource(
@@ -104,6 +107,21 @@ use Symfony\Component\Serializer\Attribute\Groups;
             openapi: new Operation(
                 summary: 'Aperçu d\'une régularisation (pénalité + complément à encaisser)',
                 description: 'Pour une réservation A_REGULARISER et un départ cible (?voyage=), renvoie le décompte à encaisser sans rien persister.',
+                security: [['bearerAuth' => []]]
+            )
+        ),
+        new GetCollection(
+            uriTemplate: '/reservations/{id}/reports',
+            security: "is_granted('VOIR', 'Reservation') or is_granted('VOIR', 'Ticket')",
+            requirements: ['id' => '\d+'],
+            provider: ReportsPossiblesProvider::class,
+            paginationEnabled: false,
+            output: ReportPossibleDto::class,
+            // Forme stable : on conserve les champs nuls, comme le reste de la ressource.
+            normalizationContext: ['groups' => ['read:ReportPossible'], 'skip_null_values' => false],
+            openapi: new Operation(
+                summary: 'Départs sur lesquels cette réservation peut être reportée',
+                description: 'Chaque départ est soumis au calcul de régularisation : la liste ne peut donc pas diverger de ce que le report acceptera. Renvoie aussi le décompte de chacun. Liste vide si la réservation n\'est pas à régulariser.',
                 security: [['bearerAuth' => []]]
             )
         ),
@@ -243,6 +261,17 @@ class Reservation extends EntityBase implements EntrepriseOwnedInterface, MultiG
     #[ORM\Column(options: ['default' => 0])]
     #[Groups(['read:Reservation'])]
     private int $montantcomplement = 0;
+
+    /*
+        NO-SHOW DU FAIT DE LA COMPAGNIE : posé quand le départ a été AVANCÉ après le paiement. Le
+        client s'était engagé sur un horaire ; ce n'est pas lui qui l'a changé, il ne doit donc pas
+        payer la pénalité de report. Le complément tarifaire, lui, reste dû (il paie un trajet, pas
+        un retard). Un rétablissement de l'horaire initial ne le retire pas — le doute profite au
+        client, pas à celui qui a bougé la date ; seule la régularisation le consomme.
+    */
+    #[ORM\Column(options: ['default' => false])]
+    #[Groups(['read:Reservation'])]
+    private bool $penaliteexoneree = false;
 
     #[ORM\Column(nullable: true)]
     private ?int $identreprise = null;
@@ -452,6 +481,18 @@ class Reservation extends EntityBase implements EntrepriseOwnedInterface, MultiG
     public function setMontantcomplement(int $montantcomplement): static
     {
         $this->montantcomplement = $montantcomplement;
+
+        return $this;
+    }
+
+    public function isPenaliteexoneree(): bool
+    {
+        return $this->penaliteexoneree;
+    }
+
+    public function setPenaliteexoneree(bool $penaliteexoneree): static
+    {
+        $this->penaliteexoneree = $penaliteexoneree;
 
         return $this;
     }

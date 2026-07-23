@@ -20,7 +20,8 @@ final class HistoriquePubliqueProvider implements ProviderInterface
     public function __construct(
         private EntreprisePubliqueResolver $resolver,
         private RequestStack $requestStack,
-        private ReservationRepository $reservationRepository
+        private ReservationRepository $reservationRepository,
+        private ReservationPubliqueMapper $mapper
     )
     {
     }
@@ -35,10 +36,8 @@ final class HistoriquePubliqueProvider implements ProviderInterface
             return [];
         }
 
-        $mapper = new ReservationPubliqueMapper();
-
         return array_map(
-            fn($r) => $mapper->versDto($r),
+            fn($r) => $this->mapper->versDto($r),
             $this->reservationRepository->findParContactPourEntreprise($contact, $e->getId())
         );
     }

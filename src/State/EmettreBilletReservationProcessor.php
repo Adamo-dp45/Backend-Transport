@@ -9,6 +9,7 @@ use App\Domain\Service\EmissionBilletService;
 use App\Entity\Reservation;
 use App\Entity\User;
 use App\Security\GareGuard;
+use App\Security\VoyageGuard;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -29,7 +30,8 @@ class EmettreBilletReservationProcessor implements ProcessorInterface
         private Security $security,
         private EntityManagerInterface $em,
         private EmissionBilletService $emissionBillet,
-        private GareGuard $gareGuard
+        private GareGuard $gareGuard,
+        private VoyageGuard $voyageGuard
     )
     {
     }
@@ -52,15 +54,29 @@ class EmettreBilletReservationProcessor implements ProcessorInterface
         if ($reservation->getTicket() !== null) {
             throw new BadRequestHttpException('Le billet de cette réservation a déjà été émis');
         }
-        // Passé la deadline, le bon est périmé (no-show) : il passe A_REGULARISER (report + pénalité).
+        // Passé la deadline, le bon est périmé (no-show) : il passe A_REGULARISER (report + pénalité,
+        // sauf si le départ avait été avancé par la compagnie — l'absence ne lui est pas imputable).
         if ($reservation->getDateexpiration() !== null && $reservation->getDateexpiration() <= new \DateTimeImmutable()) {
-            throw new BadRequestHttpException('Le délai de retrait de ce bon est dépassé : régularisez la réservation (report sur un nouveau départ avec pénalité)');
+            throw new BadRequestHttpException(
+                'Le délai de retrait de ce bon est dépassé : régularisez la réservation (report sur un nouveau départ'
+                . ($reservation->isPenaliteexoneree() ? ', sans pénalité : le départ a été avancé)' : ' avec pénalité)')
+            );
         }
 
         $voyage = $reservation->getVoyage();
         if ($voyage->getDatearriveereelle() !== null) {
             throw new BadRequestHttpException('Le voyage est clôturé');
         }
+        /*
+            Le car doit encore être là. « Dépassée » et non « atteinte » : quand le car EST à la gare
+            de montée, c'est précisément le moment où l'on embarque et où l'on émet — seul un car qui
+            en est REPARTI rend le billet inutile.
+        */
+        $this->voyageGuard->assertMonteeNonDepassee(
+            $voyage,
+            $reservation->getGare(),
+            'Le car a déjà quitté cette gare : régularisez la réservation sur un autre départ.'
+        );
         if ($voyage->getCar() === null) {
             throw new BadRequestHttpException('Affectez un car au voyage avant d\'émettre le billet (attribution du siège)');
         }

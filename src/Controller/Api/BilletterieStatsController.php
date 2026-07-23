@@ -61,12 +61,20 @@ final class BilletterieStatsController extends AbstractController
             'nbapresdepart' => (int) $r['nbapresdepart'],
         ], $rawSuppr);
 
+        // Reports IMPUTABLES À LA COMPAGNIE (relogement d'évincés) : à isoler des désistements volontaires.
+        // Le taux ne doit refléter que ce que le CLIENT a renoncé — pas ce que la compagnie a repris.
+        $reporteEviction = $ticketRepository->compteReportesImputablesCompagnie($debut, $fin, $ent);
+        $reporteVolontaire = max(0, $statuts['REPORTE'] - $reporteEviction);
+        $totalVolontaire = $reporteVolontaire + $statuts['ANNULE'];
+
         $desistements = [
             'valide' => $statuts['VALIDE'],
-            'reporte' => $statuts['REPORTE'],
+            'reporte' => $statuts['REPORTE'],           // tous les reportés (volontaires + éviction)
+            'reporteEviction' => $reporteEviction,       // dont imputables à la compagnie
+            'reporteVolontaire' => $reporteVolontaire,   // reports demandés par le client
             'annule' => $statuts['ANNULE'],
-            'total' => $statuts['REPORTE'] + $statuts['ANNULE'],
-            'taux' => $totalBillets > 0 ? (int) round(($statuts['REPORTE'] + $statuts['ANNULE']) / $totalBillets * 100) : 0,
+            'total' => $totalVolontaire,                 // désistements VOLONTAIRES (hors éviction)
+            'taux' => $totalBillets > 0 ? (int) round($totalVolontaire / $totalBillets * 100) : 0,
             'parAgent' => $annulationsParAgent,
             'suppressions' => $suppressionsParAgent,
         ];

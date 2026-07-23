@@ -80,16 +80,27 @@ class FinancierStatsProvider implements ProviderInterface
         ksort($recettesIndex);
 
         $recettesParJour = array_map(
-            fn(string $label, array $vals) => new RecetteParJourDto( /*
+            function (string $label, array $vals) use ($courriersHorsCa): RecetteParJourDto { /*
                     - On l'a typé pour 'Intelephense'
+                    - On expose AUSSI la répartition par canal (et pas seulement le total) : elle permet
+                      d'empiler la courbe par type côté interface, sans requête supplémentaire — le
+                      détail est déjà chargé ci-dessus.
                 */
-                label: $label,
-                montant: round(
-                    ($vals['tickets'] ?? 0) + ($vals['reservations'] ?? 0)
-                        + ($courriersHorsCa ? 0 : ($vals['courriers'] ?? 0)) + ($vals['bagages'] ?? 0),
-                    2
-                ),
-            ),
+                $tickets = round($vals['tickets'] ?? 0, 2);
+                $reservations = round($vals['reservations'] ?? 0, 2);
+                // Courriers hors CA : mis à 0 ici aussi, pour que l'empilement totalise bien 'montant'.
+                $courriers = $courriersHorsCa ? 0.0 : round($vals['courriers'] ?? 0, 2);
+                $bagages = round($vals['bagages'] ?? 0, 2);
+
+                return new RecetteParJourDto(
+                    label: $label,
+                    montant: round($tickets + $reservations + $courriers + $bagages, 2),
+                    tickets: $tickets,
+                    reservations: $reservations,
+                    courriers: $courriers,
+                    bagages: $bagages,
+                );
+            },
             array_keys($recettesIndex),
             array_values($recettesIndex)
         );

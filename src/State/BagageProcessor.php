@@ -60,13 +60,16 @@ class BagageProcessor implements ProcessorInterface
         if ($ticket->getStatut() !== TicketStatus::STATUT_VALIDE->value) {
             throw new BadRequestHttpException('Ce billet n\'est pas valide (annulé ou reporté)');
         }
-        // Un agent de gare ne rattache un bagage qu'à un billet ÉMIS à SA gare (gare de montée).
-        // Admin/central : pas de restriction.
+        // Un agent de gare ne rattache un bagage qu'à un billet ÉMIS à SA gare (gare de montée) —
+        // OU à un billet qu'il a vendu À BORD comme commercial (gare de montée = position du car, ≠ sa
+        // gare d'attache). Sans cette exception, le vendeur à bord ne pouvait pas rattacher un bagage à
+        // un billet vendu en route. Admin/central : pas de restriction.
         $user = $this->security->getUser();
         $userGare = $user?->getGare();
         $estAdmin = $user && (in_array('ROLE_ADMIN', $user->getRoles(), true) || in_array('ROLE_SUPER_ADMIN', $user->getRoles(), true));
-        if ($userGare !== null && !$estAdmin && $ticket->getGare()?->getId() !== $userGare->getId()) {
-            throw new BadRequestHttpException('Vous ne pouvez rattacher un bagage qu\'à un billet émis à votre gare (' . $userGare->getLibelle() . ')');
+        $estCommercialDuBillet = $ticket->getCommercial()?->getId() === $user?->getId();
+        if ($userGare !== null && !$estAdmin && !$estCommercialDuBillet && $ticket->getGare()?->getId() !== $userGare->getId()) {
+            throw new BadRequestHttpException('Vous ne pouvez rattacher un bagage qu\'à un billet émis à votre gare (' . $userGare->getLibelle() . ') ou vendu par vous à bord');
         }
         return $ticket;
     }
@@ -228,7 +231,7 @@ class BagageProcessor implements ProcessorInterface
      */
     private function auditForcage(Bagage $bagage, string $action): void
     {
-        if ($bagage->getMontantforce() !== true) {
+        if ($bagage->isMontantforce() !== true) {
             return;
         }
 

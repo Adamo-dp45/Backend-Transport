@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Enum\TicketStatus;
+use App\Domain\Service\CapaciteService;
 use App\Entity\User;
 use App\Repository\SiegeRepository;
 use App\Repository\TicketRepository;
@@ -19,7 +20,8 @@ class SiegeStateProvider implements ProviderInterface
         private TicketRepository $ticketRepository,
         private VoyageRepository $voyageRepository,
         private RequestStack $requestStack,
-        private Security $security
+        private Security $security,
+        private CapaciteService $capaciteService
     )
     {
     }
@@ -95,14 +97,20 @@ class SiegeStateProvider implements ProviderInterface
         // libération/revente QUE s'il y a un SEUL occupant (sinon libérer l'un ne libère pas le siège →
         // c'est un conflit amont/aval, pas une revente).
         $nbOccupants = [];
-        // Nb de billets VALIDE par siège sur le voyage : ≥ 2 = siège REVENDU (réutilisé sur des tronçons disjoints)
+        // Nb de billets VALIDE par siège, et parmi eux ceux que la priorité amont a évincés : deux
+        // billets sur un siège sont une REVENTE s'ils voyagent tous, un CONFLIT si l'un reste à quai.
         $ventesParSiege = [];
+        $evincesParSiege = [];
+        $evincesTickets = $voyage !== null ? $this->capaciteService->billetsEvinces($voyage, $entrepriseId) : [];
         foreach ($tickets as $ticket) {
             if (!$ticket->getSiege()) {
                 continue;
             }
             $siegeId = $ticket->getSiege()->getId();
             $ventesParSiege[$siegeId] = ($ventesParSiege[$siegeId] ?? 0) + 1;
+            if (isset($evincesTickets[$ticket->getId()])) {
+                $evincesParSiege[$siegeId] = ($evincesParSiege[$siegeId] ?? 0) + 1;
+            }
 
             if (!$parSegment) {
                 // Mode legacy : un siège est occupé dès qu'un ticket actif le référence
@@ -122,9 +130,19 @@ class SiegeStateProvider implements ProviderInterface
                 $siegesOccupes[$siegeId] = $ticket; // sécurité : ticket hors ligne → on bloque
                 continue;
             }
-            // Priorité à la gare amont : le siège n'est occupé pour qui embarque à $ordreMontee que si un
-            // passager y est DÉJÀ assis à ce moment (embarqué avant/à ce point ET descend après). Les ventes
-            // des gares en aval (tm > ordreMontee) ne grisent pas le siège — la gare amont reste prioritaire.
+            /*
+                PRIORITÉ ABSOLUE À LA GARE AMONT : le siège n'est occupé, pour qui embarque à
+                $ordreMontee, que si un passager y est DÉJÀ assis à ce moment (embarqué avant ou à ce
+                point, et descend après). Une vente d'une gare en AVAL ne grise rien.
+
+                Conséquence ASSUMÉE : un siège vendu Bouaké → Korhogo peut être revendu Abidjan →
+                Korhogo, donc porter deux passagers sur le tronçon commun. C'est la règle
+                d'exploitation retenue — l'amont ne cède jamais sa place. La gare en aval qui perd
+                ainsi des sièges le constate et ouvre un voyage supplémentaire pour ses passagers.
+
+                Ne PAS confondre avec un chevauchement de tronçons : tester le chevauchement
+                bloquerait la vente d'Abidjan, ce que cette règle refuse explicitement.
+            */
             if ($tm <= $ordreMontee && $td > $ordreMontee) {
                 $siegesOccupes[$siegeId] = $ticket;
                 $nbOccupants[$siegeId] = ($nbOccupants[$siegeId] ?? 0) + 1;
@@ -132,8 +150,15 @@ class SiegeStateProvider implements ProviderInterface
         }
 
         foreach ($sieges as $siege) {
-            // Siège revendu : porté par plusieurs billets VALIDE sur ce voyage (réutilisé sur des tronçons)
-            $siege->setRevendu(($ventesParSiege[$siege->getId()] ?? 0) >= 2);
+            $plusieursBillets = ($ventesParSiege[$siege->getId()] ?? 0) >= 2;
+            $enConflit = ($evincesParSiege[$siege->getId()] ?? 0) > 0;
+            /*
+                REVENDU = plusieurs billets qui voyagent tous (tronçons disjoints) : une réutilisation
+                réussie. CONFLIT = plusieurs billets dont l'un est évincé : une place perdue. Les
+                marquer pareil laissait compter comme « reventes » des sièges où un client reste à quai.
+            */
+            $siege->setRevendu($plusieursBillets && !$enConflit);
+            $siege->setConflit($enConflit);
 
             $bloquant = $siegesOccupes[$siege->getId()] ?? null;
             if ($bloquant === null) {

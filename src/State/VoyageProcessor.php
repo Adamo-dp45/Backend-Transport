@@ -7,10 +7,11 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Service\ActiviteLogger;
+use App\Domain\Service\CapaciteService;
 use App\Domain\Service\CarStatutService;
+use App\Domain\Service\ReaffectationSiegeService;
+use App\Domain\Service\ReservationEcheanceService;
 use App\Entity\Car;
-use App\Entity\Siege;
-use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\Voyage;
 use App\Security\VoyageGuard;
@@ -27,7 +28,10 @@ class VoyageProcessor implements ProcessorInterface
         private EntityManagerInterface $em,
         private CarStatutService $carStatutService,
         private VoyageGuard $guard,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private ReservationEcheanceService $reservationEcheance,
+        private CapaciteService $capaciteService,
+        private ReaffectationSiegeService $reaffectationSiege
     )
     {
     }
@@ -55,8 +59,8 @@ class VoyageProcessor implements ProcessorInterface
                 ->setGareprovenance($gareProvenance)
                 ->setGarecourante($gareProvenance) // position initiale du car = sa provenance (pas l'origine de la ligne)
                 ->setProvenance($gareProvenance->getLibelle())
-                ->setDestination($ligne->getGareterminus()->getLibelle());
-
+                ->setDestination($ligne->getGareterminus()->getLibelle())
+            ;
             // Unicité : pas 2 voyages sur la même ligne AU MÊME POINT DE DÉPART au même moment
             // (un départ normal ET un départ partiel intermédiaire peuvent coexister sur la même ligne/date)
             $existant = $this->em->getRepository(Voyage::class)->findOneBy([
@@ -74,7 +78,6 @@ class VoyageProcessor implements ProcessorInterface
                 ->setIdentreprise($entrepriseId)
                 ->setCreatedBy($user->getId())
             ;
-
             $code = $this->em->getRepository(Voyage::class)->count([
                 'ligne' => $ligne,
                 'identreprise' => $entrepriseId,
@@ -126,6 +129,43 @@ class VoyageProcessor implements ProcessorInterface
                 // Modification (hors clôture) = planification : réservée à la gare d'ORIGINE
                 $this->guard->assertPeutPlanifier($user, $data);
 
+                /*
+                    DÉPART DÉCALÉ → les échéances des réservations doivent suivre. Elles sont calées sur
+                    la date de départ : sans recalcul, un report aurait déclaré no-show des clients ayant
+                    payé (le car n'était pas parti), et une avance aurait laissé des réservations
+                    « valides » après le départ réel. Cf. ReservationEcheanceService.
+                */
+                /*
+                    CAPACITÉ PRÉVISIONNELLE : tant qu'aucun car n'est affecté, c'est elle qui borne les
+                    réservations (cf. CapaciteService::capaciteEffective). L'abaisser sous ce qui est
+                    déjà engagé créerait des clients payés sans place — même faute que d'affecter un car
+                    trop petit, donc même garde. Sans objet dès qu'un car est affecté : sa capacité prime.
+                */
+                $nouvellesPlaces = $data->getPlacesprevues();
+                if($data->getCar() === null && $nouvellesPlaces !== null && $data->getId() !== null) {
+                    $occupation = $this->capaciteService->occupationMaximale($data, $entrepriseId);
+                    if($occupation > $nouvellesPlaces) {
+                        throw new BadRequestHttpException(sprintf(
+                            'Impossible de ramener la capacité prévisionnelle à %d place(s) : %d sont déjà engagées sur ce voyage (billets émis et réservations).',
+                            $nouvellesPlaces,
+                            $occupation
+                        ));
+                    }
+                }
+
+                $ancienDepart = $original['datedepartprevue'] ?? null;
+                $nouveauDepart = $data->getDatedepartprevue();
+                if ($nouveauDepart !== null && $ancienDepart instanceof \DateTimeInterface
+                    && $ancienDepart->getTimestamp() !== $nouveauDepart->getTimestamp()
+                ) {
+                    // flush: false → les réservations sont écrites par le flush FINAL, avec le voyage.
+                    // Flusher ici enregistrerait la nouvelle date avant les contrôles qui suivent
+                    // (disponibilité du car…) : un refus laisserait la base à moitié modifiée.
+                    // L'ancienne date sert à détecter une AVANCE : les clients déjà payés qui ne
+                    // pourront pas suivre ne seront pas pénalisés (le changement vient de nous).
+                    $this->reservationEcheance->replanifierPourVoyage($data, $ancienDepart, flush: false);
+                }
+
                 $oldCarId = $original['car_id'] ?? null; /*
                     - On récupère l'ancine car en cas de changement de car
                 */
@@ -133,6 +173,38 @@ class VoyageProcessor implements ProcessorInterface
                 if($newCar) {
                     $newCarId = $newCar->getId();
                     if($oldCarId !== $newCarId) {
+                        $this->carStatutService->verifierDisponibiliteVoyage($newCar); /*
+                            - On vérifie la disponibilité du nouveau car avant d'affecter
+                        */
+
+                        /*
+                            Le véhicule doit pouvoir HONORER ce qui est déjà engagé : billets émis ET
+                            réservations qui tiennent une place. MÊME garde qu'AffectcarProcessor (endpoint
+                            /affectcar) — la réattribution ci-dessous ne compte QUE les billets, pas les
+                            réservations : sans ce contrôle, ce chemin PATCH laissait passer un car trop
+                            petit pour billets + réservations, et le manque se découvrait à l'émission d'un
+                            billet de réservation, face à un client déjà payé. On compare l'occupation
+                            maximale d'un segment (un même siège porte plusieurs billets sur des tronçons
+                            disjoints), et non un total de billets.
+                        */
+                        $occupation = $this->capaciteService->occupationMaximale($data, $entrepriseId);
+                        if ($occupation > $newCar->getNbrsiege()) {
+                            throw new BadRequestHttpException(sprintf(
+                                'Ce véhicule (%d place(s)) ne peut pas accueillir les %d place(s) déjà engagées sur ce voyage (billets émis et réservations). Choisissez un véhicule plus grand.',
+                                $newCar->getNbrsiege(),
+                                $occupation
+                            ));
+                        }
+
+                        /*
+                            Les sièges sont liés au CAR, pas au voyage : au changement de car, les billets
+                            pointent des sièges de l'ancien car. On les rattache au nouveau (reprise du
+                            numéro, sinon réattribution sur un siège libre — cf. ReaffectationSiegeService).
+                            Fait AVANT de basculer les statuts : un refus (car trop petit pour rasseoir tout
+                            le monde) ne laisse alors aucun effet de bord.
+                        */
+                        $this->reaffectationSiege->reaffecter($data, $newCar, $entrepriseId);
+
                         $oldMat = null;
                         if($oldCarId) {
                             $oldCar = $this->em->getRepository(Car::class)->find($oldCarId);
@@ -143,33 +215,7 @@ class VoyageProcessor implements ProcessorInterface
                                 */
                             }
                         }
-                        $this->carStatutService->verifierDisponibiliteVoyage($newCar); /*
-                            - On vérifie la disponibilité du nouveau car avant d'affecter
-                        */
                         $this->carStatutService->mettreEnVoyage($newCar);
-
-                        /* On.. vu que les les sièges sont liés au car et pas au voyage, quand on change le car les anciens tickets pointait vers des sièges de l'ancien car donc on a réaffecter les sièges automatiquement
-                         */
-                        $tickets = $this->em->getRepository(Ticket::class)->findBy([
-                            'voyage' => $data,
-                            'deletedAt' => null
-                        ]); /*
-                            - On récupère les tickets actifs du voyage
-                        */
-                        foreach($tickets as $ticket) {
-                            $ancienNumero = $ticket->getSiege()->getNumero();
-                            $nouveauSiege = $this->em->getRepository(Siege::class)->findOneBy([
-                                'car' => $data->getCar(),
-                                'numero' => $ancienNumero
-                            ]); /*
-                                - On cherche le siège de même numéro dans le nouveau car
-                            */
-                            if($nouveauSiege) {
-                                $ticket->setSiege($nouveauSiege);
-                            } /*
-                                - Si le siège n'existe pas dans le nouveau car ou capacité différente.. déjà gérer
-                            */
-                        }
 
                         // Journal : on trace le changement de car (l'ancien matricule serait perdu sinon)
                         $this->activiteLogger->voyage(
@@ -218,10 +264,23 @@ class VoyageProcessor implements ProcessorInterface
             }
 
             $places = $data->getCar()->getNbrSiege();
-            if($data->getTicketsCount() > $places) { /*
-                - On vérifie que les billets déjà vendus ne dépassent pas la capacité du nouveau car en cas de 'patch'
+            /*
+                MÊME garde que la route dédiée /voyages/{id}/affectcar (AffectcarProcessor) : le champ
+                'car' est aussi dans 'write:Voyage:update', ce chemin-ci doit donc valoir l'autre.
+                L'ancien contrôle comparait getTicketsCount() à la capacité — il ignorait les
+                réservations (payées comprises) et, la vente se faisant PAR TRONÇON, comptait plusieurs
+                fois un siège revendu sur des tronçons disjoints. On compare l'occupation maximale d'un
+                segment, seule grandeur qu'un véhicule doit pouvoir absorber.
             */
-                throw new BadRequestHttpException('Impossible de changer de Car : les places déjà occupées dépassent la capacité du nouveau véhicule');
+            $occupation = $data->getId() === null
+                ? 0 // voyage en cours de création : rien n'est encore engagé
+                : $this->capaciteService->occupationMaximale($data, (int) $data->getIdentreprise());
+            if($occupation > $places) {
+                throw new BadRequestHttpException(sprintf(
+                    'Ce véhicule (%d place(s)) ne peut pas accueillir les %d place(s) déjà engagées sur ce voyage (billets émis et réservations). Choisissez un véhicule plus grand.',
+                    $places,
+                    $occupation
+                ));
             }
             $data->setPlacesTotal($places);
         }

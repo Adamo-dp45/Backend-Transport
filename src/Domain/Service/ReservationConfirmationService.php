@@ -5,6 +5,7 @@ namespace App\Domain\Service;
 use App\Domain\Enum\ReservationStatus;
 use App\Entity\Reservation;
 use App\Repository\ReservationRepository;
+use App\Security\VoyageGuard;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -19,7 +20,10 @@ class ReservationConfirmationService
 {
     public function __construct(
         private EntityManagerInterface $em,
-        private ReservationRepository $reservationRepository
+        private ReservationRepository $reservationRepository,
+        private ReservationEcheanceService $echeance,
+        private CapaciteService $capaciteService,
+        private VoyageGuard $voyageGuard
     )
     {
     }
@@ -44,10 +48,29 @@ class ReservationConfirmationService
             return $reservation;
         }
         if ($reservation->getDateexpiration() !== null && $reservation->getDateexpiration() <= new \DateTimeImmutable()) {
-            return $reservation; // bon expiré : ne pas confirmer (paiement tardif à rembourser côté presta)
+            return $reservation; // bon expiré : ne pas confirmer — politique maison : AUCUN remboursement
         }
         if ($reservation->getVoyage()?->getDatearriveereelle() !== null) {
             return $reservation; // voyage clôturé
+        }
+        /*
+            Car déjà reparti de la gare de montée : on ne confirme pas un paiement pour une place qui
+            ne pourra pas être occupée. Le passage du car clôt normalement l'échéance (contrôle
+            ci-dessus), ce garde-fou tient même si ce recalcul n'a pas eu lieu.
+        */
+        if ($this->voyageGuard->monteeDepassee($reservation->getVoyage(), $reservation->getGare())) {
+            return $reservation;
+        }
+
+        /*
+            CAPACITÉ au moment du paiement. Une réservation EN ATTENTE ne tient aucune place : entre sa
+            création et son paiement, le guichet (ou d'autres réservations payées) a pu remplir le
+            tronçon (car plus petit, ventes au guichet). Confirmer reviendrait à encaisser un client à
+            qui on ne pourra JAMAIS émettre de billet. Cas devenu rare depuis que la réservation tient
+            sa place le temps du paiement — mais pas impossible, d'où cette garde.
+        */
+        if (!$this->capaciteService->placeEncoreDisponiblePour($reservation)) {
+            return $reservation;
         }
 
         $reservation
@@ -55,8 +78,25 @@ class ReservationConfirmationService
             ->setDatepaiement(new \DateTimeImmutable())
             ->setStatut(ReservationStatus::STATUT_CONFIRMEE->value);
 
+        /*
+            L'échéance change de NATURE au paiement : elle portait le délai de PAIEMENT (court, compté
+            depuis la création), elle porte désormais le délai de PRÉSENTATION au guichet. Sans cela,
+            un client ayant payé aurait été déclaré no-show à l'heure limite de paiement — alors qu'il
+            lui reste tout le temps jusqu'au passage du car pour retirer son billet.
+            À partir d'ici la place est TENUE (statut CONFIRMEE, cf. CapaciteService).
+        */
+        $presentation = $this->echeance->limitePresentationPour(
+            $reservation->getVoyage(),
+            $reservation->getGare(),
+            (int) $reservation->getIdentreprise()
+        );
+        if ($presentation !== null) {
+            $reservation->setDateexpiration($presentation);
+        }
+
         $this->em->flush();
 
         return $reservation;
     }
+
 }

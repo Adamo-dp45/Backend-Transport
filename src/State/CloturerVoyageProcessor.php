@@ -30,7 +30,8 @@ class CloturerVoyageProcessor implements ProcessorInterface
         private VoyageRepository $voyageRepository,
         private VoyageGuard $guard,
         private CarStatutService $carStatutService,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private \App\Domain\Service\PassageService $passageService
     )
     {
     }
@@ -66,6 +67,9 @@ class CloturerVoyageProcessor implements ProcessorInterface
         $voyage
             ->setDatearriveereelle($arrivee)
             ->setUpdatedBy($user->getId());
+
+        // Passage réel : arrivée du car au TERMINUS (fin du trajet, pas de départ après lui).
+        $this->passageService->marquerArrivee($voyage, $voyage->getLigne()?->getGareterminus(), $arrivee);
 
         if($voyage->getCar()) {
             $this->carStatutService->mettreDisponible($voyage->getCar()); // le car redevient disponible

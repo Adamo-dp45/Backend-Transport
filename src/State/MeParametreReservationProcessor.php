@@ -39,7 +39,8 @@ class MeParametreReservationProcessor implements ProcessorInterface
 
         $parametre = $this->config->getParametre($user->getEntreprise()->getId());
         $parametre
-            ->setDelaiExpirationMinutes($data->delaiExpirationMinutes)
+            ->setDelaiPresentationMinutes((int) $data->delaiPresentationMinutes)
+            ->setDelaiPaiementMinutes((int) $data->delaiPaiementMinutes)
             ->setPenaliteType($data->penaliteType ?? 'AUCUNE')
             ->setPenaliteValeur($valeur)
             ->setFenetreRegularisationJours((int) $data->fenetreRegularisationJours)

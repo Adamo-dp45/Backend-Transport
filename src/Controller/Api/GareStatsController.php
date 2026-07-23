@@ -54,7 +54,11 @@ final class GareStatsController extends AbstractController
         $desistLibelles = [];
         foreach ($ticketRepository->desistementsParGare($debut, $fin, $ent) as $r) {
             $id = (int) $r['gareid'];
-            $desist[$id] = ['annules' => (int) $r['nbannules'], 'reportes' => (int) $r['nbreportes']];
+            $desist[$id] = [
+                'annules' => (int) $r['nbannules'],
+                'reportes' => (int) $r['nbreportes'],
+                'reportesEviction' => (int) ($r['nbreportesEviction'] ?? 0), // dont imputables à la compagnie
+            ];
             $desistLibelles[$id] = $r['garelibelle'];
         }
 
@@ -139,6 +143,7 @@ final class GareStatsController extends AbstractController
                 'nbAgents' => $nbAgents[$id] ?? 0,
                 'ticketsAnnules' => $desist[$id]['annules'] ?? 0,
                 'ticketsReportes' => $desist[$id]['reportes'] ?? 0,
+                'ticketsReportesEviction' => $desist[$id]['reportesEviction'] ?? 0, // dont relogements d'évincés (compagnie)
                 'remiseTotale' => $remiseParGare[$id]['total'] ?? 0,
                 'remiseNb' => $remiseParGare[$id]['nb'] ?? 0,
                 'serieJour' => array_map(fn ($j) => $serie[$id][$j] ?? 0, $joursAxis),

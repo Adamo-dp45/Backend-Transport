@@ -7,6 +7,7 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\ReservationStatus;
 use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\EmissionBilletService;
+use App\Domain\Service\ReservationEcheanceService;
 use App\Domain\Service\ReservationRegularisationService;
 use App\Entity\Reservation;
 use App\Entity\User;
@@ -35,7 +36,8 @@ class RegulariserReservationProcessor implements ProcessorInterface
         private ReservationRegularisationService $regularisation,
         private EmissionBilletService $emissionBillet,
         private ActiviteLogger $activiteLogger,
-        private GareGuard $gareGuard
+        private GareGuard $gareGuard,
+        private ReservationEcheanceService $echeance
     )
     {
     }
@@ -88,16 +90,30 @@ class RegulariserReservationProcessor implements ProcessorInterface
                 ->setMontantcomplement($calcul['complement'])
                 ->setStatut(ReservationStatus::STATUT_CONFIRMEE->value)
                 ->setTicket($ticket)
+                // L'exonération couvrait CE report-là : une fois consommée, la réservation repart
+                // sur un pied normal (un no-show ultérieur, lui, serait bien du fait du client).
+                ->setPenaliteexoneree(false)
                 ->setUpdatedBy($user->getId());
+
+            /*
+                La réservation change de départ : son échéance doit suivre, sinon elle continue de
+                pointer sur l'ANCIEN départ — une date passée, incohérente avec le voyage désormais
+                rattaché. Sans effet fonctionnel (le billet est émis dans la foulée, ce qui exclut la
+                réservation des holds comme du cron), mais on ne laisse pas une donnée fausse en base.
+            */
+            $presentation = $this->echeance->limitePresentationPour($cible, $reservation->getGare(), $entrepriseId);
+            if ($presentation !== null) {
+                $reservation->setDateexpiration($presentation);
+            }
 
             $this->activiteLogger->log(
                 'RESERVATION_REGULARISEE',
                 sprintf(
-                    'Réservation %s régularisée : report %s → %s (pénalité %d, complément %d FCFA) — billet %s',
+                    'Réservation %s régularisée : report %s → %s (pénalité %s, complément %d FCFA) — billet %s',
                     $reservation->getCode(),
                     $ancienVoyage,
                     $cible->getCodevoyage(),
-                    $calcul['penalite'],
+                    $calcul['exoneree'] ? 'exonérée (départ avancé par la compagnie)' : $calcul['penalite'] . ' FCFA',
                     $calcul['complement'],
                     $ticket->getCodeticket()
                 ),

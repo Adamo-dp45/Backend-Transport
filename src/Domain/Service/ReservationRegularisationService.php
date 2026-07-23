@@ -6,6 +6,7 @@ use App\Domain\Enum\ReservationStatus;
 use App\Entity\Reservation;
 use App\Entity\Voyage;
 use App\Repository\TarifRepository;
+use App\Security\VoyageGuard;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
 /**
@@ -20,13 +21,15 @@ class ReservationRegularisationService
 {
     public function __construct(
         private TarifRepository $tarifRepository,
-        private ReservationConfigService $config
+        private ReservationConfigService $config,
+        private ReservationEcheanceService $echeance,
+        private VoyageGuard $voyageGuard
     )
     {
     }
 
     /**
-     * @return array{penalite:int, complement:int, prixInitial:int, nouveauPrix:int, total:int}
+     * @return array{penalite:int, complement:int, prixInitial:int, nouveauPrix:int, total:int, exoneree:bool}
      */
     public function calculer(Reservation $reservation, Voyage $cible): array
     {
@@ -50,13 +53,6 @@ class ReservationRegularisationService
             throw new BadRequestHttpException('Le départ cible n\'a ni ligne ni date de départ');
         }
 
-        // Le nouveau départ doit encore être réservable (départ − délai dans le futur)
-        $delaiMinutes = $this->config->getParametre($entrepriseId)->getDelaiExpirationMinutes();
-        $deadline = $cible->getDatedepartprevue()->modify('-' . $delaiMinutes . ' minutes');
-        if ($deadline <= new \DateTimeImmutable()) {
-            throw new BadRequestHttpException('Ce départ est trop proche ou déjà passé : choisissez un départ ultérieur');
-        }
-
         // La ligne du départ cible doit desservir le tronçon montée → descente de la réservation
         $ordreParGare = [];
         foreach ($ligne->getArrets() as $arret) {
@@ -67,6 +63,28 @@ class ReservationRegularisationService
         if ($ordreMontee === null || $ordreDescente === null || $ordreMontee >= $ordreDescente) {
             throw new BadRequestHttpException('Ce départ ne dessert pas le trajet de la réservation (' . ($reservation->getGare()?->getLibelle() ?? '?') . ' → ' . ($reservation->getGaredescente()?->getLibelle() ?? '?') . ')');
         }
+
+        /*
+            Le nouveau départ doit encore être réservable POUR CE CLIENT : il doit lui rester le temps
+            de se présenter à SA gare de montée, où le car passe plus tard que l'heure de départ du
+            voyage. Contrôlé après la validation du tronçon, qui garantit que la montée est bien un
+            arrêt de la ligne cible.
+        */
+        $deadline = $this->echeance->limitePresentationPour($cible, $reservation->getGare(), $entrepriseId);
+        if ($deadline === null || $deadline <= new \DateTimeImmutable()) {
+            throw new BadRequestHttpException('Ce départ est trop proche ou déjà passé : choisissez un départ ultérieur');
+        }
+        /*
+            Le car ne doit pas avoir DÉJÀ QUITTÉ la gare de montée du client. L'échéance ci-dessus ne
+            le couvre pas : elle se calcule sur l'horaire PRÉVU, qui reste dans le futur pour un car
+            parti en avance. Même garde que la création et les deux paiements — la régularisation
+            était le dernier chemin par lequel on pouvait encore placer quelqu'un sur un car parti.
+        */
+        $this->voyageGuard->assertMonteeNonDepassee(
+            $cible,
+            $reservation->getGare(),
+            'Le car de ce départ a déjà quitté ' . ($reservation->getGare()?->getLibelle() ?? 'la gare de montée') . ' : choisissez un autre départ.'
+        );
 
         $prixInitial = (int) $reservation->getPrix();
 
@@ -79,7 +97,15 @@ class ReservationRegularisationService
         $tarifActuel = $tarif ? (int) $tarif->getMontant() : $prixInitial;
         $complement = max(0, $tarifActuel - $prixInitial);
 
-        $penalite = $this->config->getParametre($entrepriseId)->calculerPenalite($prixInitial);
+        /*
+            Pas de pénalité si le no-show nous est imputable (départ avancé après le paiement) : la
+            réservation porte alors le marqueur posé à la replanification. Le complément tarifaire
+            reste dû dans tous les cas — c'est le prix du trajet, pas une sanction.
+        */
+        $exoneree = $reservation->isPenaliteexoneree();
+        $penalite = $exoneree
+            ? 0
+            : $this->config->getParametre($entrepriseId)->calculerPenalite($prixInitial);
 
         return [
             'penalite' => $penalite,
@@ -87,6 +113,7 @@ class ReservationRegularisationService
             'prixInitial' => $prixInitial,
             'nouveauPrix' => $prixInitial + $complement,
             'total' => $penalite + $complement,
+            'exoneree' => $exoneree,
         ];
     }
 }

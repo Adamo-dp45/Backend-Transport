@@ -353,7 +353,10 @@ class TicketRepository extends ServiceEntityRepository
      * Désistements par gare d'émission : nombre de billets ANNULÉS et REPORTÉS par gare sur la période
      * (selon la date d'émission du billet, cohérent avec les autres métriques de la page « par gare »).
      *
-     * @return array<int, array{gareid:int, garelibelle:string, nbannules:int, nbreportes:int}>
+     * nbreportesEviction : parmi les reportés, ceux imputables à la COMPAGNIE (billet évincé relogé) —
+     * à distinguer d'un désistement volontaire du client.
+     *
+     * @return array<int, array{gareid:int, garelibelle:string, nbannules:int, nbreportes:int, nbreportesEviction:int}>
      */
     public function desistementsParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
@@ -362,7 +365,8 @@ class TicketRepository extends ServiceEntityRepository
                 'g.id AS gareid',
                 'g.libelle AS garelibelle',
                 "SUM(CASE WHEN t.statut = 'ANNULE' THEN 1 ELSE 0 END) AS nbannules",
-                "SUM(CASE WHEN t.statut = 'REPORTE' THEN 1 ELSE 0 END) AS nbreportes"
+                "SUM(CASE WHEN t.statut = 'REPORTE' THEN 1 ELSE 0 END) AS nbreportes",
+                "SUM(CASE WHEN t.statut = 'REPORTE' AND t.desistementImputableCompagnie = true THEN 1 ELSE 0 END) AS nbreportesEviction"
             )
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
@@ -654,6 +658,27 @@ class TicketRepository extends ServiceEntityRepository
             ->groupBy('t.statut')
             ->getQuery()
             ->getArrayResult();
+    }
+
+    /**
+     * Nombre de billets REPORTE imputables à la COMPAGNIE (relogement d'un billet évincé) sur la période.
+     * Sert à retrancher ces reports du taux de désistement : la compagnie les a provoqués, ce ne sont
+     * pas des renoncements du client.
+     */
+    public function compteReportesImputablesCompagnie(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): int
+    {
+        return (int) $this->createQueryBuilder('t')
+            ->select('COUNT(t.id)')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'REPORTE'")
+            ->andWhere('t.desistementImputableCompagnie = true')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     /**

@@ -179,29 +179,103 @@ class VoyageRepository extends ServiceEntityRepository
     }
 
     /**
-     * Voyages À VENIR (départ prévu futur, ni partis ni clôturés) dont la ligne dessert le tronçon
-     * provenance → destination (provenance AVANT destination). Pour le choix du départ côté client.
+     * Voyages NON CLÔTURÉS dont la ligne dessert le tronçon provenance → destination (provenance
+     * AVANT destination). Pour le choix du départ côté client.
+     *
+     * Les voyages DÉJÀ PARTIS ne sont plus exclus : sur une ligne Abidjan → Bouaké → Korhogo, un car
+     * qui a quitté Abidjan reste réservable au départ de Bouaké, où il n'est pas encore passé. Le
+     * tri se fait à la maille de la GARE DE MONTÉE, ce que le SQL ne sait pas faire ici — c'est
+     * DepartsPubliquesProvider qui écarte les départs dont la montée est dépassée ou trop proche.
+     * D'où le garde-fou temporel large ci-dessous : borner sur le départ du voyage couperait
+     * justement les montées en aval, encore valables plusieurs heures après.
      *
      * @return Voyage[]
      */
     public function findFutursPourTroncon(int $provenanceId, int $destinationId, int $identreprise): array
     {
         return $this->createQueryBuilder('v')
-            ->join('v.ligne', 'l')
+            ->join('v.ligne', 'l')->addSelect('l')
             ->join('l.arrets', 'ap', 'WITH', 'ap.gare = :prov')
             ->join('l.arrets', 'ad', 'WITH', 'ad.gare = :dest')
             ->andWhere('ap.ordre < ad.ordre') // provenance avant destination sur la ligne
+            /*
+                Hydratation des arrêts par une jointure SÉPARÉE et NON filtrée : le provider a besoin
+                de la collection COMPLÈTE (ordres, durées, position du car). Ajouter un addSelect sur
+                'ap'/'ad' la réduirait aux deux arrêts du filtre — collection tronquée en mémoire.
+            */
+            ->leftJoin('l.arrets', 'atous')->addSelect('atous')
+            ->leftJoin('atous.gare', 'gtous')->addSelect('gtous')
             ->andWhere('v.identreprise = :ide')
             ->andWhere('v.deletedAt IS NULL')
-            ->andWhere('v.datedepartreelle IS NULL')  // pas encore parti
             ->andWhere('v.datearriveereelle IS NULL') // pas clôturé
-            ->andWhere('v.datedepartprevue > :now')   // départ prévu futur
+            ->andWhere('v.datedepartprevue > :depuis') // écarte l'historique, pas les départs du jour
             ->setParameter('prov', $provenanceId)
             ->setParameter('dest', $destinationId)
             ->setParameter('ide', $identreprise)
-            ->setParameter('now', new \DateTimeImmutable())
+            ->setParameter('depuis', (new \DateTimeImmutable())->modify('-2 days'))
             ->distinct()
             ->orderBy('v.datedepartprevue', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Voyages NON CLÔTURÉS d'une entreprise, encore susceptibles d'accueillir une réservation.
+     *
+     * Le tri fin (car déjà passé à la gare de montée, délai de présentation restant) se fait à la
+     * maille de la GARE et dépend des durées d'arrêt : hors de portée du SQL, c'est
+     * VoyagesReservablesProvider qui tranche. Ici on ne fait qu'écarter l'historique — d'où la borne
+     * temporelle large : couper sur le départ du voyage éliminerait les montées en aval, encore
+     * valables plusieurs heures après.
+     *
+     * @return Voyage[]
+     */
+    public function findOuvertsPourEntreprise(int $identreprise): array
+    {
+        return $this->createQueryBuilder('v')
+            /*
+                Ligne + arrêts + gares HYDRATÉS : l'appelant interroge les arrêts de chaque voyage
+                (position du car, durée de trajet). Sans ce fetch-join, chaque voyage déclenchait
+                trois requêtes de plus — un N+1 sur toute la liste du sélecteur.
+                Jointures NON filtrées : une collection fetch-jointe avec un WITH serait tronquée.
+            */
+            ->leftJoin('v.ligne', 'l')->addSelect('l')
+            ->leftJoin('l.arrets', 'a')->addSelect('a')
+            ->leftJoin('a.gare', 'g')->addSelect('g')
+            ->andWhere('v.identreprise = :ide')
+            ->andWhere('v.deletedAt IS NULL')
+            ->andWhere('v.datearriveereelle IS NULL')
+            ->andWhere('v.datedepartprevue > :depuis')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('depuis', (new \DateTimeImmutable())->modify('-2 days'))
+            ->orderBy('v.datedepartprevue', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Voyages (avec ligne, arrêts et gares HYDRATÉS) pour un calcul d'occupation en lot.
+     *
+     * Une seule requête pour tout le lot : l'occupation s'appuie sur l'ordre des arrêts, qui aurait
+     * sinon déclenché trois requêtes par voyage sur une page de statistiques.
+     *
+     * @param int[] $ids
+     * @return Voyage[]
+     */
+    public function findPourOccupation(array $ids, int $identreprise): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('v')
+            ->leftJoin('v.ligne', 'l')->addSelect('l')
+            ->leftJoin('l.arrets', 'a')->addSelect('a')
+            ->leftJoin('a.gare', 'g')->addSelect('g')
+            ->andWhere('v.id IN (:ids)')
+            ->andWhere('v.identreprise = :ide')
+            ->setParameter('ids', $ids)
+            ->setParameter('ide', $identreprise)
             ->getQuery()
             ->getResult();
     }

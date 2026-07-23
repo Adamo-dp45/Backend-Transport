@@ -36,6 +36,20 @@ class Arret
     #[Groups(['read:Ligne', 'read:Voyage'])]
     private ?int $ordre = null; // 0 = origine, N = terminus : Abidjan=0, Yamoussoukro=1, Bouaké=2, Korhogo=3
 
+    /*
+        Minutes de trajet du TRONÇON qui MÈNE à cet arrêt (depuis l'arrêt précédent). NULL à l'origine
+        (aucun tronçon avant elle). L'heure de passage prévue du car à un arrêt est la SOMME des tronçons
+        de l'origine effective jusqu'à lui (cf. ReservationEcheanceService::heurePassage), ajoutée à
+        'voyage.datedepartprevue'.
+
+        Saisir par tronçon (« Abidjan→Bouaké = 240, Bouaké→Korhogo = 180 ») est plus naturel que saisir
+        un cumul, et donne aussi le temps de trajet théorique de chaque segment. Nullable = ligne pas
+        encore renseignée (tout-ou-rien) : on retombe alors sur le départ du voyage (ancien comportement).
+    */
+    #[ORM\Column(nullable: true)]
+    #[Groups(['read:Ligne', 'read:Voyage'])]
+    private ?int $dureeTronconMinutes = null;
+
     #[ORM\Column(nullable: true)]
     private ?int $identreprise = null;
 
@@ -76,6 +90,18 @@ class Arret
     public function setOrdre(int $ordre): static
     {
         $this->ordre = $ordre;
+
+        return $this;
+    }
+
+    public function getDureeTronconMinutes(): ?int
+    {
+        return $this->dureeTronconMinutes;
+    }
+
+    public function setDureeTronconMinutes(?int $dureeTronconMinutes): static
+    {
+        $this->dureeTronconMinutes = $dureeTronconMinutes;
 
         return $this;
     }

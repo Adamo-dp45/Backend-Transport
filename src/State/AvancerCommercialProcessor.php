@@ -26,7 +26,8 @@ class AvancerCommercialProcessor implements ProcessorInterface
         private ProcessorInterface $processor,
         private Security $security,
         private EntityManagerInterface $em,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private \App\Domain\Service\PassageService $passageService
     )
     {
     }
@@ -90,6 +91,9 @@ class AvancerCommercialProcessor implements ProcessorInterface
         }
 
         $voyage->setGarecourante($data->gare);
+
+        // Passage réel : le commercial déclare que le car est ARRIVÉ à cette gare.
+        $this->passageService->marquerArrivee($voyage, $data->gare, new \DateTimeImmutable());
 
         $this->activiteLogger->voyage(
             ActiviteLogger::VOYAGE_POSITION,

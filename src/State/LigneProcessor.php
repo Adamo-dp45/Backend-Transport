@@ -99,6 +99,7 @@ class LigneProcessor implements ProcessorInterface
         $position = 0;
         $gareOrigine = null;
         $gareTerminus = null;
+        $nbTroncons = 0; // tronçons (hors origine) renseignés — pour valider le TOUT-OU-RIEN
 
         foreach ($arrets as $arretInput) {
             $gareId = (int) ($arretInput['gare'] ?? 0);
@@ -123,10 +124,35 @@ class LigneProcessor implements ProcessorInterface
                 throw new NotFoundHttpException(sprintf('Gare invalide (id %d) dans les arrêts', $gareId));
             }
 
+            /*
+                DURÉE du TRONÇON menant à cet arrêt (minutes de trajet depuis l'arrêt précédent) : donne,
+                par cumul, l'heure de passage du car — dont dépend l'échéance de présentation. L'origine
+                n'a pas de tronçon (null) ; les suivants, s'ils sont renseignés, sont STRICTEMENT positifs.
+                Facultative (une ligne peut ne pas les avoir), mais tout-ou-rien (validé après la boucle).
+            */
+            $duree = $arretInput['dureeTronconMinutes'] ?? null;
+            $duree = ($duree === null || $duree === '') ? null : (int) $duree;
+            if ($position === 0) {
+                // Origine : aucun tronçon avant elle → on normalise à null.
+                if ($duree !== null && $duree !== 0) {
+                    throw new BadRequestHttpException('Le premier arrêt (l\'origine) n\'a pas de tronçon : laissez sa durée vide.');
+                }
+                $duree = null;
+            } elseif ($duree !== null) {
+                if ($duree <= 0) {
+                    throw new BadRequestHttpException(sprintf(
+                        'La durée du tronçon menant à %s doit être strictement positive (minutes depuis l\'arrêt précédent).',
+                        $gare->getLibelle()
+                    ));
+                }
+                $nbTroncons++;
+            }
+
             $arret = new Arret();
             $arret
                 ->setGare($gare)
                 ->setOrdre($ordre)
+                ->setDureeTronconMinutes($duree)
                 ->setIdentreprise($entrepriseId);
             $ligne->addArret($arret);
 
@@ -137,6 +163,17 @@ class LigneProcessor implements ProcessorInterface
             }
             $gareTerminus = $gare; // le dernier itéré = terminus
             $position++;
+        }
+
+        // TOUT-OU-RIEN : soit tous les tronçons (hors origine) sont renseignés, soit aucun. Une saisie
+        // partielle ferait retomber heurePassage sur le départ du voyage sans le dire — donc trompeuse.
+        $nbAttendus = count($arrets) - 1;
+        if ($nbTroncons !== 0 && $nbTroncons !== $nbAttendus) {
+            throw new BadRequestHttpException(sprintf(
+                'Durées de tronçon incomplètes (%d/%d renseignés) : renseignez tous les tronçons, ou aucun.',
+                $nbTroncons,
+                $nbAttendus
+            ));
         }
 
         $ligne->setGareorigine($gareOrigine);

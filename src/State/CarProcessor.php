@@ -194,6 +194,27 @@ class CarProcessor implements ProcessorInterface
             if(!is_array($ligne)) {
                 continue;
             }
+            /*
+                MARQUEUR DE RANGÉE (1re cellule, chaîne) : « B » = BANQUETTE. C'est l'intention SAISIE
+                dans le plan (« B: 57 58 59 60 61 »), pas une déduction : une banquette reste une
+                banquette même si elle ne remplit pas toute la largeur (porte arrière, etc.).
+                Le marqueur ne compte pas comme une colonne. Le 'cote' qui en découle est exposé par
+                l'API ('ARRIERE') : AUCUN client n'a à redécouvrir la règle.
+            */
+            $cote = 'GRILLE';
+            if(isset($ligne[0]) && is_string($ligne[0])) {
+                $marqueur = strtoupper(trim($ligne[0]));
+                if($marqueur !== 'B') {
+                    throw new BadRequestHttpException(sprintf(
+                        'Marqueur de rangée inconnu « %s » à la rangée %d (attendu : « B » pour banquette).',
+                        $ligne[0],
+                        $rangee
+                    ));
+                }
+                $cote = 'ARRIERE';
+                array_shift($ligne);
+            }
+
             $colonne = 0;
             foreach($ligne as $cellule) {
                 $colonne++;
@@ -204,7 +225,7 @@ class CarProcessor implements ProcessorInterface
                 if(isset($plan[$numero])) {
                     throw new BadRequestHttpException(sprintf('Le siège n°%d apparaît plusieurs fois dans le plan.', $numero));
                 }
-                $plan[$numero] = [$rangee, $colonne, 'GRILLE'];
+                $plan[$numero] = [$rangee, $colonne, $cote];
             }
         }
         if(empty($plan)) {

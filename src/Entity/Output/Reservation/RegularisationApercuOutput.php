@@ -25,6 +25,9 @@ class RegularisationApercuOutput
         public readonly int $nouveauPrix = 0,
         #[Groups(['read:RegularisationApercu'])]
         public readonly int $total = 0,
+        /** Pénalité annulée car le no-show vient d'un départ avancé par la compagnie. */
+        #[Groups(['read:RegularisationApercu'])]
+        public readonly bool $exoneree = false,
     ) {
     }
 }

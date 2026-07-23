@@ -57,10 +57,28 @@ class ParametreReservation extends EntityBase implements EntrepriseOwnedInterfac
     #[Groups(['read:ParametreReservation'])]
     private ?int $id = null;
 
-    /** Délai (minutes) avant le départ au-delà duquel la place n'est plus tenue (0 = jusqu'au départ). */
-    #[ORM\Column(options: ['default' => 120])]
+    /*
+        DEUX délais DISTINCTS — ils répondent à deux questions différentes, les confondre revenait à
+        traiter en no-show un client qui avait payé et se présentait 1h30 avant le départ.
+    */
+
+    /**
+     * Délai (minutes) AVANT LE DÉPART au-delà duquel une réservation payée n'est plus honorée : le
+     * client doit s'être présenté au guichet avant. C'est aussi la limite de réservation d'un départ.
+     * 0 = jusqu'au départ.
+     */
+    #[ORM\Column(options: ['default' => 15])]
     #[Groups(['read:ParametreReservation'])]
-    private int $delaiExpirationMinutes = 120;
+    private int $delaiPresentationMinutes = 15;
+
+    /**
+     * Délai (minutes) À PARTIR DE LA CRÉATION laissé pour payer une réservation en attente. Ancré sur
+     * la création (et non sur le départ) : réserver un départ dans trois semaines ne doit pas donner
+     * trois semaines pour payer. Toujours borné par le délai de présentation ci-dessus.
+     */
+    #[ORM\Column(options: ['default' => 30])]
+    #[Groups(['read:ParametreReservation'])]
+    private int $delaiPaiementMinutes = 30;
 
     /**
      * Politique de pénalité appliquée à la RÉGULARISATION d'une réservation payée en no-show :
@@ -91,14 +109,26 @@ class ParametreReservation extends EntityBase implements EntrepriseOwnedInterfac
         return $this->id;
     }
 
-    public function getDelaiExpirationMinutes(): int
+    public function getDelaiPresentationMinutes(): int
     {
-        return $this->delaiExpirationMinutes;
+        return $this->delaiPresentationMinutes;
     }
 
-    public function setDelaiExpirationMinutes(int $delaiExpirationMinutes): static
+    public function setDelaiPresentationMinutes(int $delaiPresentationMinutes): static
     {
-        $this->delaiExpirationMinutes = $delaiExpirationMinutes;
+        $this->delaiPresentationMinutes = $delaiPresentationMinutes;
+
+        return $this;
+    }
+
+    public function getDelaiPaiementMinutes(): int
+    {
+        return $this->delaiPaiementMinutes;
+    }
+
+    public function setDelaiPaiementMinutes(int $delaiPaiementMinutes): static
+    {
+        $this->delaiPaiementMinutes = $delaiPaiementMinutes;
 
         return $this;
     }

@@ -23,10 +23,12 @@ use App\State\AffectpersonnelProcessor;
 use App\State\AnnulerDepannageProcessor;
 use App\State\CloturerDepannageProcessor;
 use App\State\DepannageProcessor;
+use App\State\DepannageProvider;
 use App\State\SoftDeleteProcessor;
 use ArrayObject;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
+use Doctrine\Common\Collections\Criteria;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
@@ -41,6 +43,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
     operations: [
         new GetCollection(
             security: "is_granted('VOIR', 'Depannage')",
+            provider: DepannageProvider::class, // agrégats de pièces (COUNT + SUM groupés)
             openapi: new Operation(
                 summary: 'La liste des dépannages',
                 description: 'Permet de voir la liste des dépannages',
@@ -50,6 +53,10 @@ use Symfony\Component\Serializer\Attribute\Groups;
         new Get(
             security: "is_granted('VOIR', object)",
             requirements: ['id' => '\d+'],
+            provider: DepannageProvider::class,
+            normalizationContext: ['groups' => ['read:Depannage', 'read:Base', 'read:Depannage:item'], 'skip_null_values' => false], /*
+                - Seule la FICHE embarque les listes (intervenants, pièces) ; la LISTE reçoit les agrégats.
+            */
             openapi: new Operation(
                 summary: 'Le dépannage',
                 description: 'Permet de voir un dépannage',
@@ -227,14 +234,24 @@ class Depannage extends EntityBase implements EntrepriseOwnedInterface
      * @var Collection<int, Detaildepannage>
      */
     #[ORM\OneToMany(targetEntity: Detaildepannage::class, mappedBy: 'depannage')]
-    #[Groups(['read:Depannage', 'read:Personnel'])]
+    #[Groups(['read:Depannage:item', 'read:Personnel'])] /*
+        - Fiche uniquement ('read:Personnel' conservé : la fiche personnel expose ces interventions).
+          La LISTE reçoit les agrégats ci-dessous, calculés en COUNT + SUM par 'DepannageProvider'.
+    */
     private Collection $detaildepannages;
+
+    // Transients (NON mappés) : agrégats des pièces, renseignés par 'DepannageProvider' en une requête.
+    #[Groups(['read:Depannage'])]
+    private ?int $detaildepannagesCount = null;
+
+    #[Groups(['read:Depannage'])]
+    private ?int $piecesQuantiteTotale = null;
 
     /**
      * @var Collection<int, Detailpersonnel>
      */
     #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'depannage')]
-    #[Groups(['read:Depannage'])]
+    #[Groups(['read:Depannage:item'])] // fiche uniquement — la liste utilise getDetailpersonnelsCount()
     private Collection $detailpersonnels;
 
     #[ORM\ManyToOne(inversedBy: 'depannages')]
@@ -350,6 +367,45 @@ class Depannage extends EntityBase implements EntrepriseOwnedInterface
     public function getDetailpersonnels(): Collection
     {
         return $this->detailpersonnels;
+    }
+
+    /*
+        Nombre d'intervenants affectés, pour la LISTE des dépannages. 'matching(Criteria)' → COUNT SQL
+        sans hydrater ; la collection elle-même n'est sérialisée que sur la fiche ('read:Depannage:item').
+        NB : 'detaildepannages' (pièces) reste dans la liste — elle n'y sert pas qu'à compter, la liste
+        en SOMME les quantités ; l'optimiser demande un SUM côté base (cf. note de suivi).
+    */
+    #[Groups(['read:Depannage'])]
+    public function getDetailpersonnelsCount(): int
+    {
+        return $this->detailpersonnels->matching(
+            Criteria::create()->where(Criteria::expr()->isNull('deletedAt'))
+        )->count();
+    }
+
+    public function getDetaildepannagesCount(): ?int
+    {
+        return $this->detaildepannagesCount;
+    }
+
+    public function setDetaildepannagesCount(?int $detaildepannagesCount): static
+    {
+        $this->detaildepannagesCount = $detaildepannagesCount;
+
+        return $this;
+    }
+
+    /** Somme des quantités de pièces consommées (affichée telle quelle par la liste). */
+    public function getPiecesQuantiteTotale(): ?int
+    {
+        return $this->piecesQuantiteTotale;
+    }
+
+    public function setPiecesQuantiteTotale(?int $piecesQuantiteTotale): static
+    {
+        $this->piecesQuantiteTotale = $piecesQuantiteTotale;
+
+        return $this;
     }
 
     public function addDetailpersonnel(Detailpersonnel $detailpersonnel): static

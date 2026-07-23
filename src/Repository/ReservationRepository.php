@@ -18,34 +18,83 @@ class ReservationRepository extends ServiceEntityRepository
     }
 
     /**
-     * Réservations qui « tiennent » encore une place sur un voyage — c.-à-d. dont le BILLET n'est pas
-     * encore émis (r.ticket IS NULL), NON échues (dateexpiration future = deadline départ − délai) et
-     * EN_ATTENTE (place tenue en attente de paiement) OU CONFIRMEE/payée (bon tenu fermement, en
-     * attente d'émission du billet). Passé la deadline, ni l'une ni l'autre ne tient plus la place :
-     * elle se libère immédiatement pour la revente au guichet (sans attendre le cron d'expiration).
-     * Une fois le billet émis (r.ticket renseigné), c'est le ticket VALIDE qui tient la place → exclu
-     * ici pour éviter le double-comptage. Sert au calcul de capacité (cf. CapaciteService).
-     *
+     * Réservations EN ATTENTE de paiement. Elles tiennent leur place le temps du paiement (hold), et
+     * sont donc DÉJÀ déduites de la capacité ; cette requête ne sert qu'à les signaler à l'agent
+     * (« N réservations en attente de paiement »), pas à recalculer une disponibilité.
      * @return Reservation[]
      */
-    public function findActivesPourVoyage(int $voyageId, int $identreprise): array
+    public function findEnAttentePourVoyage(int $voyageId, int $identreprise): array
+    {
+        return $this->findPourVoyageParStatuts($voyageId, $identreprise, [
+            ReservationStatus::STATUT_EN_ATTENTE->value,
+        ]);
+    }
+
+    /**
+     * Réservations qui TIENNENT une place, déduites de la capacité disponible : payées (garanties
+     * jusqu'à l'heure de présentation) ou en attente de paiement (hold court). Sans billet émis — une
+     * fois le billet créé, c'est lui qui tient la place — et non échues.
+     * @return Reservation[]
+     */
+    public function findTenantPlacePourVoyage(int $voyageId, int $identreprise, ?int $exclureId = null): array
+    {
+        return $this->findPourVoyageParStatuts(
+            $voyageId,
+            $identreprise,
+            ReservationStatus::tenantsPlace(),
+            $exclureId
+        );
+    }
+
+    /**
+     * Réservations VIVANTES d'un voyage : impayées ou payées, sans billet émis, non supprimées —
+     * SANS filtre sur l'échéance, puisqu'il s'agit justement de la recalculer (replanification d'un
+     * départ). Une réservation dont l'échéance est déjà dépassée doit pouvoir être corrigée.
+     * @return Reservation[]
+     */
+    public function findVivantesPourVoyage(int $voyageId): array
     {
         return $this->createQueryBuilder('r')
+            ->andWhere('r.voyage = :voyage')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.ticket IS NULL')
+            ->andWhere('r.statut IN (:statuts)')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('statuts', [
+                ReservationStatus::STATUT_EN_ATTENTE->value,
+                ReservationStatus::STATUT_CONFIRMEE->value,
+            ])
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Réservations vivantes d'un voyage (non supprimées, sans billet émis, non échues) pour les
+     * statuts demandés.
+     * @param string[] $statuts
+     * @param int|null $exclureId réservation à ne PAS compter (celle qu'on est en train d'encaisser :
+     *                            elle tient déjà sa place, la compter la ferait échouer contre elle-même)
+     * @return Reservation[]
+     */
+    private function findPourVoyageParStatuts(int $voyageId, int $identreprise, array $statuts, ?int $exclureId = null): array
+    {
+        $qb = $this->createQueryBuilder('r')
             ->andWhere('r.voyage = :voyage')
             ->andWhere('r.identreprise = :ide')
             ->andWhere('r.deletedAt IS NULL')
             ->andWhere('r.ticket IS NULL')
             ->andWhere('r.dateexpiration > :now')
-            ->andWhere('r.statut IN (:actifs)')
+            ->andWhere('r.statut IN (:statuts)')
             ->setParameter('voyage', $voyageId)
             ->setParameter('ide', $identreprise)
-            ->setParameter('actifs', [
-                ReservationStatus::STATUT_EN_ATTENTE->value,
-                ReservationStatus::STATUT_CONFIRMEE->value,
-            ])
-            ->setParameter('now', new \DateTimeImmutable())
-            ->getQuery()
-            ->getResult();
+            ->setParameter('statuts', $statuts)
+            ->setParameter('now', new \DateTimeImmutable());
+
+        if ($exclureId !== null) {
+            $qb->andWhere('r.id <> :exclureId')->setParameter('exclureId', $exclureId);
+        }
+
+        return $qb->getQuery()->getResult();
     }
 
     public function countForEntreprise(int $identreprise): int
@@ -58,15 +107,6 @@ class ReservationRepository extends ServiceEntityRepository
             ->getSingleScalarResult();
     }
 
-    /**
-     * Passe EXPIREE toutes les réservations échues (dateexpiration dépassée) dont le billet n'est pas
-     * émis : EN_ATTENTE (jamais payées) ET CONFIRMEE/payées non retirées (no-show — l'argent est
-     * FORFAIT, non remboursable ; l'état de paiement PAYE est conservé pour distinguer un no-show
-     * payé d'un simple abandon non payé). La place est de toute façon déjà libérée côté capacité
-     * (findActivesPourVoyage ignore les échues). Bulk UPDATE.
-     *
-     * @return int nombre de réservations expirées
-     */
     /**
      * Réservations d'un client (par TÉLÉPHONE) dans une entreprise — historique invité, plus récentes
      * d'abord. Le contact est normalisé (espaces retirés) des deux côtés pour matcher malgré le format.
@@ -403,6 +443,17 @@ class ReservationRepository extends ServiceEntityRepository
     public function findARegulariser(): array
     {
         return $this->createQueryBuilder('r')
+            /*
+                Voyage + ligne + arrêts HYDRATÉS : l'appelant calcule l'heure de passage à la gare de
+                montée de CHAQUE réservation (fenêtre de régularisation). Sans ces jointures, le cron
+                repartait quatre fois en base par réservation. Jointures non filtrées : la collection
+                d'arrêts doit rester complète.
+            */
+            ->leftJoin('r.voyage', 'v')->addSelect('v')
+            ->leftJoin('r.gare', 'rg')->addSelect('rg')
+            ->leftJoin('v.ligne', 'l')->addSelect('l')
+            ->leftJoin('l.arrets', 'a')->addSelect('a')
+            ->leftJoin('a.gare', 'ag')->addSelect('ag')
             ->andWhere('r.statut = :aRegulariser')
             ->andWhere('r.ticket IS NULL')
             ->andWhere('r.deletedAt IS NULL')

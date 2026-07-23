@@ -122,7 +122,7 @@ class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelete
      * write:Gare). En LECTURE, on n'expose PAS l'objet mais son nom en chaîne via getVilleNom() (clé
      * JSON 'ville' également) → rétrocompatible avec tous les consommateurs qui lisaient 'ville' string.
      */
-    #[ORM\ManyToOne]
+    #[ORM\ManyToOne(inversedBy: 'gares')]
     #[ORM\JoinColumn(nullable: true)]
     #[Groups(['write:Gare'])]
     private ?Ville $ville = null;

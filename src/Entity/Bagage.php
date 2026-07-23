@@ -129,7 +129,8 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ApiFilter(SearchFilter::class, properties: [
     'codebagage' => 'partial',
     'voyage.id' => 'exact',
-    'statut' => 'exact'
+    'statut' => 'exact',
+    'ticket.client.id' => 'exact' // bagages d'un client (fiche client), via le billet rattaché
 ])]
 #[ApiFilter(OrderFilter::class, properties: [
     'id',
@@ -198,7 +199,7 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
      * voyage = celui du billet, identité = celle du billet, et le CANAL de vente (guichet/commercial)
      * en dérive (bagage.ticket.commercial). L'annulation du billet annule le bagage.
      */
-    #[ORM\ManyToOne]
+    #[ORM\ManyToOne(inversedBy: 'bagages')]
     #[ORM\JoinColumn(nullable: false)]
     #[Groups(['read:Bagage', 'read:Voyage'])]
     private ?Ticket $ticket = null;

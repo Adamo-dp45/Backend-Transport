@@ -25,6 +25,7 @@ use App\Entity\Interface\LigneGareScopedInterface;
 use App\Entity\Interface\HasSoftDeleteGuard;
 use App\Entity\Output\Bordereau\BordereauOutput;
 use App\Entity\Output\Bordereau\Chauffeur\BordereauChauffeurOutput;
+use App\Entity\Output\Reservation\VoyageReservableDto;
 use App\Filter\PersonnelFilter;
 use App\Repository\VoyageRepository;
 use App\State\AffectcarProcessor;
@@ -36,10 +37,13 @@ use App\State\BordereauChauffeurProvider;
 use App\State\BordereauProvider;
 use App\State\DemarrerVoyageProcessor;
 use App\State\ReceptionnerVoyageProcessor;
+use App\State\RepartirVoyageProcessor;
 use App\State\SoftDeleteProcessor;
 use App\State\VoyageProcessor;
+use App\State\VoyagesReservablesProvider;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
+use Doctrine\Common\Collections\Criteria;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -68,6 +72,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
         new Get(
             security: "is_granted('VOIR', object) or is_granted('ROLE_USER')",
             requirements: ['id' => '\d+'],
+            normalizationContext: ['groups' => ['read:Voyage', 'read:Base', 'read:Voyage:item'], 'skip_null_values' => false], /*
+                - La FICHE seule embarque les collections complètes (billets, courriers, bagages,
+                  personnel) : elle les affiche. La LISTE ne reçoit que leurs compteurs — sinon on
+                  hydrate et sérialise des collections entières juste pour afficher un nombre.
+            */
             openapi: new Operation(
                 summary: 'Le voyage',
                 description: 'Permet de voir un voyage',
@@ -106,6 +115,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 security: [['bearerAuth' => []]]
             )
         ),
+        new GetCollection(
+            security: "is_granted('VOIR', 'Voyage') or is_granted('ROLE_USER')",
+            uriTemplate: '/voyages/reservables',
+            provider: VoyagesReservablesProvider::class,
+            paginationEnabled: false,
+            output: VoyageReservableDto::class,
+            // 'skip_null_values: false' comme le reste de la ressource : sans lui, un champ nul
+            // (heurepassage pour un profil sans gare) DISPARAÎT du JSON — forme instable pour le client.
+            normalizationContext: ['groups' => ['read:VoyageReservable'], 'skip_null_values' => false],
+            openapi: new Operation(
+                summary: 'Voyages sur lesquels une réservation peut encore être créée',
+                description: 'Décision prise côté serveur : elle dépend de la gare de l\'agent, de l\'avancement réel du car et des durées de trajet par arrêt. Le guichet ne doit pas la reconstituer par des filtres. `?usage=vente` applique les règles de la VENTE au guichet : pas de délai de présentation (le passager est là) et embarquement à la position du car pour le commercial du voyage.',
+                security: [['bearerAuth' => []]]
+            )
+        ),
         new Patch(
             security: "is_granted('ROLE_USER')",
             uriTemplate: '/voyages/{id}/receptionner',
@@ -115,6 +139,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new Operation(
                 summary: 'Réceptionner un voyage à sa gare',
                 description: 'L\'agent confirme le passage du véhicule à sa gare : les courriers et bagages qui y descendent sont réceptionnés/livrés automatiquement',
+                security: [['bearerAuth' => []]]
+            )
+        ),
+        new Patch(
+            security: "is_granted('ROLE_USER')",
+            uriTemplate: '/voyages/{id}/repartir',
+            requirements: ['id' => '\d+'],
+            input: false,
+            processor: RepartirVoyageProcessor::class,
+            openapi: new Operation(
+                summary: 'Enregistrer le départ du car d\'une gare intermédiaire',
+                description: 'Horodate le départ réel du car de sa position courante (pendant de la réception). Réservé au commercial, à l\'agent de la gare où se trouve le car, ou à un admin.',
                 security: [['bearerAuth' => []]]
             )
         ),
@@ -206,9 +242,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             security: "is_granted('VOIR', 'Voyage')",
             provider: BordereauProvider::class,
             output: BordereauOutput::class,
-            normalizationContext: ['groups' => []], /*
-                - Pour qu'il normalize le output sans utilisé le groupe
-            */
+            // skip_null_values: false → les horaires réels NON encore connus (arrivée à l'origine, tout
+            // au terminus avant le passage) restent dans le JSON à null, au lieu de DISPARAÎTRE. Sinon le
+            // template lit une clé absente et plante.
+            normalizationContext: ['groups' => [], 'skip_null_values' => false],
             openapi: new Operation(
                 summary: 'Bordereau d\'un voyage par gare',
                 security: [['bearerAuth' => []]]
@@ -247,8 +284,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
     'createdAt'
 ])]
 #[ApiFilter(DateFilter::class, properties: ['datedepartprevue'])]
-#[ApiFilter(ExistsFilter::class, properties: ['datearriveereelle'])] /* Pour récupérer que les voyages en cours
+#[ApiFilter(ExistsFilter::class, properties: ['datearriveereelle', 'datedepartreelle'])] /* Pour récupérer que les voyages en cours
     - Vu que 'mysql' ne comprend pas 'null' comme une valeur 'DATETIME' valide et va l'interprèté 'WHERE datearriveereelle = 'null'' on a le 'ExistsFilter' qui lui 'datearriveereelle IS NULL' mais attend '?exists[datearriveereelle]=false'
+    - 'datedepartreelle' : idem pour ne proposer que les voyages PAS ENCORE PARTIS (sélecteur de réservation)
 */
 #[ApiFilter(PersonnelFilter::class)] /*
     - On.. filtre qui fais un join sur 'Detailpersonnel' via 'personnel.id' pour récupérer les voyages du personnel
@@ -356,14 +394,14 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
      * @var Collection<int, Detailpersonnel>
      */
     #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage'])]
+    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getDetailpersonnelsCount()
     private Collection $detailpersonnels;
 
     /**
      * @var Collection<int, Ticket>
      */
     #[ORM\OneToMany(targetEntity: Ticket::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage'])]
+    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getTicketsCount()
     private Collection $tickets;
 
     #[ORM\Column(nullable: true)]
@@ -375,15 +413,24 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
      * @var Collection<int, Courrier>
      */
     #[ORM\OneToMany(targetEntity: Courrier::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage'])]
+    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getCourriersCount()
     private Collection $courriers;
 
     /**
      * @var Collection<int, Bagage>
      */
     #[ORM\OneToMany(targetEntity: Bagage::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage'])]
+    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getBagagesCount()
     private Collection $bagages;
+
+    /**
+     * Passages réels (arrivée/départ par gare). Léger (≤ nb d'arrêts) → exposé aussi en LISTE, pour que
+     * le front sache si le car est arrivé/reparti d'une gare (boutons réception / départ, disparition).
+     * @var Collection<int, Passage>
+     */
+    #[ORM\OneToMany(targetEntity: Passage::class, mappedBy: 'voyage')]
+    #[Groups(['read:Voyage'])]
+    private Collection $passages;
 
     public function __construct()
     {
@@ -391,6 +438,7 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
         $this->tickets = new ArrayCollection();
         $this->courriers = new ArrayCollection();
         $this->bagages = new ArrayCollection();
+        $this->passages = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -684,9 +732,48 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     #[Groups(['read:Voyage'])]
     public function getTicketsCount(): int
     {
-        return $this->tickets->filter(
-            fn(Ticket $t) => $t->getDeletedAt() === null && $t->getStatut() === TicketStatus::STATUT_VALIDE->value
+        /*
+            'matching(Criteria)' et NON 'filter()' : sur une collection non chargée, Doctrine traduit le
+            critère en SQL et 'count()' devient un COUNT — la collection n'est jamais hydratée. Avec
+            'filter()', on chargeait TOUS les billets du voyage juste pour afficher un nombre, et ce sur
+            CHAQUE ligne de la liste des voyages.
+        */
+        return $this->tickets->matching(
+            Criteria::create()->where(
+                Criteria::expr()->andX(
+                    Criteria::expr()->isNull('deletedAt'),
+                    Criteria::expr()->eq('statut', TicketStatus::STATUT_VALIDE->value)
+                )
+            )
         )->count();
+    }
+
+    /*
+        Compteurs destinés à la LISTE des voyages (COUNT SQL, sans hydratation). Les collections
+        correspondantes ne sont sérialisées que sur la FICHE ('read:Voyage:item'), qui les affiche
+        réellement. On exclut les éléments supprimés (deletedAt), comme les listes affichées.
+    */
+    #[Groups(['read:Voyage'])]
+    public function getCourriersCount(): int
+    {
+        return $this->courriers->matching(self::critereActif())->count();
+    }
+
+    #[Groups(['read:Voyage'])]
+    public function getBagagesCount(): int
+    {
+        return $this->bagages->matching(self::critereActif())->count();
+    }
+
+    #[Groups(['read:Voyage'])]
+    public function getDetailpersonnelsCount(): int
+    {
+        return $this->detailpersonnels->matching(self::critereActif())->count();
+    }
+
+    private static function critereActif(): Criteria
+    {
+        return Criteria::create()->where(Criteria::expr()->isNull('deletedAt'));
     }
 
     public function getSoftDeleteBlockers(): array
@@ -744,6 +831,14 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     public function getBagages(): Collection
     {
         return $this->bagages;
+    }
+
+    /**
+     * @return Collection<int, Passage>
+     */
+    public function getPassages(): Collection
+    {
+        return $this->passages;
     }
 
     public function addBagage(Bagage $bagage): static

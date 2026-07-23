@@ -13,7 +13,11 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
 /**
  * Annulation d'une réservation EN_ATTENTE : passe ANNULEE et libère la place tenue sur le tronçon.
- * Une réservation déjà CONFIRMEE a généré un billet → on n'annule pas ici (désistement du billet).
+ *
+ * Une réservation CONFIRMEE n'est PAS annulable ici — non pas qu'elle ait forcément un billet (le bon
+ * payé existe justement sans siège), mais parce qu'elle a été encaissée : la défaire relèverait d'un
+ * remboursement, or la politique maison n'en prévoit pas. Le client absent garde sa valeur via la
+ * régularisation (report), et le désistement d'un billet déjà émis a son propre circuit.
  */
 class AnnulerReservationProcessor implements ProcessorInterface
 {

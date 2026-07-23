@@ -94,9 +94,19 @@ class Siege
     #[Groups(['read:Siege'])]
     private ?string $occupantDescente = null;
 
-    // Siège revendu : porté par plusieurs billets VALIDE sur le voyage (réutilisé sur des tronçons disjoints).
+    /*
+        REVENDU : le siège porte plusieurs billets VALIDE qui voyagent TOUS — réutilisation légitime sur
+        des tronçons disjoints (l'un descend là où l'autre monte). C'est une bonne nouvelle commerciale.
+
+        À ne pas confondre avec CONFLIT : là aussi le siège porte plusieurs billets, mais leurs trajets
+        se recouvrent et la priorité amont en évince un — ce passager ne montera pas. Compter les deux
+        cas ensemble laissait croire à des reventes là où il y avait des places perdues.
+    */
     #[Groups(['read:Siege'])]
     private bool $revendu = false;
+
+    #[Groups(['read:Siege'])]
+    private bool $conflit = false;
 
     /**
      * @var Collection<int, Ticket>
@@ -293,6 +303,18 @@ class Siege
     public function setRevendu(bool $revendu): static
     {
         $this->revendu = $revendu;
+
+        return $this;
+    }
+
+    public function isConflit(): bool
+    {
+        return $this->conflit;
+    }
+
+    public function setConflit(bool $conflit): static
+    {
+        $this->conflit = $conflit;
 
         return $this;
     }

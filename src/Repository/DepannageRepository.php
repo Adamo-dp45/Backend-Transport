@@ -16,6 +16,41 @@ class DepannageRepository extends ServiceEntityRepository
         parent::__construct($registry, Depannage::class);
     }
 
+    /**
+     * Agrégats des PIÈCES pour un lot de dépannages : nombre de lignes + quantité totale, en UNE
+     * requête (COUNT + SUM groupés). La liste des dépannages affiche ces deux nombres ; sans cela il
+     * fallait sérialiser la collection 'detaildepannages' entière et la sommer côté client.
+     * Jointure interne : un dépannage sans pièce n'apparaît pas dans le résultat (le provider met 0).
+     *
+     * @param int[] $depannageIds
+     * @return array<int, array{nombre:int, quantite:int}> map depannageId => agrégats
+     */
+    public function piecesParDepannageIds(array $depannageIds): array
+    {
+        if (empty($depannageIds)) {
+            return [];
+        }
+
+        $rows = $this->createQueryBuilder('d')
+            ->select('d.id AS did', 'COUNT(dd.id) AS nombre', 'COALESCE(SUM(dd.quantite), 0) AS quantite')
+            ->join('d.detaildepannages', 'dd')
+            ->andWhere('d.id IN (:ids)')
+            ->groupBy('d.id')
+            ->setParameter('ids', $depannageIds)
+            ->getQuery()
+            ->getScalarResult();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['did']] = [
+                'nombre' => (int) $row['nombre'],
+                'quantite' => (int) $row['quantite'],
+            ];
+        }
+
+        return $map;
+    }
+
     // -- Statistiques -- //
     // Pilotées par le STATUT métier (et non par 'deletedAt') : un dépannage ANNULE (stock restauré) est exclu
     // des coûts/compteurs mais reste visible pour l'audit ; la corbeille ne gère que la visibilité dans les listes.

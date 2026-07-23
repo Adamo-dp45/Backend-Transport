@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Service\ActiviteLogger;
+use App\Domain\Service\ReservationEcheanceService;
 use App\Domain\Service\VoyageDepartService;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\CourrierStatus;
@@ -32,7 +33,9 @@ class ReceptionnerVoyageProcessor implements ProcessorInterface
         private EntityManagerInterface $em,
         private VoyageGuard $guard,
         private ActiviteLogger $activiteLogger,
-        private VoyageDepartService $departService
+        private VoyageDepartService $departService,
+        private ReservationEcheanceService $reservationEcheance,
+        private \App\Domain\Service\PassageService $passageService
     )
     {
     }
@@ -56,6 +59,9 @@ class ReceptionnerVoyageProcessor implements ProcessorInterface
         // parti → on le pose maintenant (bascule les colis EN_ATTENTE -> EN_TRANSIT AVANT la réception
         // ci-dessous, pour que ceux qui descendent ici soient bien réceptionnés).
         $this->departService->marquerDepart($data, $user->getId());
+
+        // Passage réel : la réception confirme que le car est ARRIVÉ à cette gare intermédiaire.
+        $this->passageService->marquerArrivee($data, $gare, $now);
 
         // Courriers qui descendent à cette gare : EN_TRANSIT -> RECEPTIONNE
         $courriers = $this->em->getRepository(Courrier::class)->findBy([
@@ -100,6 +106,10 @@ class ReceptionnerVoyageProcessor implements ProcessorInterface
             $courantOrdre = $courante ? ($ordreParGare[$courante->getId()] ?? 0) : 0;
             if ($cibleOrdre !== null && $cibleOrdre > $courantOrdre) {
                 $data->setGarecourante($gare);
+                // La position vient d'avancer : les réservations des gares désormais DÉPASSÉES ne
+                // seront pas honorées (le car n'y repassera pas) — on libère leurs places et on
+                // ferme le paiement. Celles de CETTE gare sont épargnées : le car y est, on embarque.
+                $this->reservationEcheance->cloturerMonteesDepassees($data, $now);
             }
         }
 

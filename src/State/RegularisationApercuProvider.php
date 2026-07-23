@@ -62,18 +62,24 @@ class RegularisationApercuProvider implements ProviderInterface
             return new RegularisationApercuOutput(possible: false, message: $e->getMessage());
         }
 
-        $message = $cible->getCar() === null
-            ? 'Aucun car n\'est encore affecté à ce départ : il faudra en affecter un avant d\'émettre le billet.'
-            : null;
+        // L'agent doit comprendre POURQUOI il n'encaisse pas de pénalité, sinon il croit à un bug.
+        $avertissements = [];
+        if ($calcul['exoneree']) {
+            $avertissements[] = 'Pénalité annulée : le départ initial a été avancé après le paiement, l\'absence n\'est pas imputable au client.';
+        }
+        if ($cible->getCar() === null) {
+            $avertissements[] = 'Aucun car n\'est encore affecté à ce départ : il faudra en affecter un avant d\'émettre le billet.';
+        }
 
         return new RegularisationApercuOutput(
             possible: true,
-            message: $message,
+            message: $avertissements === [] ? null : implode(' ', $avertissements),
             penalite: $calcul['penalite'],
             complement: $calcul['complement'],
             prixInitial: $calcul['prixInitial'],
             nouveauPrix: $calcul['nouveauPrix'],
             total: $calcul['total'],
+            exoneree: $calcul['exoneree'],
         );
     }
 }

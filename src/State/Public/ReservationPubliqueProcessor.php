@@ -36,7 +36,8 @@ final class ReservationPubliqueProcessor implements ProcessorInterface
         private PaiementProviderInterface $paiement,
         private EntityManagerInterface $em,
         #[Autowire(service: 'limiter.reservation_publique')]
-        private RateLimiterFactory $limiter
+        private RateLimiterFactory $limiter,
+        private ReservationPubliqueMapper $mapper
     )
     {
     }
@@ -87,7 +88,7 @@ final class ReservationPubliqueProcessor implements ProcessorInterface
         $reservation->setReferencepaiement($session->reference);
         $this->em->flush();
 
-        return (new ReservationPubliqueMapper())->versDto(
+        return $this->mapper->versDto(
             $reservation,
             new PaiementInfoDto(reference: $session->reference, url: $session->url, estSimule: $session->estSimule)
         );

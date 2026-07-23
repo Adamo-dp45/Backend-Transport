@@ -28,6 +28,7 @@ use App\State\SoftDeleteProcessor;
 use ArrayObject;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
+use Doctrine\Common\Collections\Criteria;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
 
@@ -51,6 +52,10 @@ use Symfony\Component\Serializer\Attribute\Groups;
         new Get(
             security: "is_granted('VOIR', object)",
             requirements: ['id' => '\d+'],
+            normalizationContext: ['groups' => ['read:Courrier', 'read:Base', 'read:Courrier:item'], 'skip_null_values' => false], /*
+                - Seule la FICHE (et par elle le reçu PDF / le formulaire d'édition) embarque la liste
+                  des colis ; la LISTE des courriers n'en reçoit que le nombre.
+            */
             openapi: new Operation(
                 summary: 'Un courrier',
                 description: 'Permet de voir un courrier',
@@ -267,7 +272,7 @@ class Courrier extends EntityBase implements EntrepriseOwnedInterface, MultiGare
      * @var Collection<int, Detailcourrier>
      */
     #[ORM\OneToMany(targetEntity: Detailcourrier::class, mappedBy: 'courrier')]
-    #[Groups(['read:Courrier'])]
+    #[Groups(['read:Courrier:item'])] // fiche/reçu/édition — la liste utilise getDetailcourriersCount()
     private Collection $detailcourriers;
     /*
         #[ORM\Column(length: 50)]
@@ -445,6 +450,19 @@ class Courrier extends EntityBase implements EntrepriseOwnedInterface, MultiGare
     public function getDetailcourriers(): Collection
     {
         return $this->detailcourriers;
+    }
+
+    /*
+        Nombre de colis, pour la LISTE des courriers. 'matching(Criteria)' → COUNT SQL sans hydrater :
+        la liste n'affichait qu'un nombre mais recevait la collection entière (groupe 'read:Courrier:item'
+        désormais, donc réservée à la fiche, au reçu et au formulaire d'édition qui l'exploitent vraiment).
+    */
+    #[Groups(['read:Courrier'])]
+    public function getDetailcourriersCount(): int
+    {
+        return $this->detailcourriers->matching(
+            Criteria::create()->where(Criteria::expr()->isNull('deletedAt'))
+        )->count();
     }
 
     public function addDetailcourrier(Detailcourrier $detailcourrier): static

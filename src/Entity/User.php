@@ -277,7 +277,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    #[Groups(['read:User', 'read:Voyage', 'read:Activite'])]
+    // read:Ticket → expose l'id du commercial (vendeur à bord) sur le billet : le FT peut alors
+    // reconnaître « ce billet est le mien » pour l'impression / le rattachement de bagage, même émis
+    // depuis une gare autre que la gare d'attache du commercial.
+    #[Groups(['read:User', 'read:Voyage', 'read:Activite', 'read:Ticket'])]
     private ?int $id = null;
 
     #[ORM\Column(length: 180)]

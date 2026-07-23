@@ -4,6 +4,7 @@ namespace App\Controller\Api;
 
 use App\Entity\User;
 use App\Repository\BagageRepository;
+use App\Repository\PassageRepository;
 use App\Repository\TicketRepository;
 use App\Repository\VoyageRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -23,7 +24,8 @@ final class CommercialEspaceController extends AbstractController
         Security $security,
         VoyageRepository $voyageRepository,
         TicketRepository $ticketRepository,
-        BagageRepository $bagageRepository
+        BagageRepository $bagageRepository,
+        PassageRepository $passageRepository
     ): JsonResponse {
         /** @var User $user */
         $user = $security->getUser();
@@ -65,6 +67,19 @@ final class CommercialEspaceController extends AbstractController
             // Position courante = garecourante, sinon l'origine effective (gareprovenance pour un départ partiel)
             $courante = $v->getGarecourante() ?? $v->getOrigineEffective();
 
+            // Le car peut-il « repartir » de sa position ? Seulement à une gare INTERMÉDIAIRE (ni origine
+            // ni terminus), voyage parti et non clôturé, arrivée déjà marquée et départ pas encore posé.
+            $origineEff = $v->getOrigineEffective();
+            $terminus = $v->getLigne()?->getGareterminus();
+            $peutRepartir = false;
+            if ($courante !== null && $origineEff !== null && $terminus !== null
+                && $courante->getId() !== $origineEff->getId()
+                && $courante->getId() !== $terminus->getId()
+                && $v->getDatedepartreelle() !== null && $v->getDatearriveereelle() === null) {
+                $passage = $passageRepository->findOneParVoyageGare((int) $v->getId(), (int) $courante->getId());
+                $peutRepartir = $passage !== null && $passage->getArriveeReelle() !== null && $passage->getDepartReelle() === null;
+            }
+
             $vid = $v->getId();
             $recetteBillets = $mesTickets[$vid]['recette'] ?? 0;
             $recetteBagages = $mesBagages[$vid]['recette'] ?? 0;
@@ -80,6 +95,7 @@ final class CommercialEspaceController extends AbstractController
                 'placesoccupees' => $v->getTicketsCount(),
                 'garecouranteId' => $courante?->getId(),
                 'garecouranteLibelle' => $courante?->getLibelle(),
+                'peutRepartir' => $peutRepartir,
                 'arrets' => $arrets,
                 // Ma performance PROPRE sur ce voyage (motivation du vendeur)
                 'maRecette' => $recetteBillets + $recetteBagages,

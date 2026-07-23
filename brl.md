@@ -25,106 +25,35 @@
 - 
 
 - 
-- Propose moi un meilleur design pour l'affichage des sièges de sorte à ce qu'on se sente dans un véhicule
-- Stripe
-next
+- Pour la simulation du paiement dans la partie réservation on vas utilisé Stripe pour
+- Next .. Les meilleurs prtaique étape par étape pour comprendre
+- Y'a t'il des actions qu'on pourrait simplifier pour une meilleur expérience utilisateurs !
+- Mettre en commentaire la création de réservation dans la partie web, aussi la partie annuler de ticket
+
+- démarrer → réceptionner → repartir → clôturer un voyage
+- Le cumul 12H + 100min font 13 heures et 40 minutes du genre l'heure de départ prévue du voyage remplace celui de ligne et le cumul est appliqué
+- L'échéance de présentation d'un passager qui monte en gare intermédiaire se calcule sur le départ prévue de la gare intermédiaire sinon son bon peut expirer alors que le car roule encore vers lui
 
 
 
-Salut Claude, j'ai développé une application de compagnie de transport mutli-entreprise en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
-
-Aussi j'ai listé quelques informations sur les modules de l'application dans le README.md du BK-Transport
-
-Ignore les fichiers brl.md des 2 projets, ce sont juste des brouillons
-
-Analyse les 2 projets pour bien pour comprendre
+Quelle est chose on peut faire avec cette nouvelle notion comme la refleion que vient d'avoir (Bon, je rends les boutons dépendants de l'état réel du passage. J'expose les passages sur le voyage (lisible par la fiche et le VoyageTable), puis je conditionne réception/repartir dessus. D'abord la relation inverse.)
 
 
+Voyage « réservation » : il n'y a aucun type distinct — un voyage est réservable implicitement (futur + capacité). Je n'ai rien ajouté ; dis-moi si tu veux un flag explicite un jour.
 
-Salut Claude, dans la session précédente on a travailler l'application de compagnie de transport multi-entreprise en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
-
-Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
-
-Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+Enrichi le VoyageTable.tsx je me dis qu'il y'a d'autres inoformations utile à affiché, aussi pour le.. TicketTable et d'autre qu'on peut encore enrichir et d'autres parties à enrichir comme les show
 
 
 
 
-Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
-
-Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
-
-Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
 
 
 
-
-Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
-
-Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
-
-Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
-
-
-
-refare le pdf des bordereaux et éviter les couleurs
-
-php bin/console app:reservations:expirer
-*/5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
-
-
-- Les cas de survente.. pour ticket et resa
-    Pour la partie place réservée vendue
-        (A) — recommandée : les réservations PAYÉES comptent dans la capacité. Une résa CONFIRMEE+PAYE non émise réserve une vraie place (billets VALIDE + résa payées ≤ capacité), pendant que les résa EN_ATTENTE non payées restent indicatives. On protège celui qui a payé sans bloquer sur des réservations spéculatives. Impact ciblé : placesDisponibles() soustrait les résa payées non émises, et le guichet est averti/bloqué quand il ne reste que des places « dues » à des réservations payées. :: mais est que la place est débloqué apres un certain temps
-    :: ? est ce qu'on peut emettre le bon sur un autre même voyage
-    Je veux que ça soit revendable donc une autre sol s'il n'y a plus de place
-    Places ocuupés = réservations en attente non expiré + réservation payé + tickets .. 
-    > Une meilleur façon d'identifié l'entreprise pour la réservaton
-
-    Faisable et bien cadré. Plan : champ Ticket.enConflit (+ migration) ; à la vente/priorité-amont, SiegeStateProvider/processor détecte qu'un billet aval partage un tronçon avec le nouveau billet amont sur le même siège → on le marque (comme le marqueur « revendu ») ; affichage d'un badge « siège à réattribuer » sur le billet (table + fiche + grille sièges) et, en option, une alerte à la gare aval.
-    En plus de la détection, veux-tu une ACTION de résolution ? => Action réaffecté à un siège libre
-
-
-Pour les statistiques, est ce que l'utilisation des controllers est meilleur que ceux des providers dans le cardre de API PLatform => chatgpt
-aussi sache que je privilégie les provider aux controllers comme tu l'a fais avec (BilletterieStatsController, CommercialStatsController, CourrierStatsDetailsController, DepartStatsController, FlotteStatsDetailsController),  (BilleterieStatsProvider, CourrierStatsProvider, FlotteActiviteStatsProvider) ce qui provoqué 2 appel dans le controller du frontend :: lequel est le mieux les controllers ou provider vu que j'utilise API Platform
-
-
-
-Libérer un siège pour la revendre est ce que ça pose problème dans la logique
-
-
-
-Parfait 🔥 on va construire un **système d’alertes intelligent** pour ton app — et là on passe en mode **produit pro**.
-
----
-
-# 🚨 🎯 OBJECTIF DU MODULE ALERTES
-
-Notifier automatiquement :
-
-* 📦 stock faible
-* 🚍 voyage complet / presque complet
-* 🛠️ anomalies (optionnel plus tard)
-
----
-
-# 🧠 🧩 1. CONCEPTION GLOBALE
-
-On crée une entité centrale :
-
-## 👉 `Alerte`
-
-Elle servira pour **TOUT le système**
-
----
+- On vas mettre la place la possibilité d'utiliser la réservaton ou pas par entreprise :: rendre le support du module de réservation configurable par entre .. aussi pour tous les modules
+- Système d'alertes intelligent pour notifier automatiquement :
+    > Stock faible
+    > Voyage complet / presque complet
+    > Anomalies (optionnel plus tard)
 
 # 🧱 2. ENTITY `Alerte`
 
@@ -196,26 +125,6 @@ class AlerteService
 }
 ```
 
----
-
-# 📦 4. ALERTES STOCK FAIBLE
-
----
-
-## 🎯 RÈGLE
-
-```txt
-stock <= seuil
-```
-
-👉 ajoute dans `Piece` :
-
-```php
-private int $seuilAlerte = 5;
-```
-
----
-
 ## 🧠 DANS TON `StockmouvementService`
 
 👉 après chaque mouvement :
@@ -232,17 +141,6 @@ if ($piece->getStock() <= $piece->getSeuilAlerte()) {
     );
 }
 ```
-
----
-
-# 🚍 5. ALERTES VOYAGE
-
-## 🎯 CAS 1 : VOYAGE COMPLET
-## 🎯 CAS 2 : PRESQUE COMPLET
-
-
-
----
 
 # 🧱 6. API PLATFORM (ENDPOINTS)
 
@@ -307,23 +205,30 @@ GET /alertes?isRead=false
 ## 🔥 Notification WhatsApp / Email
 
 
-
-
-
 - - 
+- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
+    > L'expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER` :: Une place réservée est tenue jusqu'à ce délai avant le départ, puis libérée. 0 = jusqu'au départ. (120 = 2 h)
+    > php bin/console app:reservations:expirer
+        */5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
+    > Ou 'loc..:8000/api/cron/reservations-expirer?token=' pour tester côter backend
+    > Le cron qui ne s'exécute pas sur l'hébergeur => C'est un grand classique de l'hébergement mutualisé (mauvais binaire PHP, mauvais `APP_ENV`, ou host qui ne propose qu'un cron **par URL** et pas en ligne de commande). Je regarde la sécurité pour te proposer une solution robuste (un endpoint HTTP déclenchable + du log pour vérifier).
+
+- Mais il reste un trou que je dois te signaler. Le webhook arrive après que le client a payé chez le prestataire. Refuser la confirmation ne lui rend pas son argent : on empêche l'incohérence, pas le prélèvement.
+    > La vraie parade est en amont : tenir la place pendant la fenêtre de paiement. C'est exactement à ça que sert le nouveau delaiPaiementMinutes (30 min) — un « hold » court, comme dans n'importe quel tunnel de réservation. Une EN_ATTENTE tiendrait sa place, mais seulement 30 minutes, jamais jusqu'au départ comme dans l'ancien modèle. => Le compromis : quelques places bloquées jusqu'à 30 min pour des clients qui ne paieront peut-être pas. À l'inverse, sans ça, tu continueras d'encaisser des paiements que tu devras rembourser à la main.
+
 D. Renforcements recommandés (par ordre d'impact) :
     Remise : motif/bénéficiaire obligatoire au-delà d'un seuil + plafond de remise par agent.
 
-Rien d'incorrect à corriger. Une amélioration possible (cosmétique) : la courbe « recette par jour » de Recettes pourrait être empilée par type — dis-moi si ça t'intéresse.
-
 Base temporelle de la ligne : le cargo est filtré sur sa date de saisie (createdAt), les billets sur la date de départ du voyage. Écart mineur sur des périodes courtes, sans impact sur des périodes normales.
-
-Bref : je garde la feature et j'ajoute le fetch-join. (À noter : la vraie lourdeur de cette liste, c'est plutôt courriers/bagages/detailpersonnels hydratés en entier juste pour un .length — sujet à part si tu veux l'optimiser un jour.)
-
-Voyage « réservation » : il n'y a aucun type distinct — un voyage est réservable implicitement (futur + capacité). Je n'ai rien ajouté ; dis-moi si tu veux un flag explicite un jour.
 
 Perf des stats	N+1 évités, mais endpoints lourds	🟡 Prévoir index/cache à volume élevé
 Infra (backups, monito, déploiement)	non abordé ici	🟡 À cadrer côté ops
+
+aussi sache que je privilégie les provider aux controllers comme tu l'a fais avec (BilletterieStatsController, CommercialStatsController, CourrierStatsDetailsController, DepartStatsController, FlotteStatsDetailsController),  (BilleterieStatsProvider, CourrierStatsProvider, FlotteActiviteStatsProvider) ce qui provoqué 2 appel dans le controller du frontend :: lequel est le mieux les controllers ou provider vu que j'utilise API Platform
+
+## Note sur `Criteria` vs `filter()`
+
+Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)` : sur une collection non chargée, Doctrine traduit en SQL et `count()` devient un `COUNT`. C'est ce qui distingue une vraie optimisation d'un simple déplacement de code — `filter()` aurait continué à tout hydrater en silence.
 - - 
 
 - - 
@@ -357,6 +262,104 @@ Infra (backups, monito, déploiement)	non abordé ici	🟡 À cadrer côté ops
 **Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
 
 
+# Exploitation : durée par tronçon, horaires réels de passage, bordereaux & ponctualité
+
+## Contexte
+
+Le modèle décrit la ligne comme une suite d'arrêts et ne connaît, en temps réel, que **deux** horodatages : le départ réel de l'origine (`Voyage.datedepartreelle`) et l'arrivée réelle au terminus (`Voyage.datearriveereelle`). La position du car (`Voyage.garecourante`) avance à la réception / à l'avance commercial, mais **sans être horodatée par gare**. Résultat : impossible de connaître l'heure réelle de passage à une gare intermédiaire, le retard à chaque étape, le temps d'arrêt, ni de produire des statistiques de ponctualité — et les bordereaux d'une gare intermédiaire ne peuvent afficher que des horaires prévus globaux.
+
+Ce chantier ajoute trois notions décidées avec l'utilisateur :
+1. **Durée par TRONÇON** (remplace la durée cumulée `Arret.dureeDepuisOrigineMinutes`).
+2. **Horaires RÉELS par gare** : arrivée horodatée automatiquement aux points existants + **départ marqué explicitement**.
+3. **Bordereaux** enrichis + **statistiques de ponctualité**.
+
+Périmètre validé : **tout, y compris les stats de ponctualité**.
+
+---
+
+## Notion 1 — Durée par tronçon (refonte du champ cumulé)
+
+Aujourd'hui `Arret.dureeDepuisOrigineMinutes` porte le **cumul** depuis l'origine (0, 240, 420…). On passe à une durée **par tronçon** (durée depuis l'arrêt précédent : origine = 0/null, puis 240, 180…). Le cumul redevient un calcul.
+
+- **Entité** [`Arret.php`](Backend-Transport/src/Entity/Arret.php) : renommer `dureeDepuisOrigineMinutes` → `dureeTronconMinutes` (durée depuis l'arrêt précédent ; null/0 à l'origine). Adapter getter/setter et groupes.
+- **Saisie** [`LigneInput.php`](Backend-Transport/src/Entity/Dto/LigneInput.php) + [`LigneProcessor::handleArrets`](Backend-Transport/src/State/LigneProcessor.php:88) : le champ d'entrée devient `dureeTronconMinutes`. Nouvelle validation : origine = 0/null ; chaque tronçon suivant **> 0** (au lieu de « strictement croissant »). Tout-ou-rien conservé.
+- **Calcul central** [`ReservationEcheanceService::heurePassage`](Backend-Transport/src/Domain/Service/ReservationEcheanceService.php:55) : au lieu de lire un cumul, **sommer les `dureeTronconMinutes`** de l'origine effective jusqu'à la gare visée (repli sur `datedepartprevue` si un tronçon manque). C'est le SEUL point de calcul à changer ; tous les consommateurs de `heurePassage` (échéances, DTO publics `heurepassage`, `VoyagesReservablesProvider`, `ReportsPossiblesProvider`, `DepartsPubliquesProvider`…) restent inchangés.
+- **Front** [`LigneForm.tsx`](Frontend-Transport/assets/react/controllers/Exploitation/LigneForm.tsx) + [`ligne/show.html.twig`](Frontend-Transport/templates/ligne/show.html.twig) : saisie/affichage « durée du tronçon » par arrêt (l'origine n'en a pas), avec calcul indicatif du cumul et de l'heure de passage.
+- **Migration de données** : pour chaque ligne, trier les arrêts par ordre et convertir le cumul en différences consécutives (`troncon[i] = cumul[i] − cumul[i-1]`) ; conserver `null` pour les lignes non renseignées.
+
+---
+
+## Notion 2 — Horaires réels par gare (nouvelle entité + capture)
+
+### Nouvelle entité `Passage`
+Un enregistrement d'exploitation par **(voyage, gare)** — sur le modèle d'`Inventaire` (donnée d'exploitation, **pas** de soft-delete) :
+- `voyage` ManyToOne, `gare` ManyToOne, `identreprise`, `createdAt` ; contrainte **unique (voyage, gare)**.
+- `arriveeReelle` (datetime nullable), `departReelle` (datetime nullable).
+- Getters dérivés (non stockés) : `retardArriveeMinutes` (= `arriveeReelle − heurePassage prévue`), `tempsArretMinutes` (= `departReelle − arriveeReelle`).
+- Repository `PassageRepository` : `findParVoyage`, upsert `pour(voyage, gare)`.
+
+### Points de capture (réutilisent l'existant)
+Un service **`PassageService`** centralise l'écriture (find-or-create du `Passage`, pose l'horodatage sans flush — les processors appelants flushent) :
+- **Départ origine** — [`VoyageDepartService::marquerDepart`](Backend-Transport/src/Domain/Service/VoyageDepartService.php:35) : pose `Passage(origine).departReelle = datedepartreelle`.
+- **Arrivée intermédiaire** — [`ReceptionnerVoyageProcessor`](Backend-Transport/src/State/ReceptionnerVoyageProcessor.php) et [`AvancerCommercialProcessor`](Backend-Transport/src/State/AvancerCommercialProcessor.php) (les deux avancent déjà `garecourante`) : pose `Passage(gare).arriveeReelle = now`.
+- **Départ intermédiaire** — **nouvelle action** `PATCH /voyages/{id}/repartir` (processor dédié `RepartirVoyageProcessor` + route ApiPlatform sur `Voyage`) : pose `Passage(garecourante).departReelle = now`. Autorisation : agent de la gare courante **ou** commercial du voyage (miroir de `assertPeutReceptionner` / logique commerciale). Refuse si l'arrivée à cette gare n'est pas encore marquée, ou si déjà reparti.
+- **Arrivée terminus** — [`CloturerVoyageProcessor`](Backend-Transport/src/State/CloturerVoyageProcessor.php) : pose `Passage(terminus).arriveeReelle = datearriveereelle`.
+
+### Cohérence avec l'existant
+`Voyage.datedepartreelle` / `datearriveereelle` restent la **source de vérité** pour l'origine et le terminus (position, `VoyageGuard::monteeDepassee`, recettes, filtres — inchangés). `Passage` les **reflète** pour ces deux gares et **ajoute** les intermédiaires + une vue unifiée. Le fallback commercial (avance sans passer par « repartir ») pose le départ de la gare quittée à défaut, en le signalant comme déduit.
+
+---
+
+## Notion 3 — Bordereaux enrichis
+
+Consomment `Passage` + `heurePassage` (prévu) pour afficher, **par gare** : heure de passage **prévue**, **arrivée réelle**, **départ réel**, **retard** et **temps d'arrêt**.
+- [`BordereauProvider`](Backend-Transport/src/State/BordereauProvider.php) + `BordereauVoyageDto`/`BordereauGareDto` : ajouter ces champs pour la gare du bordereau (aujourd'hui seul `datedepartprevue` global est exposé).
+- [`VoyageManifesteController`](Backend-Transport/src/Controller/Api/VoyageManifesteController.php) (feuille de route) : ajouter par gare l'heure prévue/réelle, le retard et son **évolution** le long du trajet.
+- [`BordereauChauffeurProvider`](Backend-Transport/src/State/BordereauChauffeurProvider.php) : heures de passage prévues/réelles sur le document chauffeur.
+- Front : templates PDF/vues bordereau + feuille de route (`voyage/manifeste.html.twig`, templates bordereau) affichent les nouvelles colonnes.
+
+---
+
+## Notion 4 — Statistiques de ponctualité
+
+Nouvelle surface admin (dédiée ou greffée sur [`ExploitationStatsProvider`](Backend-Transport/src/State/ExploitationStatsProvider.php)) alimentée par des requêtes `PassageRepository` :
+- retard **moyen** par ligne et par gare, **taux à l'heure** (retard ≤ seuil), **évolution du retard** le long du trajet, temps d'arrêt moyen par gare.
+- DTO de sortie + rendu front (page stats exploitation).
+
+---
+
+## Exposition clients (apps mobiles / suivi)
+
+Le suivi public (`/api/reservation/suivi`, `DepartsPubliquesProvider`) peut exposer, en plus de `heurepassage` (prévu), la **position courante** et le **retard estimé** — « savoir où se trouve le voyage ». À cadrer en fin de chantier (DTO publics + modèles Flutter/React Native). Optionnel, listé pour mémoire.
+
+---
+
+## Ordre d'implémentation
+
+1. **Notion 1** (durée par tronçon) : entité + `heurePassage` + saisie + migration de données. Indépendante, se vérifie seule.
+2. **Notion 2** (entité `Passage` + `PassageService` + capture + action `repartir`) : fondation des suivantes.
+3. **Notion 3** (bordereaux / feuille de route).
+4. **Notion 4** (stats ponctualité).
+5. **Exposition clients** (si retenue).
+
+Chaque étape passe par une **migration** (schéma) soumise avant exécution — la base est un banc d'essai actif (demander avant toute écriture).
+
+---
+
+## Vérification (mesurer, ne pas conclure sur lecture)
+
+- **Notion 1** : commande temporaire `TmpVerif…` (lecture seule) comparant, sur les lignes réelles, `heurePassage(gare)` AVANT/APRÈS refonte pour chaque arrêt → doit être **identique** (la migration préserve les heures de passage). Vérifier la validation de saisie (origine=0, tronçons>0).
+- **Notion 2** : simulation en transaction annulée d'un cycle départ → réception → repartir → clôture sur un voyage réel à ≥3 arrêts ; vérifier que `Passage` porte arrivée/départ cohérents, que `datedepartreelle`/`datearriveereelle` restent synchronisés, et l'unicité (voyage, gare). Vérifier l'instanciation réelle des processors dont le constructeur change (`php bin/console debug:container`).
+- **Notion 3 & 4** : requête HTTP réelle (noyau, JWT forgé, `MAIN_REQUEST`) sur un bordereau et sur les stats d'un voyage ayant des passages réels ; comparer retard/temps d'arrêt aux valeurs attendues.
+- Nettoyer toute commande `Tmp*` après usage ; ne laisser que `ExpirerReservationsCommand`.
+
+## Fichiers clés
+
+- **Notion 1** : `Arret.php`, `Dto/LigneInput.php`, `State/LigneProcessor.php`, `Domain/Service/ReservationEcheanceService.php`, `LigneForm.tsx`, `ligne/show.html.twig`, migration.
+- **Notion 2** : nouvelle entité `Entity/Passage.php` + `Repository/PassageRepository.php` + `Domain/Service/PassageService.php` + `State/RepartirVoyageProcessor.php` ; modifs `VoyageDepartService.php`, `ReceptionnerVoyageProcessor.php`, `AvancerCommercialProcessor.php`, `CloturerVoyageProcessor.php`, route sur `Voyage.php` ; migration.
+- **Notion 3** : `BordereauProvider.php`, `BordereauChauffeurProvider.php`, `VoyageManifesteController.php`, DTO bordereau, templates.
+- **Notion 4** : `ExploitationStatsProvider.php` (ou nouveau provider), DTO stats, `PassageRepository`, front stats.
+- **Doc** : mettre à jour `Backend-Transport/README.md` (module Exploitation) au fil des étapes.
 
 
 ### Opus

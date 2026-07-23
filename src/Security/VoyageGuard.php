@@ -157,4 +157,84 @@ class VoyageGuard
             throw new BadRequestHttpException('La gare de destination ne réceptionne pas le voyage : elle le clôture');
         }
     }
+
+    /**
+     * Le car a-t-il déjà ATTEINT (ou dépassé) la gare de MONTÉE d'un billet ?
+     *
+     * Intermédiaire-aware : la position réelle du car est 'garecourante' (elle avance au fil des
+     * réceptions), à défaut l'origine effective du voyage. Tant que le voyage n'est pas PARTI
+     * ('datedepartreelle' nul), rien n'est atteint — un billet reste librement traitable avant le départ.
+     * Sert aux gardes « service en cours/rendu » : ni annulation-remboursement, ni modification d'un
+     * billet dont le car est déjà passé à sa gare de montée.
+     */
+    public function monteeAtteinte(Voyage $voyage, ?Gare $garemontee): bool
+    {
+        $ordres = $this->ordresPosition($voyage, $garemontee);
+
+        return $ordres !== null && $ordres['position'] >= $ordres['montee'];
+    }
+
+    /**
+     * Le car a-t-il DÉFINITIVEMENT quitté la gare de montée ? Plus strict que {@see monteeAtteinte}.
+     *
+     * Être À la gare de montée n'est pas trop tard — c'est même le moment où l'on vend et où l'on
+     * émet les billets : 'garecourante' avance à la RÉCEPTION, donc à l'ARRIVÉE du car. Le départ,
+     * lui, n'est tracé que pour l'origine ('datedepartreelle') : c'est le seul endroit où
+     * « position == montée » signifie déjà reparti.
+     *
+     * Sert aux gardes de RÉSERVATION (créer, encaisser, émettre) : on ne vend pas une place sur un
+     * car qui a quitté la gare où le client devait monter.
+     */
+    public function monteeDepassee(Voyage $voyage, ?Gare $garemontee): bool
+    {
+        $ordres = $this->ordresPosition($voyage, $garemontee);
+        if ($ordres === null) {
+            return false;
+        }
+
+        return $ordres['position'] > $ordres['montee'] || $ordres['montee'] <= $ordres['origine'];
+    }
+
+    /** Variante levant une 400, avec un message adapté à l'action refusée. */
+    public function assertMonteeNonAtteinte(Voyage $voyage, ?Gare $garemontee, string $message): void
+    {
+        if ($this->monteeAtteinte($voyage, $garemontee)) {
+            throw new BadRequestHttpException($message);
+        }
+    }
+
+    /** Variante levant une 400 pour les gardes de réservation. */
+    public function assertMonteeNonDepassee(Voyage $voyage, ?Gare $garemontee, string $message): void
+    {
+        if ($this->monteeDepassee($voyage, $garemontee)) {
+            throw new BadRequestHttpException($message);
+        }
+    }
+
+    /**
+     * Ordres (position du car, gare de montée, origine effective) sur la ligne, ou null tant que le
+     * voyage n'est PAS PARTI — avant le départ réel, aucune gare n'est ni atteinte ni dépassée.
+     *
+     * @return array{position:int, montee:int, origine:int}|null
+     */
+    private function ordresPosition(Voyage $voyage, ?Gare $garemontee): ?array
+    {
+        $ligne = $voyage->getLigne();
+        if ($voyage->getDatedepartreelle() === null || $ligne === null) {
+            return null;
+        }
+
+        $ordreParGare = [];
+        foreach ($ligne->getArrets() as $arret) {
+            $ordreParGare[$arret->getGare()->getId()] = (int) $arret->getOrdre();
+        }
+        $position = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
+        $origine = $voyage->getOrigineEffective();
+
+        return [
+            'position' => $position ? ($ordreParGare[$position->getId()] ?? 0) : 0,
+            'montee' => $ordreParGare[$garemontee?->getId()] ?? PHP_INT_MAX,
+            'origine' => $origine ? ($ordreParGare[$origine->getId()] ?? 0) : 0,
+        ];
+    }
 }

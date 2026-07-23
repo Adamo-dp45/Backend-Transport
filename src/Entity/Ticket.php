@@ -20,7 +20,10 @@ use App\State\DescendreTicketProcessor;
 use App\State\DesistementProcessor;
 use App\State\SoftDeleteProcessor;
 use App\State\TicketProcessor;
-use App\State\UpdatedbyProcessor;
+use App\State\TicketProvider;
+use App\State\TicketUpdateProcessor;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
 
@@ -39,6 +42,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
     operations: [
         new GetCollection(
             security: "is_granted('VOIR', 'Ticket') or is_granted('ROLE_USER')",
+            provider: TicketProvider::class, // + repère 'evince' (dérivé), pipeline natif conservé
             openapi: new Operation(
                 summary: 'Liste des tickets',
                 description: 'Permet de voir la liste des tickets',
@@ -48,6 +52,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
         new Get(
             security: "is_granted('VOIR', object) or is_granted('ROLE_USER')",
             requirements: ['id' => '\d+'],
+            provider: TicketProvider::class,
             openapi: new Operation(
                 summary: 'Le ticket',
                 description: 'Permet de voir un ticket',
@@ -66,7 +71,10 @@ use Symfony\Component\Serializer\Attribute\Groups;
         new Patch(
             security: "is_granted('MODIFIER', object)",
             requirements: ['id' => '\d+'],
-            processor: UpdatedbyProcessor::class,
+            processor: TicketUpdateProcessor::class, /*
+                - Gardes métier du billet (clôture, gare émettrice, car déjà passé à la montée) +
+                  re-résolution du Client quand le téléphone change. Cf. TicketUpdateProcessor.
+            */
             denormalizationContext: ['groups' => ['write:Ticket:update']],
             openapi: new Operation(
                 summary: 'Modification du ticket',
@@ -128,6 +136,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
     */
     'client.id' => 'exact', // billets d'un client donné (fiche client)
     'gare.id' => 'exact', // filtre par gare émettrice (listing, réservé admin/central)
+    'commercial.id' => 'exact', // billets vendus à bord par un commercial donné (rattachement bagage côté commercial)
     'statut' => 'exact', // VALIDE | REPORTE | ANNULE — pour filtrer l'historique des désistements
 ])]
 #[ApiFilter(OrderFilter::class, properties: [
@@ -153,6 +162,15 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     #[ORM\JoinColumn(nullable: false)] // Sans 'onDelete: 'CASCADE' pour l'historique
     #[Groups(['read:Ticket', 'write:Ticket'])]
     private ?Voyage $voyage = null;
+
+    /**
+     * Bagages rattachés à ce billet (le bagage SUIT le billet) — côté inverse. Sert notamment au
+     * décompte des bagages d'un client (Client::getBagagesCount), le bagage n'ayant pas de lien direct
+     * au client. Non sérialisé (pas de groupe) pour ne pas alourdir la charge du billet.
+     * @var Collection<int, Bagage>
+     */
+    #[ORM\OneToMany(targetEntity: Bagage::class, mappedBy: 'ticket')]
+    private Collection $bagages;
 
     #[ORM\Column(nullable: true)]
     private ?int $identreprise = null;
@@ -265,6 +283,37 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     #[Groups(['read:Ticket'])]
     private ?string $motifdesistement = null;
 
+    /**
+     * Désistement IMPUTABLE À LA COMPAGNIE : ce billet a été REPORTE parce qu'il était ÉVINCÉ (siège
+     * repris par la priorité amont), pas parce que le client a renoncé. PERSISTÉ au moment du report —
+     * contrairement à {@see $evince} (dérivé), car une fois le billet passé REPORTE il sort de
+     * billetsEvinces() et l'information ne pourrait plus être recalculée pour les statistiques
+     * historiques. Posé automatiquement par DesistementProcessor (détection au report), jamais saisi.
+     *
+     * Sert à ne pas gonfler le TAUX de désistement avec des relogements que la compagnie a provoqués :
+     * un report d'éviction n'est pas un désistement volontaire.
+     */
+    #[ORM\Column(options: ['default' => false])]
+    #[Groups(['read:Ticket'])]
+    private bool $desistementImputableCompagnie = false;
+
+    /**
+     * ÉVINCÉ par la priorité amont : à SON propre point de montée, le siège de ce billet est déjà
+     * occupé par un passager monté plus tôt. Le surbooking amont étant assumé, ce passager ne montera
+     * pas — sa gare (= la gare émettrice) doit le reloger sur un autre départ.
+     *
+     * NON PERSISTÉ, entièrement DÉRIVÉ de l'état courant du voyage (cf. CapaciteService::billetsEvinces)
+     * et posé par {@see App\State\TicketProvider}. Le stocker le ferait dériver : si l'occupant amont
+     * se désiste ou descend en route, le siège se libère et ce billet redevient légitime — un statut
+     * figé continuerait, lui, d'annoncer une éviction résolue.
+     *
+     * Exposé sur le SEUL groupe 'read:Ticket', celui que sert TicketProvider : les sérialisations
+     * imbriquées ('read:Voyage', 'read:Bagage'…) ne passent pas par lui et afficheraient un 'false'
+     * mensonger.
+     */
+    #[Groups(['read:Ticket'])]
+    private bool $evince = false;
+
     /*
         - Entrées TRANSITOIRES (non persistées) : l'agent saisit un type + une valeur,
           le TicketProcessor calcule le montant de la remise et le prix net.
@@ -280,6 +329,11 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
         return $this->id;
     }
 
+    public function __construct()
+    {
+        $this->bagages = new ArrayCollection();
+    }
+
     public function getVoyage(): ?Voyage
     {
         return $this->voyage;
@@ -290,6 +344,12 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
         $this->voyage = $voyage;
 
         return $this;
+    }
+
+    /** @return Collection<int, Bagage> */
+    public function getBagages(): Collection
+    {
+        return $this->bagages;
     }
 
     public function getIdentreprise(): ?int
@@ -549,6 +609,30 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     public function setMotifdesistement(?string $motifdesistement): static
     {
         $this->motifdesistement = $motifdesistement;
+
+        return $this;
+    }
+
+    public function isEvince(): bool
+    {
+        return $this->evince;
+    }
+
+    public function setEvince(bool $evince): static
+    {
+        $this->evince = $evince;
+
+        return $this;
+    }
+
+    public function isDesistementImputableCompagnie(): bool
+    {
+        return $this->desistementImputableCompagnie;
+    }
+
+    public function setDesistementImputableCompagnie(bool $desistementImputableCompagnie): static
+    {
+        $this->desistementImputableCompagnie = $desistementImputableCompagnie;
 
         return $this;
     }

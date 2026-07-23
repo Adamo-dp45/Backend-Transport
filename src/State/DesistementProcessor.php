@@ -15,6 +15,7 @@ use App\Entity\Siege;
 use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\Voyage;
+use App\Security\VoyageGuard;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -39,7 +40,9 @@ class DesistementProcessor implements ProcessorInterface
         private ProcessorInterface $processor,
         private Security $security,
         private EntityManagerInterface $em,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private VoyageGuard $voyageGuard,
+        private \App\Domain\Service\CapaciteService $capaciteService
     )
     {
     }
@@ -98,24 +101,12 @@ class DesistementProcessor implements ProcessorInterface
 
         // ANTI « annulation après encaissement » (2) : une fois que le car a ATTEINT/DÉPASSÉ la gare de MONTÉE
         // du passager, le service est en cours/rendu → plus de remboursement par annulation (report possible).
-        // Intermédiaire-aware : un passager qui monte en aval peut être annulé tant que le car n'a pas atteint
-        // sa gare (position = garecourante). Avant le départ réel du voyage, l'annulation reste libre.
-        $voyage = $ticket->getVoyage();
-        $ligne = $voyage->getLigne();
-        if ($voyage->getDatedepartreelle() !== null && $ligne !== null) {
-            $ordreParGare = [];
-            foreach ($ligne->getArrets() as $a) {
-                $ordreParGare[$a->getGare()->getId()] = (int) $a->getOrdre();
-            }
-            $position = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
-            $ordrePosition = $position ? ($ordreParGare[$position->getId()] ?? 0) : 0;
-            $ordreMontee = $ordreParGare[$ticket->getGare()?->getId()] ?? PHP_INT_MAX;
-            if ($ordrePosition >= $ordreMontee) {
-                throw new BadRequestHttpException(
-                    'Le car a déjà atteint la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
-                );
-            }
-        }
+        // Garde PARTAGÉE avec la modification de billet (cf. VoyageGuard::monteeAtteinte).
+        $this->voyageGuard->assertMonteeNonAtteinte(
+            $ticket->getVoyage(),
+            $ticket->getGare(),
+            'Le car a déjà atteint la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
+        );
 
         $ticket
             ->setStatut(TicketStatus::STATUT_ANNULE->value)
@@ -201,12 +192,48 @@ class DesistementProcessor implements ProcessorInterface
             throw new BadRequestHttpException('Ce siège n\'appartient pas au véhicule du voyage de report');
         }
 
+        // IMPUTABILITÉ COMPAGNIE : ce billet est-il ÉVINCÉ (siège repris par la priorité amont) ? On le
+        // détermine MAINTENANT, tant que l'origine est encore VALIDE — une fois basculée en REPORTE, elle
+        // sort de billetsEvinces() (qui ne lit que les VALIDE) et l'info serait perdue pour les stats.
+        // Détection automatique (jamais saisie) : un report d'éviction est causé par la compagnie, pas
+        // par le client, et ne doit donc pas gonfler le taux de désistement.
+        $estEvince = isset(
+            $this->capaciteService->billetsEvinces($ticket->getVoyage(), $entrepriseId)[$ticket->getId()]
+        );
+
+        // Garde de position, comme l'ANNULATION : on ne reporte plus un billet dont le car a déjà
+        // ATTEINT sa gare de montée (service en cours/rendu). EXEMPTION des ÉVINCÉS : leur siège a été
+        // repris par la priorité amont, ils n'ont jamais pu monter — la compagnie doit pouvoir les
+        // reloger même après le passage du car (report imputable compagnie, cf. plus bas).
+        if (!$estEvince) {
+            $this->voyageGuard->assertMonteeNonAtteinte(
+                $ticket->getVoyage(),
+                $ticket->getGare(),
+                'Le car a déjà atteint la gare de montée de ce billet : le report n\'est plus possible.'
+            );
+        }
+
         // Tronçon conservé : on reprend les gares de montée / descente du billet d'origine
         $garemontee = $ticket->getGare();
         $garedescente = $ticket->getGaredescente();
 
         // Le siège doit être libre sur ce tronçon du voyage cible (priorité gare amont, comme à la vente)
         $this->assertSiegeLibre($voyageCible, $data->siege, $entrepriseId, $ligneCible, $garemontee, $garedescente);
+
+        // ... et il doit RESTER UNE PLACE sur ce tronçon (billets émis ET réservations qui tiennent une
+        // place), exactement comme à la vente (TicketProcessor::assertPlaceDisponible). Sans cette garde,
+        // le report passe par-dessus une réservation — assertSiegeLibre ne regarde QUE les billets — et
+        // cette réservation (payée) ne trouverait plus de siège à l'émission de son billet : place vendue
+        // deux fois. S'applique À TOUS les reports, Y COMPRIS le relogement d'un ÉVINCÉ : pas de priorité,
+        // reloger sur une place déjà tenue reviendrait à en déposséder une réservation ; l'évincé se
+        // relogera sur un autre départ (cf. surbooking amont — la gare aval ouvre un voyage supplémentaire).
+        $ordreParGare = $this->ordreParGare($ligneCible);
+        $this->capaciteService->assertPlaceDisponible(
+            $voyageCible,
+            $ordreParGare[$garemontee->getId()],
+            $ordreParGare[$garedescente->getId()],
+            $entrepriseId
+        );
 
         // Nouveau billet : recopie client / tronçon / prix / remise / bénéficiaire (report = même prix)
         $nouveau = (new Ticket())
@@ -230,16 +257,28 @@ class DesistementProcessor implements ProcessorInterface
             ->setStatut(TicketStatus::STATUT_REPORTE->value)
             ->setDatedesistement($now)
             ->setMotifdesistement($data->motif)
+            ->setDesistementImputableCompagnie($estEvince)
             ->setUpdatedBy($user->getId());
 
         $this->em->persist($nouveau);
 
-        $this->activiteLogger->log(
-            ActiviteLogger::TICKET_REPORTE,
-            'Billet ' . $ticket->getCodeticket() . ' reporté sur le voyage ' . $voyageCible->getCodevoyage(),
-            'Ticket',
-            $ticket->getId()
-        );
+        // Audit distinct : un relogement d'évincé est tracé comme imputable à la compagnie, pour ne pas
+        // le confondre avec un désistement demandé par le client dans le Journal d'activité.
+        if ($estEvince) {
+            $this->activiteLogger->log(
+                ActiviteLogger::TICKET_REPORTE_EVICTION,
+                'Billet ' . $ticket->getCodeticket() . ' (évincé par la priorité amont) relogé sur ' . $voyageCible->getCodevoyage() . ' — imputable à la compagnie',
+                'Ticket',
+                $ticket->getId()
+            );
+        } else {
+            $this->activiteLogger->log(
+                ActiviteLogger::TICKET_REPORTE,
+                'Billet ' . $ticket->getCodeticket() . ' reporté sur le voyage ' . $voyageCible->getCodevoyage(),
+                'Ticket',
+                $ticket->getId()
+            );
+        }
 
         // Le flush du persist_processor enregistre le nouveau billet ET la bascule de l'origine (entité managée)
         return $this->processor->process($nouveau, $operation, $uriVariables, $context);
@@ -256,10 +295,7 @@ class DesistementProcessor implements ProcessorInterface
             throw new BadRequestHttpException('Le tronçon du billet d\'origine est incomplet');
         }
 
-        $ordreParGare = [];
-        foreach ($ligne->getArrets() as $arret) {
-            $ordreParGare[$arret->getGare()->getId()] = $arret->getOrdre();
-        }
+        $ordreParGare = $this->ordreParGare($ligne);
 
         $monteeId = $garemontee->getId();
         $descenteId = $garedescente->getId();
@@ -295,6 +331,17 @@ class DesistementProcessor implements ProcessorInterface
                 throw new BadRequestHttpException('Ce siège est déjà occupé sur ce tronçon du voyage de report');
             }
         }
+    }
+
+    /** @return array<int, int> map gareId => ordre de l'arrêt sur la ligne */
+    private function ordreParGare(Ligne $ligne): array
+    {
+        $ordreParGare = [];
+        foreach ($ligne->getArrets() as $arret) {
+            $ordreParGare[$arret->getGare()->getId()] = $arret->getOrdre();
+        }
+
+        return $ordreParGare;
     }
 
     private function generateCode(int $entrepriseId, int $voyageId): string
