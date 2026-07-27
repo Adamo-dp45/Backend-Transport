@@ -28,6 +28,15 @@ final class ReservationPubliqueDto
         public readonly ?string $datedepartprevue,
         public readonly bool $bonDisponible,
         public readonly ?string $billetEmis,
+        // --- Suivi « où est mon car » : position temps réel + retard estimé ---
+        // Le car a-t-il quitté son origine (départ réel horodaté) ?
+        public readonly bool $voyageDemarre,
+        // Gare où se trouve actuellement le car (position courante), null tant qu'il n'est pas parti.
+        public readonly ?string $positionActuelle,
+        // Retard courant du car en minutes (positif = en retard, négatif = en avance), null si non mesurable.
+        public readonly ?int $retardMinutes,
+        // Heure de passage ESTIMÉE chez CE client = heure prévue + retard courant (null si non calculable).
+        public readonly ?string $heurepassageEstimee,
         public readonly ?PaiementInfoDto $paiement = null
     )
     {

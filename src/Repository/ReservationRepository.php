@@ -69,6 +69,27 @@ class ReservationRepository extends ServiceEntityRepository
     }
 
     /**
+     * No-show d'un voyage (A_REGULARISER : payées, échéance de présentation dépassée), sans billet
+     * émis ni suppression — candidats au REPÊCHAGE quand le départ est replanifié plus tard
+     * (cf. ReservationEcheanceService::replanifierPourVoyage). Volontairement séparé des
+     * « vivantes » : ces réservations ne tiennent PLUS de place et ne doivent pas être traitées
+     * comme telles ailleurs (clôture des montées dépassées, notamment).
+     * @return Reservation[]
+     */
+    public function findARegulariserPourVoyage(int $voyageId): array
+    {
+        return $this->createQueryBuilder('r')
+            ->andWhere('r.voyage = :voyage')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.ticket IS NULL')
+            ->andWhere('r.statut = :statut')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('statut', ReservationStatus::STATUT_A_REGULARISER->value)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Réservations vivantes d'un voyage (non supprimées, sans billet émis, non échues) pour les
      * statuts demandés.
      * @param string[] $statuts
@@ -457,6 +478,57 @@ class ReservationRepository extends ServiceEntityRepository
             ->andWhere('r.statut = :aRegulariser')
             ->andWhere('r.ticket IS NULL')
             ->andWhere('r.deletedAt IS NULL')
+            ->setParameter('aRegulariser', ReservationStatus::STATUT_A_REGULARISER->value)
+            ->getQuery()
+            ->getResult();
+    }
+
+    // ─────────── Alertes ─────────── //
+
+    /**
+     * « Bons » PAYÉS (CONFIRMEE, sans billet) dont l'échéance de PRÉSENTATION approche — entre
+     * maintenant et $limite : le client doit passer au guichet très bientôt. Gare de montée et
+     * voyage hydratés pour le message d'alerte.
+     *
+     * @return Reservation[]
+     */
+    public function findBonsExpirantBientot(int $identreprise, \DateTimeImmutable $now, \DateTimeImmutable $limite): array
+    {
+        return $this->createQueryBuilder('r')
+            ->leftJoin('r.gare', 'g')->addSelect('g')
+            ->leftJoin('r.voyage', 'v')->addSelect('v')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.ticket IS NULL')
+            ->andWhere('r.statut = :confirmee')
+            ->andWhere('r.etatpaiement = :paye')
+            ->andWhere('r.dateexpiration > :now')
+            ->andWhere('r.dateexpiration <= :limite')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('confirmee', ReservationStatus::STATUT_CONFIRMEE->value)
+            ->setParameter('paye', 'PAYE')
+            ->setParameter('now', $now)
+            ->setParameter('limite', $limite)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * No-show (A_REGULARISER) d'une entreprise, sans billet émis — pour l'alerte « à régulariser ».
+     * Gare de montée et voyage hydratés pour le message.
+     *
+     * @return Reservation[]
+     */
+    public function findARegulariserPourEntreprise(int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->leftJoin('r.gare', 'g')->addSelect('g')
+            ->leftJoin('r.voyage', 'v')->addSelect('v')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.ticket IS NULL')
+            ->andWhere('r.statut = :aRegulariser')
+            ->setParameter('ide', $identreprise)
             ->setParameter('aRegulariser', ReservationStatus::STATUT_A_REGULARISER->value)
             ->getQuery()
             ->getResult();

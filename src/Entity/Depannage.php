@@ -176,7 +176,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('SUPPRIMER', object)",
+            security: "is_granted('ROLE_ADMIN')", // suppression d'un document comptable : admin d'entreprise UNIQUEMENT (la sortie normale est l'annulation, tracée)
             uriTemplate: '/depannages/{id}/remove',
             requirements: ['id' => '\d+'],
             input: false,

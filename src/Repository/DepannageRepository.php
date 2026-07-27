@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use App\Domain\Enum\DepannageStatus;
 use App\Entity\Depannage;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -192,6 +193,29 @@ class DepannageRepository extends ServiceEntityRepository
             ->groupBy('d.car')
             ->getQuery()
             ->getArrayResult();
+    }
+
+    // -- Alertes -- //
+
+    /**
+     * Dépannages EN COURS ouverts depuis plus longtemps que $limite (datedepannage <= $limite) :
+     * immobilisation qui traîne. Le car est hydraté (matricule pour le message d'alerte).
+     *
+     * @return Depannage[]
+     */
+    public function findOuvertsAnterieursA(int $identreprise, \DateTimeImmutable $limite): array
+    {
+        return $this->createQueryBuilder('d')
+            ->leftJoin('d.car', 'c')->addSelect('c')
+            ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
+            ->andWhere('d.statut = :encours')
+            ->andWhere('d.datedepannage <= :limite')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('encours', DepannageStatus::EN_COURS->value)
+            ->setParameter('limite', $limite)
+            ->getQuery()
+            ->getResult();
     }
 
     //    /**

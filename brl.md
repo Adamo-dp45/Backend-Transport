@@ -25,193 +25,55 @@
 - 
 
 - 
-- Pour la simulation du paiement dans la partie réservation on vas utilisé Stripe pour
-- Next .. Les meilleurs prtaique étape par étape pour comprendre
-- Y'a t'il des actions qu'on pourrait simplifier pour une meilleur expérience utilisateurs !
-- Mettre en commentaire la création de réservation dans la partie web, aussi la partie annuler de ticket
+- Pour la simulation du paiement dans la partie réservation on vas utilisé Stripe pour simuler
+- Concernant la notion du polling je me dis vente de ticket
+
+- Le commercial doit pouvoir faire une remise, aussi la gestion des bagages.. à tester sans admin gare
+
+
+Forcer montant bagage, ticket format, avancer curseur
+
+
+Hors-scope pour l'instant : vente hors-ligne (file d'attente + resync) — à rediscuter, réel enjeu pour un vendeur qui perd le réseau en route.
+/api/stats/commercial est ROLE_ADMIN → vue manager (classement de tous les commerciaux). Inadaptée à « ma recette » d'un vendeur simple.
+/api/voyages/me/commercial est déjà scopé au commercial connecté et porte maRecette / mesTickets / mesBagages par voyage, mais seulement pour les voyages actifs non clôturés. :: ou toute l'histori.. avec meme les cloturer
+
+Deux choix de conception à confirmer au passage : le vidage en lot est transactionnel (si un élément est encore référencé par une FK, rien n'est purgé — plus sûr), et l'audit ActiviteLogger n'est pas branché sur restaurer/purger (il exige l'entreprise de l'acteur, que le super admin n'a pas). Ça te convient ou tu veux un autre comportement ?
+
+Cause principale (réglage) : les pilotes thermiques (Epson TM, Xprinter, Star…) ont une option de coupe qui vaut par défaut « couper en fin de document ». Avec un PDF de 2 pages = 1 seul job → une seule coupe à la fin, donc 2 tickets collés. Le réglage à changer : Préférences d'impression → Options du périphérique → Découpe : après chaque page (« Cut per page » / « Page cut »).
+
+Ma recommandation : retirer l'action « Supprimer » des documents opérationnels (annuler suffit) et la remplacer par « Archiver/Désactiver » sur les référentiels. C'est un chantier à part entière — dis-moi si tu veux qu'on le fasse et je te propose la liste ressource par ressource.
+
+2. Impression des tickets ✅
+- Hauteur de page constante (80 × 160 mm, PdfService::TICKET_HAUTEUR_PT) au lieu de l'auto-fit variable qui décalait le repère de coupe — avec repli automatique sur l'auto-fit si un billet exceptionnel déborde, pour ne jamais tronquer.
+- Une tâche d'impression par billet (printTickets.ts) : envoi séquentiel via iframes, donc pas de pop-ups bloquées comme dans la tentative précédente (que j'ai trouvée en commentaire dans le code).
+- Côté imprimante, règle le pilote sur 80 × 160 mm + découpe après chaque page — les deux corrections visent ce réglage.
+
+## 1. Tickets « collés » à l'impression
+
+Ton PDF est correct : `batch/print` génère bien N pages distinctes (`page-break-after` entre chaque ticket, hauteur ajustée par dichotomie dans [PdfService.php:73](Frontend-Transport/src/Domain/Service/PdfService.php)). Le problème est **au niveau du pilote d'imprimante**, avec un facteur aggravant venant de l'app :
+
+- **Cause principale (réglage)** : les pilotes thermiques (Epson TM, Xprinter, Star…) ont une option de coupe qui vaut par défaut *« couper en fin de document »*. Avec un PDF de 2 pages = 1 seul job → une seule coupe à la fin, donc **2 tickets collés**. Le réglage à changer : `Préférences d'impression → Options du périphérique → Découpe : après chaque page` (« Cut per page » / « Page cut »).
+- **Facteur aggravant (côté app)** : `generateThermalAutofit` produit une hauteur de page **variable** (calculée par dichotomie sur le lot). Or le pilote a une taille de papier **fixe** (ex. 80×297 mm). Quand les deux ne coïncident pas, le repère de coupe dérive — d'où des coupes au mauvais endroit même avec la bonne option.
+
+Deux corrections possibles côté application : **hauteur de page constante** pour les tickets (au lieu de l'auto-fit) afin de coller à la taille papier du pilote, et/ou **un job d'impression par ticket** (N documents au lieu d'un PDF de N pages) pour que la coupe « fin de document » s'applique à chacun.
+
+- - 
+Comment pouvons-nous concevoir le système afin que chaque entreprise puisse activer ou désactiver certaines fonctionnalités selon ses besoins ?
+
+Par exemple, une entreprise peut souhaiter utiliser le module de **réservation**, tandis qu'une autre préfère ne pas l'utiliser. Le même principe pourrait s'appliquer à d'autres modules ou fonctionnalités de l'application (courriers, carte de fidélité, etc.).
+
+Je souhaite mettre en place une architecture flexible permettant à chaque entreprise de configurer les modules qu'elle souhaite utiliser, sans impacter le fonctionnement des autres entreprises.
+- - 
+
+- - 
+Générer les alertes à partir des données actuelles (idempotent, relançable) :
+    php bin/console app:alertes:generer
+- La notification temps réel `WebSocket` ou polling `/alertes`
 
 - démarrer → réceptionner → repartir → clôturer un voyage
 - Le cumul 12H + 100min font 13 heures et 40 minutes du genre l'heure de départ prévue du voyage remplace celui de ligne et le cumul est appliqué
 - L'échéance de présentation d'un passager qui monte en gare intermédiaire se calcule sur le départ prévue de la gare intermédiaire sinon son bon peut expirer alors que le car roule encore vers lui
-
-
-
-Quelle est chose on peut faire avec cette nouvelle notion comme la refleion que vient d'avoir (Bon, je rends les boutons dépendants de l'état réel du passage. J'expose les passages sur le voyage (lisible par la fiche et le VoyageTable), puis je conditionne réception/repartir dessus. D'abord la relation inverse.)
-
-
-Voyage « réservation » : il n'y a aucun type distinct — un voyage est réservable implicitement (futur + capacité). Je n'ai rien ajouté ; dis-moi si tu veux un flag explicite un jour.
-
-Enrichi le VoyageTable.tsx je me dis qu'il y'a d'autres inoformations utile à affiché, aussi pour le.. TicketTable et d'autre qu'on peut encore enrichir et d'autres parties à enrichir comme les show
-
-
-
-
-
-
-
-- On vas mettre la place la possibilité d'utiliser la réservaton ou pas par entreprise :: rendre le support du module de réservation configurable par entre .. aussi pour tous les modules
-- Système d'alertes intelligent pour notifier automatiquement :
-    > Stock faible
-    > Voyage complet / presque complet
-    > Anomalies (optionnel plus tard)
-
-# 🧱 2. ENTITY `Alerte`
-
-```php
-#[ORM\Entity]
-class Alerte extends EntityBase implements EntrepriseOwnedInterface
-{
-    #[ORM\Column(length: 50)]
-    private string $type; // STOCK_FAIBLE, VOYAGE_COMPLET...
-
-    #[ORM\Column(length: 255)]
-    private string $message;
-
-    #[ORM\Column(nullable: true)]
-    private ?int $referenceId = null;
-
-    #[ORM\Column(length: 50, nullable: true)]
-    private ?string $referenceType = null;
-
-    #[ORM\Column]
-    private bool $isRead = false;
-
-    #[ORM\Column]
-    private int $identreprise;
-}
-```
-
----
-
-# 🧠 TYPES D’ALERTES
-
-```php
-class AlerteType
-{
-    public const STOCK_FAIBLE = 'STOCK_FAIBLE';
-    public const VOYAGE_COMPLET = 'VOYAGE_COMPLET';
-    public const VOYAGE_BIENTOT_COMPLET = 'VOYAGE_BIENTOT_COMPLET';
-}
-```
-
----
-
-# 🧠 🧩 3. SERVICE CENTRAL (TRÈS IMPORTANT)
-
-👉 pour éviter du code partout
-
-```php
-class AlerteService
-{
-    public function __construct(private EntityManagerInterface $em) {}
-
-    public function create(
-        string $type,
-        string $message,
-        int $entrepriseId,
-        ?int $referenceId = null,
-        ?string $referenceType = null
-    ): void {
-        $alerte = new Alerte();
-        $alerte
-            ->setType($type)
-            ->setMessage($message)
-            ->setIdentreprise($entrepriseId)
-            ->setReferenceId($referenceId)
-            ->setReferenceType($referenceType);
-
-        $this->em->persist($alerte);
-    }
-}
-```
-
-## 🧠 DANS TON `StockmouvementService`
-
-👉 après chaque mouvement :
-
-```php
-if ($piece->getStock() <= $piece->getSeuilAlerte()) {
-
-    $this->alerteService->create(
-        AlerteType::STOCK_FAIBLE,
-        "Stock faible pour {$piece->getLibelle()}",
-        $entrepriseId,
-        $piece->getId(),
-        'PIECE'
-    );
-}
-```
-
-# 🧱 6. API PLATFORM (ENDPOINTS)
-
-```php
-#[ApiResource(
-    security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    operations: [
-
-        new GetCollection(
-            security: "is_granted('VOIR', 'Alerte')"
-        ),
-
-        new Get(),
-
-        new Patch(
-            security: "is_granted('MODIFIER', object)"
-        )
-    ]
-)]
-```
-
----
-
-# 📊 7. DASHBOARD "ALERTES NON LUES"
-
-👉 endpoint :
-
-```http
-GET /alertes?isRead=false
-```
-
----
-
-## 🔥 BONUS FILTRE
-
-```php
-#[ApiFilter(SearchFilter::class, properties: [
-    'isRead' => 'exact',
-    'type' => 'exact'
-])]
-```
-
----
-
-# 🧱 8. MARQUER COMME LU
-
-👉 PATCH :
-
-```json
-{
-  "isRead": true
-}
-```
-
-# AMÉLIORATIONS PRO
-
-## 🔥 Notification temps réel
-
-* WebSocket
-* ou polling `/alertes`
-
-## 🔥 Notification WhatsApp / Email
-
-
-- - 
-- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
-    > L'expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER` :: Une place réservée est tenue jusqu'à ce délai avant le départ, puis libérée. 0 = jusqu'au départ. (120 = 2 h)
-    > php bin/console app:reservations:expirer
-        */5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
-    > Ou 'loc..:8000/api/cron/reservations-expirer?token=' pour tester côter backend
-    > Le cron qui ne s'exécute pas sur l'hébergeur => C'est un grand classique de l'hébergement mutualisé (mauvais binaire PHP, mauvais `APP_ENV`, ou host qui ne propose qu'un cron **par URL** et pas en ligne de commande). Je regarde la sécurité pour te proposer une solution robuste (un endpoint HTTP déclenchable + du log pour vérifier).
 
 - Mais il reste un trou que je dois te signaler. Le webhook arrive après que le client a payé chez le prestataire. Refuser la confirmation ne lui rend pas son argent : on empêche l'incohérence, pas le prélèvement.
     > La vraie parade est en amont : tenir la place pendant la fenêtre de paiement. C'est exactement à ça que sert le nouveau delaiPaiementMinutes (30 min) — un « hold » court, comme dans n'importe quel tunnel de réservation. Une EN_ATTENTE tiendrait sa place, mais seulement 30 minutes, jamais jusqu'au départ comme dans l'ancien modèle. => Le compromis : quelques places bloquées jusqu'à 30 min pour des clients qui ne paieront peut-être pas. À l'inverse, sans ça, tu continueras d'encaisser des paiements que tu devras rembourser à la main.
@@ -260,6 +122,152 @@ Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)`
 - Plus de configuration nécessaire
 
 **Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
+
+
+- Kernel.php pour les fusos horraire 
+    > Pourquoi quand je crée un voyage avec une date de départ prévue 15H00 sur la ligne Abidjan -> Korhogo qui a une heure de départ(07:00) la date de départ prévue du voyage affiche 13H00 dans le VoyageTable.tsx quand je suis en production alors que en c'est correct en local et je ne sais si ça fais quelque part d'autre !
+
+    Deux sujets. Je commence par le **bug de fuseau horaire** (c'est un problème de données en prod, prioritaire), puis je fais l'exposition mobile.
+
+    Le symptôme (15:00 → 13:00 en prod, correct en local, écart de 2h) est une signature classique de **fuseau horaire**. La différence local/prod = le `date.timezone` du serveur. Je dois voir le trajet exact de la date : saisie → back → affichage. Je regarde l'affichage dans `VoyageTable`, la fonction de formatage, et la sérialisation.
+
+    `formatDate` est la clé de l'affichage. Je la lis.
+
+    `formatDate` n'est pas dans functions.ts. Je regarde son import dans VoyageTable et sa définition.
+
+    Affichage: `new Date(d).toLocaleDateString("fr-FR", {...})` **sans `timeZone`** → rend dans le fuseau du **navigateur**. Le navigateur est le même en local et en prod → donc l'écart vient forcément du **back** : l'instant absolu sérialisé (ou la valeur stockée) diffère entre local et prod.
+
+    Mon raisonnement pur donne des résultats contradictoires selon le fuseau supposé (navigateur, serveur FT, serveur API, MySQL) — trop de permutations. La mémoire est claire : **mesurer, ne pas conclure sur lecture**. Je vais tracer le mécanisme exact : (1) comment le FT poste la date à l'API, (2) le fuseau PHP, (3) la valeur réellement stockée en base, (4) ce que sérialise l'API. Je commence par le trajet d'écriture côté FT.
+
+    Le FT poste `format('Y-m-d\TH:i:s.v\Z')` — le `\Z` est un **littéral** : il imprime le wall-clock (15:00) avec un « Z » collé, **sans convertir** en UTC. Donc l'écriture envoie la même valeur en local et prod. L'écart doit donc venir de la **lecture/sérialisation** de l'API (l'offset attaché dépend du fuseau PHP du serveur). Mais mon raisonnement pur se contredit — je mesure.
+
+    Je récupère les faits durs : fuseau PHP configuré des deux apps, config de normalisation datetime de l'API, et je regarde une valeur réelle.
+
+    Pas de config timezone explicite dans le back → il utilise `date_default_timezone_get()` (donc le `date.timezone` du php.ini : souvent différent local/prod). Je mesure directement sur le système local : fuseau PHP, valeur brute stockée en base, objet hydraté, et la chaîne JSON exacte que sort l'API. Je regarde d'abord une commande Tmp existante pour la structure, puis j'écris un diagnostic **lecture seule**.
+
+    Diagnostic **lecture seule** : fuseau PHP, fuseau MySQL, valeur brute en base (SQL direct), objet hydraté avec offset, et la chaîne JSON exacte sérialisée par le serializer (groupe `read:Voyage`).
+
+    **Diagnostic mesuré — voici le mécanisme complet.** En local :
+    - PHP `date_default_timezone_get()` = **UTC**
+    - Valeur brute en base = `2026-07-23 15:50:00` (DATETIME **naïf**, sans fuseau)
+    - Objet hydraté = `15:50:00+00:00` → JSON API = `2026-07-23T15:50:00+00:00`
+
+    Comme l'affichage local est correct (15:50), **le navigateur de l'utilisateur est à UTC+0** (Abidjan) — cohérent : `new Date("15:50+00:00")` rendu en UTC+0 = 15:50.
+
+    Maintenant je remonte la chaîne d'écriture pour confirmer que la valeur stockée est bien **la même** en local et prod (indépendante du fuseau), donc que le bug est purement à la **lecture**. Je vérifie le Doctrine type + le point de bootstrap où fixer le fuseau, et le fuseau du FT.
+
+    Mécanisme confirmé : DATETIME **naïf** en base + Doctrine réhydrate dans le fuseau PHP du serveur (ici UTC → offset `+00:00`). Je cherche une trace de config de fuseau (Docker/php.ini/deploy) qui confirmerait le `Europe/Paris` en prod, et je vérifie le fuseau du FT.
+
+    Confirmé : **aucune** config de fuseau dans les deux apps ni dans le déploiement → chaque hôte impose son `date.timezone` (local = UTC, prod ≠ UTC). C'est exactement la cause de l'écart. Je mesure le fuseau du FT pour être complet.
+
+    Les deux apps sont en **UTC en local**, aucune config de fuseau nulle part → chaque hôte impose son `date.timezone`. Diagnostic complet et mesuré. J'applique le correctif au niveau racine (fixer le fuseau applicatif à UTC dans les deux Kernels, indépendamment du php.ini de l'hôte). Je lis le Kernel du FT.
+
+    Les deux Kernels sont identiques. Je fixe le fuseau applicatif à **UTC** dans chacun, via le constructeur (couvre web + CLI, s'exécute avant toute hydratation).
+
+    Le pin est en place. Maintenant je **prouve** la prédiction : je sérialise le même voyage sous UTC (le pin) puis sous `Europe/Paris` (simulation prod) pour démontrer le décalage de −2h exact que l'utilisateur observe.
+
+    **Preuve faite.** Même valeur naïve `2026-07-23 15:50:00` en base :
+    - Serveur **UTC** → JSON `15:50+00:00` → affiché **15:50** ✓
+    - Serveur **Europe/Paris** → JSON `15:50+02:00` → affiché **13:50** (−2h) ✗
+
+    C'est exactement ton symptôme (15:00 → 13:00). Je supprime la commande de diagnostic.
+
+    Je scanne rapidement les autres endroits où des datetime « prévus » sont affichés, pour répondre précisément à ton « est-ce que ça se fait ailleurs ».
+
+    Voilà le diagnostic complet et **prouvé par mesure**, puis j'enchaîne sur l'exposition mobile.
+
+    ## Bug fuseau horaire — pourquoi 15:00 → 13:00 en prod
+
+    **Cause racine : aucune des deux apps ne fixe de fuseau horaire.** Elles héritent du `date.timezone` du php.ini de l'hôte — **UTC en local, mais un fuseau UTC+2 en prod** (typiquement `Europe/Paris`, ce qui colle avec le −2h en juillet = heure d'été CEST).
+
+    Le trajet mesuré d'une date de départ prévue :
+
+    1. Tu saisis `15:00` (heure murale). Le FT la poste avec `format('Y-m-d\TH:i:s.v\Z')` — le `\Z` est un **littéral** : il colle un « Z » sans convertir → l'API reçoit `15:00Z`.
+    2. Doctrine stocke un `DATETIME` **naïf** : `2026-07-23 15:00:00` (sans fuseau). ✅ **Identique en local et en prod.**
+    3. À la **lecture**, Doctrine réhydrate cette valeur naïve dans le fuseau PHP **du serveur**, et l'API la sérialise **avec cet offset**. C'est là que tout se joue — je l'ai reproduit sur ton voyage réel (valeur stockée `15:50`) :
+
+    | Serveur | JSON sérialisé | Affiché (navigateur UTC+0) |
+    |---|---|---|
+    | **UTC** (ton local) | `15:50:00+00:00` | **15:50** ✓ |
+    | **Europe/Paris** (ta prod) | `15:50:00+02:00` | **13:50** ✗ (−2h) |
+
+    Le navigateur (`new Date(...).toLocaleDateString(...)` dans `formatDate`) rend l'**instant absolu** dans le fuseau de la machine — et ta machine est à **UTC+0 (Abidjan)**. La même valeur stockée, étiquetée `+02:00` par le serveur prod, devient un instant 2 h plus tôt → −2h à l'écran.
+
+    ## Est-ce que ça se fait ailleurs ? — Oui
+
+    C'est un **bug de fuseau serveur**, donc il touche **partout où une date « prévue » saisie est renvoyée au navigateur puis rendue en JavaScript** : `VoyageTable`, `VoyagesCollectionTable`, `TicketTable`, les formulaires React (`ReservationForm`, `DesistementForm`, `ReservationWeb`), les heures de passage calculées, **et les apps mobiles**. En revanche :
+    - Les rendus **Twig côté serveur** (`|date`) ne bronchent pas : ils réhydratent ET affichent dans le même fuseau serveur, qui s'annule.
+    - Les horodatages **générés serveur** (`createdAt`, départ/arrivée réels, passages) restent corrects : ils préservent un instant réel de bout en bout.
+
+    ## Correctif appliqué (racine, une seule cause)
+
+    J'ai épinglé le fuseau applicatif à **UTC** dans les deux Kernels ([Backend](Backend-Transport/src/Kernel.php), [Frontend](Frontend-Transport/src/Kernel.php)), indépendamment du php.ini de l'hôte. La compagnie opère en UTC+0 (Abidjan) et ton local est déjà en UTC et correct → la prod se comportera désormais **exactement comme le local**, et **toutes** les surfaces ci-dessus (dont le mobile) sont corrigées d'un coup.
+
+    ⚠️ **Une nuance à connaître pour la prod** : les horodatages « temps réel » déjà écrits en base **sous Europe/Paris** (départs/arrivées réels passés) seront désormais relus en UTC et s'afficheront +2h. Sur des données de test jetables c'est sans conséquence ; les nouvelles écritures seront cohérentes. Dis-moi si ta prod contient des données réelles à préserver — sinon on est bon.
+
+    ---
+
+    Je passe à l'**exposition mobile** (position du car + retard estimé dans le suivi). Je lis d'abord la façade publique pour voir ce qui est déjà exposé.
+
+    Le suivi renvoie un `ReservationPubliqueDto` via le mapper. Je lis le DTO et le mapper pour voir où greffer la position du car + le retard estimé.
+
+    Je vois la structure. Il me faut exposer la **position du car** (`garecourante`) + un **retard estimé courant**. Le retard se calcule comme dans les bordereaux : `arriveeReelle(gare courante) − heurePassage prévue`. Je regarde `ReservationEcheanceService` et comment le retard est déjà calculé, pour centraliser proprement.
+
+    Je comprends le domaine. J'ajoute au suivi public : **position du car**, **voyage démarré**, **retard estimé courant**, et une **heure de passage estimée** (révisée du retard) chez le client. Je vérifie d'abord les getters du Voyage dont j'ai besoin.
+
+    Tous les getters existent. J'ajoute `retardCourantMinutes` au service, juste après `heurePassage`.
+
+    Maintenant les champs du DTO public :
+
+    Et je peuple le mapper :
+
+    Je factorise `heurepassage` pour réutiliser `$heurePrevue` déjà calculé :
+
+    Je vérifie qu'aucune autre construction de `ReservationPubliqueDto` ne casse avec les nouveaux paramètres requis.
+
+    Tout passe par `versDto` — mon changement couvre suivi, historique et création. Avant de tester, je vérifie le contexte de sérialisation du suivi (les `null` sont-ils retirés ? ça détermine l'optionalité côté mobile).
+
+    Le suivi n'a pas de `normalizationContext` explicite → défaut API Platform. Je vérifie le défaut `skip_null_values` (il conditionne si les nouveaux champs `null` sont absents du JSON, donc leur optionalité côté mobile).
+
+    Pas de `skip_null_values` explicite → défaut API Platform 3 = **les `null` sont retirés du JSON**. Donc côté mobile, `retardMinutes` / `positionActuelle` / `heurepassageEstimee` seront **optionnels** (absents si null), `voyageDemarre` (bool) toujours présent. Je mesure la forme JSON réelle sur une vraie réservation.
+
+    Mesuré et correct. Voyage #26 démarré, car à Bouaké :
+    - `voyageDemarre: true`, `positionActuelle: "Gare de bouaké"`, `retardMinutes: -198` (le jeu de test a un départ réel très en avance — l'arithmétique est juste : réel − prévu), `heurepassageEstimee` = heure prévue + retard.
+    - `billetEmis`/`paiement` absents → confirme que les `null` sont retirés (donc champs optionnels côté mobile).
+    - Sérialisé en `+00:00` → le pin UTC fonctionne.
+
+    Je supprime le diagnostic et passe aux apps mobiles.
+
+    Les deux demandes sont traitées et validées.
+
+    ## 1. Bug fuseau horaire — résolu à la racine
+
+    **Pourquoi 15:00 → 13:00 en prod :** aucune des deux apps ne fixait de fuseau, elles héritaient du `date.timezone` de l'hôte (**UTC en local, UTC+2 en prod**). Les dates « prévues » sont stockées en `DATETIME` **naïf** ; à la lecture, l'API leur colle l'offset du serveur. Le même `15:00` stocké ressort `15:00+00:00` en local (affiché 15:00 sur ton navigateur à UTC+0) mais `15:00+02:00` en prod (= instant 13:00 → affiché **13:00**). Prouvé par mesure sur ton voyage réel.
+
+    **Où d'autre :** partout où une date prévue est rendue en JS/mobile (toutes les tables React, les formulaires, **et les apps mobiles**). Les rendus Twig et les horodatages temps-réel générés serveur n'étaient pas touchés.
+
+    **Correctif :** `date_default_timezone_set('UTC')` épinglé dans les deux [Kernel backend](Backend-Transport/src/Kernel.php) et [Kernel FT](Frontend-Transport/src/Kernel.php) → prod = local partout, une seule cause corrigée. Documenté dans le [README](Backend-Transport/README.md) (section Production).
+
+    ⚠️ Rappel : les horodatages temps-réel déjà écrits en prod **sous Europe/Paris** s'afficheront +2h après bascule. Sans conséquence sur des données de test ; dis-moi si ta prod a des données réelles à préserver.
+
+    ## 2. Exposition « où est mon car » — les deux apps
+
+    **Backend** ([suivi public](Backend-Transport/src/State/Public/ReservationPubliqueMapper.php)) — 4 champs ajoutés au DTO du suivi :
+    - `voyageDemarre`, `positionActuelle` (gare courante), `retardMinutes` (retard courant signé = réel − prévu à la position, nouveau [`retardCourantMinutes`](Backend-Transport/src/Domain/Service/ReservationEcheanceService.php)), `heurepassageEstimee` (heure prévue chez le client + retard).
+
+    **Flutter** ([resaflutter](resaflutter/lib/features/reservation/presentation/widgets/reservation_details.dart)) — carte « Suivi du car » (position · état coloré · passage estimé), modèle freezed régénéré, affichée **uniquement en suivi**.
+
+    **React Native** ([resanative](resanative/src/features/reservation/components/ReservationDetails.tsx)) — même carte, mêmes règles, types + helpers ajoutés.
+
+    Les trois champs optionnels sont **omis quand null** (skip_null_values) → les clients les traitent comme optionnels, le bloc n'apparaît qu'une fois le car parti et jamais sur l'historique.
+
+
+- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
+    > L'expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER` :: Une place réservée est tenue jusqu'à ce délai avant le départ, puis libérée. 0 = jusqu'au départ. (120 = 2 h)
+    > php bin/console app:reservations:expirer
+        */5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
+    > Ou 'loc..:8000/api/cron/reservations-expirer?token=' pour tester côter backend
+    > Le cron qui ne s'exécute pas sur l'hébergeur => C'est un grand classique de l'hébergement mutualisé (mauvais binaire PHP, mauvais `APP_ENV`, ou host qui ne propose qu'un cron **par URL** et pas en ligne de commande). Je regarde la sécurité pour te proposer une solution robuste (un endpoint HTTP déclenchable + du log pour vérifier).
 
 
 # Exploitation : durée par tronçon, horaires réels de passage, bordereaux & ponctualité

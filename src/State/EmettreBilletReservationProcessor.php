@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\ReservationStatus;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\EmissionBilletService;
 use App\Entity\Reservation;
 use App\Entity\User;
@@ -31,7 +32,8 @@ class EmettreBilletReservationProcessor implements ProcessorInterface
         private EntityManagerInterface $em,
         private EmissionBilletService $emissionBillet,
         private GareGuard $gareGuard,
-        private VoyageGuard $voyageGuard
+        private VoyageGuard $voyageGuard,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -89,6 +91,19 @@ class EmettreBilletReservationProcessor implements ProcessorInterface
             // Prix VERROUILLÉ à la réservation (pas recalculé pour une émission à l'heure)
             $ticket = $this->emissionBillet->creer($reservation, $voyage, (int) $reservation->getPrix(), $entrepriseId, $user);
             $reservation->setTicket($ticket)->setUpdatedBy($user->getId());
+
+            // Journal : le bon devient un billet — c'est le moment où la réservation est honorée.
+            $this->activiteLogger->log(
+                ActiviteLogger::RESERVATION_BILLET_EMIS,
+                sprintf(
+                    'Billet %s émis pour la réservation %s (siège %s)',
+                    $ticket->getCodeticket() ?? '—',
+                    $reservation->getCode(),
+                    $ticket->getSiege()?->getNumero() ?? '—'
+                ),
+                'Reservation',
+                $reservation->getId()
+            );
 
             return $this->processor->process($reservation, $operation, $uriVariables, $context);
         });

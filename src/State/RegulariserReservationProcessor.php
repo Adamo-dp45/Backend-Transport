@@ -107,7 +107,7 @@ class RegulariserReservationProcessor implements ProcessorInterface
             }
 
             $this->activiteLogger->log(
-                'RESERVATION_REGULARISEE',
+                ActiviteLogger::RESERVATION_REGULARISEE,
                 sprintf(
                     'Réservation %s régularisée : report %s → %s (pénalité %s, complément %d FCFA) — billet %s',
                     $reservation->getCode(),

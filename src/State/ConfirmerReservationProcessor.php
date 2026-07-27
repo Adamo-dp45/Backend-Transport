@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\ReservationStatus;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CapaciteService;
 use App\Domain\Service\ReservationEcheanceService;
 use App\Domain\Service\Paiement\PaiementProviderInterface;
@@ -36,7 +37,8 @@ class ConfirmerReservationProcessor implements ProcessorInterface
         private GareGuard $gareGuard,
         private CapaciteService $capaciteService,
         private ReservationEcheanceService $echeance,
-        private VoyageGuard $voyageGuard
+        private VoyageGuard $voyageGuard,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -111,6 +113,19 @@ class ConfirmerReservationProcessor implements ProcessorInterface
             if ($presentation !== null) {
                 $reservation->setDateexpiration($presentation);
             }
+
+            // Journal : de l'argent est ENTRÉ au guichet — l'événement doit porter un nom d'agent.
+            $this->activiteLogger->log(
+                ActiviteLogger::RESERVATION_CONFIRMEE,
+                sprintf(
+                    'Réservation %s encaissée au guichet : %d FCFA (réf. %s)',
+                    $reservation->getCode(),
+                    (int) $reservation->getPrix(),
+                    $resultat->reference ?? '—'
+                ),
+                'Reservation',
+                $reservation->getId()
+            );
 
             return $this->processor->process($reservation, $operation, $uriVariables, $context);
         });

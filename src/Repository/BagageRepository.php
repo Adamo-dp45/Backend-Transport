@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use App\Domain\Enum\BagageStatus;
 use App\Entity\Bagage;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -500,6 +501,31 @@ class BagageRepository extends ServiceEntityRepository
             ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    // -- Alertes -- //
+
+    /**
+     * Bagages EMBARQUÉS dont le VOYAGE est arrivé depuis plus longtemps que $limite mais qui ne sont
+     * toujours pas LIVRÉS : incident de remise. Gare de descente hydratée (idgare).
+     *
+     * @return Bagage[]
+     */
+    public function findEmbarquesNonLivresAnterieursA(int $identreprise, \DateTimeImmutable $limite): array
+    {
+        return $this->createQueryBuilder('b')
+            ->join('b.voyage', 'v')
+            ->leftJoin('b.garedescente', 'gd')->addSelect('gd')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
+            ->andWhere('b.statut = :embarque')
+            ->andWhere('v.datearriveereelle IS NOT NULL')
+            ->andWhere('v.datearriveereelle <= :limite')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('embarque', BagageStatus::STATUT_EMBARQUE->value)
+            ->setParameter('limite', $limite)
+            ->getQuery()
+            ->getResult();
     }
 
     //    /**

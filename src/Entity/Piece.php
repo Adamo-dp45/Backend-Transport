@@ -182,7 +182,8 @@ class Piece extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelet
     private ?int $prixunitaire = null;
 
     #[ORM\Column(nullable: true)]
-    #[Groups(['read:Piece'])]
+    #[Groups(['read:Piece', 'write:Piece'])] // modifiable à la création ET à l'édition (write:Piece couvre les deux)
+    #[Assert\PositiveOrZero]
     private ?int $seuilstock = 5;
 
     #[ORM\ManyToOne]

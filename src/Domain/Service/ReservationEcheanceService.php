@@ -32,7 +32,8 @@ class ReservationEcheanceService
         private ReservationConfigService $config,
         private ReservationRepository $reservationRepository,
         private EntityManagerInterface $em,
-        private VoyageGuard $voyageGuard
+        private VoyageGuard $voyageGuard,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -114,6 +115,49 @@ class ReservationEcheanceService
     }
 
     /**
+     * Retard COURANT du car, en minutes (positif = en retard, négatif = en avance), mesuré à sa
+     * position actuelle ('garecourante') : heure RÉELLE de passage à cette gare − heure PRÉVUE.
+     *
+     * L'heure réelle est l'arrivée horodatée à la gare courante (cf. entité Passage) ; à l'origine,
+     * où il n'y a pas d'arrivée, on prend le départ réel du voyage. Renvoie null tant qu'aucun
+     * horodatage réel n'est disponible à la position courante (voyage pas encore parti, ou position
+     * inconnue) ou si l'heure prévue n'est pas calculable — jamais un retard inventé.
+     */
+    public function retardCourantMinutes(Voyage $voyage): ?int
+    {
+        $gare = $voyage->getGarecourante();
+        if ($gare === null) {
+            return null;
+        }
+
+        // Heure réelle connue à la gare courante : arrivée réelle, sinon départ réel (passage en cours).
+        $reel = null;
+        foreach ($voyage->getPassages() as $passage) {
+            if ($passage->getGare()?->getId() === $gare->getId()) {
+                $reel = $passage->getArriveeReelle() ?? $passage->getDepartReelle();
+                break;
+            }
+        }
+        // Repli origine : le départ réel du voyage vaut passage (départ) à l'origine effective.
+        if ($reel === null) {
+            $origine = $voyage->getOrigineEffective();
+            if ($origine !== null && $gare->getId() === $origine->getId()) {
+                $reel = $voyage->getDatedepartreelle();
+            }
+        }
+        if ($reel === null) {
+            return null;
+        }
+
+        $prevu = $this->heurePassage($voyage, $gare);
+        if ($prevu === null) {
+            return null;
+        }
+
+        return (int) round(($reel->getTimestamp() - $prevu->getTimestamp()) / 60);
+    }
+
+    /**
      * Limite de PRÉSENTATION au guichet — c'est aussi la limite au-delà de laquelle on ne réserve
      * plus. $passage est l'heure attendue du car À LA GARE DE MONTÉE (cf. heurePassage).
      */
@@ -183,7 +227,11 @@ class ReservationEcheanceService
      *                    flush final, EN MÊME TEMPS que le voyage). Flusher ici couperait l'écriture
      *                    en deux : un contrôle qui échoue ensuite (car indisponible…) laisserait la
      *                    nouvelle date déjà enregistrée alors que la requête a été refusée.
-     * @return int nombre de réservations replanifiées
+     * DÉPART REPORTÉ : symétriquement, les no-show (A_REGULARISER) dont la NOUVELLE échéance
+     * retombe dans le futur sont REPÊCHÉS en CONFIRMEE — ils ne l'étaient devenus que contre
+     * l'ancien horaire (cf. bloc « repêchage » plus bas, et sa conséquence sur la capacité).
+     *
+     * @return int nombre de réservations touchées (replanifiées + no-show repêchés)
      */
     public function replanifierPourVoyage(Voyage $voyage, ?\DateTimeInterface $ancienDepart = null, bool $flush = true): int
     {
@@ -212,11 +260,56 @@ class ReservationEcheanceService
                 $reservation->setPenaliteexoneree(true);
             }
         }
-        if ($flush && $reservations !== []) {
+
+        /*
+            REPÊCHAGE DES NO-SHOW. Une réservation payée passée en A_REGULARISER l'a été parce que
+            SON échéance de présentation — calculée sur l'ANCIENNE date de départ — était dépassée.
+            Si la compagnie replanifie le départ et que la NOUVELLE échéance retombe dans le futur,
+            ce no-show n'en est plus un : le car n'est pas parti, le client a payé, et c'est
+            l'horaire qui a bougé. On le remet donc en CONFIRMEE, sans pénalité ni report à faire.
+
+            La condition « nouvelle échéance dans le futur » suffit à couvrir les deux sens : un
+            départ AVANCÉ ne peut que rapprocher l'échéance, donc ne repêche personne.
+
+            CONSÉQUENCE ASSUMÉE : A_REGULARISER ne tient PLUS de place (cf. ReservationStatus::
+            tenantsPlace) ; repasser en CONFIRMEE en REPREND une, qui a pu être revendue entre-temps
+            — c'est le surbooking assumé du modèle, préférable à laisser un client payant no-show
+            d'un retard décidé par la compagnie.
+        */
+        $repeches = [];
+        foreach ($this->reservationRepository->findARegulariserPourVoyage($voyage->getId()) as $reservation) {
+            $presentation = $this->limitePresentationPour(
+                $voyage,
+                $reservation->getGare(),
+                (int) $reservation->getIdentreprise()
+            );
+            // Nouvelle échéance toujours dépassée → le no-show reste acquis.
+            if ($presentation === null || $presentation <= $now) {
+                continue;
+            }
+            $reservation
+                ->setStatut(ReservationStatus::STATUT_CONFIRMEE->value)
+                ->setDateexpiration($presentation);
+            $repeches[] = $reservation;
+
+            // Traçable : ce repêchage rend une place à un client ET la REPREND sur le voyage.
+            $this->activiteLogger->log(
+                ActiviteLogger::RESERVATION_REPECHEE,
+                sprintf(
+                    'Réservation %s repêchée (no-show levé) : départ replanifié, présentation reportée au %s',
+                    $reservation->getCode(),
+                    $presentation->format('d/m/Y H:i')
+                ),
+                'Reservation',
+                $reservation->getId()
+            );
+        }
+
+        if ($flush && ($reservations !== [] || $repeches !== [])) {
             $this->em->flush();
         }
 
-        return count($reservations);
+        return count($reservations) + count($repeches);
     }
 
     /**

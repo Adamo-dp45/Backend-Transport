@@ -7,6 +7,7 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\DepannageStatus;
 use App\Domain\Enum\Referencetype;
 use App\Domain\Enum\Typemouvement;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CarStatutService;
 use App\Domain\Service\StockmouvementService;
 use App\Entity\Depannage;
@@ -34,7 +35,8 @@ class AnnulerDepannageProcessor implements ProcessorInterface
         private EntityManagerInterface $em,
         private StockmouvementService $stockmouvementService,
         private CarStatutService $carStatutService,
-        private DepannageRepository $depannageRepository
+        private DepannageRepository $depannageRepository,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -83,6 +85,17 @@ class AnnulerDepannageProcessor implements ProcessorInterface
         $depannage
             ->setStatut(DepannageStatus::ANNULE->value)
             ->setUpdatedBy($user->getId());
+
+        // Journal : annulation = les pièces consommées sont rendues au stock ET le car est relâché.
+        $this->activiteLogger->log(
+            ActiviteLogger::DEPANNAGE_ANNULE,
+            sprintf(
+                'Dépannage annulé sur le car %s — pièces restituées au stock, véhicule remis en service',
+                $depannage->getCar()?->getMatricule() ?? '—'
+            ),
+            'Depannage',
+            $depannage->getId()
+        );
 
         return $this->processor->process($depannage, $operation, $uriVariables, $context);
     }

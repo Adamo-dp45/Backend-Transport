@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\DepannageStatus;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CarStatutService;
 use App\Entity\Depannage;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -13,7 +14,8 @@ class CloturerDepannageProcessor implements ProcessorInterface
 {
     public function __construct(
         private ProcessorInterface $processor,
-        private CarStatutService $carStatutService
+        private CarStatutService $carStatutService,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -37,6 +39,18 @@ class CloturerDepannageProcessor implements ProcessorInterface
         if($data->getCar()) {
             $this->carStatutService->mettreDisponible($data->getCar());
         }
-        return $this->processor->process($data, $operation, $uriVariables, $context); 
+
+        // Journal : le car redevient DISPONIBLE — fin de l'immobilisation.
+        $this->activiteLogger->log(
+            ActiviteLogger::DEPANNAGE_CLOTURE,
+            sprintf(
+                'Dépannage clôturé sur le car %s — véhicule remis en service',
+                $data->getCar()?->getMatricule() ?? '—'
+            ),
+            'Depannage',
+            $data->getId()
+        );
+
+        return $this->processor->process($data, $operation, $uriVariables, $context);
     }
 }

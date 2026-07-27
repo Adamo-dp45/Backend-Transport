@@ -9,6 +9,7 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\DepannageStatus;
 use App\Domain\Enum\Referencetype;
 use App\Domain\Enum\Typemouvement;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CarStatutService;
 use App\Domain\Service\StockmouvementService;
 use App\Entity\Depannage;
@@ -35,7 +36,8 @@ class DepannageProcessor implements ProcessorInterface
         private StockmouvementService $stockmouvementService,
         private DepannageRepository $depannageRepository,
         private TypepanneRepository $typepanneRepository,
-        private CarStatutService $carStatutService
+        private CarStatutService $carStatutService,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -82,6 +84,20 @@ class DepannageProcessor implements ProcessorInterface
             - Va être nécessaire pour avoir l'id vu qu'on utilise un 'input'
         */
         $this->handleDetails($depannage, $data->details, $entrepriseId, $userId);
+
+        // Journal : le car passe EN PANNE — il sort de l'exploitation, c'est une immobilisation.
+        $this->activiteLogger->log(
+            ActiviteLogger::DEPANNAGE_OUVERT,
+            sprintf(
+                'Dépannage ouvert sur le car %s (%s) à %s — véhicule immobilisé',
+                $car->getMatricule() ?? '—',
+                $typepanne?->getLibelle() ?? 'panne non typée',
+                $data->lieudepannage ?: '—'
+            ),
+            'Depannage',
+            $depannage->getId()
+        );
+
         return $this->processor->process($depannage, $operation, $uriVariables, $context);
     }
 

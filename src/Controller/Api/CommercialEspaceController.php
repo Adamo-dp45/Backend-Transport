@@ -91,6 +91,9 @@ final class CommercialEspaceController extends AbstractController
                 'destination' => $v->getDestination(),
                 'datedepartprevue' => $v->getDatedepartprevue()?->format('Y-m-d\TH:i:sP'),
                 'demarre' => $v->getDatedepartreelle() !== null,
+                // Car affecté : nécessaire au plan de sièges côté app mobile (/api/sieges?car=…).
+                'carId' => $v->getCar()?->getId(),
+                'carMatricule' => $v->getCar()?->getMatricule(),
                 'placestotal' => $v->getPlacestotal() ?? 0,
                 'placesoccupees' => $v->getTicketsCount(),
                 'garecouranteId' => $courante?->getId(),

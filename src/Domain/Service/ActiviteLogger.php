@@ -39,6 +39,25 @@ class ActiviteLogger
     public const BAGAGE_SUPPRIME = 'BAGAGE_SUPPRIME';
     public const BAGAGE_MONTANT_FORCE = 'BAGAGE_MONTANT_FORCE'; // montant forcé ≠ tarif (audit anti sous-déclaration)
 
+    // Réservation — événements qui changent le SORT d'une place déjà payée
+    public const RESERVATION_REGULARISEE = 'RESERVATION_REGULARISEE'; // no-show reporté sur un autre départ (pénalité)
+    public const RESERVATION_REPECHEE = 'RESERVATION_REPECHEE';       // no-show rendu CONFIRMEE par une replanification du départ
+    public const RESERVATION_ANNULEE = 'RESERVATION_ANNULEE';         // annulation d'une réservation en attente (place rendue)
+    public const RESERVATION_CONFIRMEE = 'RESERVATION_CONFIRMEE';     // encaissement au guichet (de l'argent est entré)
+    public const RESERVATION_BILLET_EMIS = 'RESERVATION_BILLET_EMIS'; // bon transformé en billet (la réservation est honorée)
+
+    /*
+        Flotte — immobilisations. Le statut d'un car ne change QUE par affectation à un voyage (déjà
+        tracée par VOYAGE_CAR) ou par dépannage : ces trois types couvrent donc toute l'indisponibilité
+        d'un véhicule, sans doublonner l'exploitation.
+    */
+    public const DEPANNAGE_OUVERT = 'DEPANNAGE_OUVERT';
+    public const DEPANNAGE_CLOTURE = 'DEPANNAGE_CLOTURE';
+    public const DEPANNAGE_ANNULE = 'DEPANNAGE_ANNULE';
+
+    // Stock — le registre 'Inventaire' porte déjà qui/quoi/combien ; l'activité porte le POURQUOI
+    public const STOCK_AJUSTE = 'STOCK_AJUSTE';
+
     public function __construct(
         private EntityManagerInterface $em,
         private Security $security

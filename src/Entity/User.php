@@ -286,7 +286,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[ORM\Column(length: 180)]
     #[Assert\NotBlank()]
     #[Assert\Email()]
-    #[Groups(['read:User', 'write:User', 'write:User:profil'])]
+    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage'])]
     private ?string $email = null;
 
     /**

@@ -58,6 +58,10 @@ services:
         arguments:
             $entityPath: '%app.entity.path%'
 
+    App\Domain\Service\CorbeilleRegistry:
+        arguments:
+            $entityPath: '%app.entity.path%'
+
     # Extension.. mais pas utile à cause de l'autoconfigure --
     # services:
     #    App\Doctrine\EntrepriseScopeExtension:

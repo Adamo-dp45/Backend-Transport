@@ -22,8 +22,11 @@ final class GareSuiviController extends AbstractController
 {
     #[Route('/api/gares/me/suivi', name: 'api_gare_me_suivi', methods: ['GET'])]
     #[IsGranted('IS_AUTHENTICATED_FULLY')]
-    public function suivi(Security $security, VoyageRepository $voyageRepository): JsonResponse
-    {
+    public function suivi(
+        Security $security,
+        VoyageRepository $voyageRepository,
+        \App\Domain\Service\ReservationEcheanceService $echeance
+    ): JsonResponse {
         /** @var User $user */
         $user = $security->getUser();
         $gare = $user->getGare();
@@ -69,7 +72,7 @@ final class GareSuiviController extends AbstractController
                 ? $ordreParGare[$courante->getId()]
                 : 0;
 
-            $item = $this->item($voyage, $courante, $ordreGare, $ordreCourante, $etapes);
+            $item = $this->item($voyage, $courante, $ordreGare, $ordreCourante, $etapes, $gare, $echeance);
 
             if ($ordreCourante < $ordreGare) {
                 $versMaGare[] = $item;
@@ -89,9 +92,32 @@ final class GareSuiviController extends AbstractController
         ]);
     }
 
-    private function item(Voyage $voyage, ?\App\Entity\Gare $courante, int $ordreGare, int $ordreCourante, array $etapes): array
-    {
+    private function item(
+        Voyage $voyage,
+        ?\App\Entity\Gare $courante,
+        int $ordreGare,
+        int $ordreCourante,
+        array $etapes,
+        \App\Entity\Gare $maGare,
+        \App\Domain\Service\ReservationEcheanceService $echeance
+    ): array {
         $commercial = $voyage->getCommercial();
+
+        /*
+            ETA chez MOI = heure de passage PRÉVUE à ma gare, décalée du retard COURANT du car
+            (mesuré à sa position réelle). Sans ça, une gare en aval ne dispose que de l'horaire
+            théorique et découvre le retard à l'arrivée du car. Le retard peut être négatif : le car
+            est en avance, et l'ETA se rapproche — c'est une information tout aussi utile à quai.
+
+            Les deux composantes restent exposées séparément : une gare doit pouvoir distinguer
+            « prévu 14:00, +25 min » de « 14:25 » sec, et l'ETA disparaît si le retard n'est pas
+            mesurable (car pas encore parti) plutôt que d'afficher une heure faussement sûre.
+        */
+        $heurePrevue = $echeance->heurePassage($voyage, $maGare);
+        $retard = $echeance->retardCourantMinutes($voyage);
+        $eta = ($heurePrevue !== null && $retard !== null)
+            ? $heurePrevue->modify(($retard >= 0 ? '+' : '') . $retard . ' minutes')
+            : null;
 
         return [
             'voyageId' => $voyage->getId(),
@@ -105,6 +131,10 @@ final class GareSuiviController extends AbstractController
             'arrets' => abs($ordreGare - $ordreCourante), // nb d'arrêts entre le car et ma gare
             'commercial' => $commercial ? trim($commercial->getPrenom() . ' ' . $commercial->getNom()) : null,
             'datedepartprevue' => $voyage->getDatedepartprevue()?->format('Y-m-d H:i'),
+            // Horaires à MA gare : prévu, retard courant du car, et heure d'arrivée estimée
+            'heurePrevue' => $heurePrevue?->format('H:i'),
+            'retardMinutes' => $retard,
+            'eta' => $eta?->format('H:i'),
             // Mini-plan de ligne : étapes ordonnées + position du car et de ma gare
             'etapes' => $etapes,
             'nbArrets' => count($etapes),

@@ -40,6 +40,7 @@ use App\State\ReceptionnerVoyageProcessor;
 use App\State\RepartirVoyageProcessor;
 use App\State\SoftDeleteProcessor;
 use App\State\VoyageProcessor;
+use App\State\VoyageProvider;
 use App\State\VoyagesReservablesProvider;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
@@ -72,6 +73,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
         new Get(
             security: "is_granted('VOIR', object) or is_granted('ROLE_USER')",
             requirements: ['id' => '\d+'],
+            provider: VoyageProvider::class, // + frise 'horaires' (dérivée), pipeline natif conservé
             normalizationContext: ['groups' => ['read:Voyage', 'read:Base', 'read:Voyage:item'], 'skip_null_values' => false], /*
                 - La FICHE seule embarque les collections complètes (billets, courriers, bagages,
                   personnel) : elle les affiche. La LISTE ne reçoit que leurs compteurs — sinon on
@@ -431,6 +433,19 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     #[ORM\OneToMany(targetEntity: Passage::class, mappedBy: 'voyage')]
     #[Groups(['read:Voyage'])]
     private Collection $passages;
+
+    /**
+     * FRISE des horaires par gare : pour chaque arrêt de la ligne, l'heure PRÉVUE de passage (somme
+     * des tronçons), les heures RÉELLES (cf. Passage), le retard et le temps d'arrêt.
+     *
+     * DÉRIVÉE à la lecture (jamais stockée) et posée par VoyageProvider, comme Ticket::$evince : le
+     * calcul a besoin de ReservationEcheanceService, qu'une entité ne peut pas porter. Exposée sur le
+     * SEUL groupe 'read:Voyage:item' — donc sur la FICHE, pas en liste, où elle serait du poids mort.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    #[Groups(['read:Voyage:item'])]
+    private array $horaires = [];
 
     public function __construct()
     {
@@ -839,6 +854,20 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     public function getPassages(): Collection
     {
         return $this->passages;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function getHoraires(): array
+    {
+        return $this->horaires;
+    }
+
+    /** @param array<int, array<string, mixed>> $horaires */
+    public function setHoraires(array $horaires): static
+    {
+        $this->horaires = $horaires;
+
+        return $this;
     }
 
     public function addBagage(Bagage $bagage): static

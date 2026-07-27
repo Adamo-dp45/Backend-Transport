@@ -37,6 +37,64 @@ class VoyageRepository extends ServiceEntityRepository
             ->getSingleScalarResult();
     }
 
+    /**
+     * Voyages RÉELLEMENT PARTIS sur la période, avec leurs arrêts et leurs passages — base du calcul
+     * de QUALITÉ de la donnée d'exploitation (combien d'arrêts sont effectivement horodatés).
+     *
+     * On part des voyages, et non des passages : un voyage dont AUCUN passage n'a été marqué est
+     * précisément le pire cas de qualité, et il serait invisible en interrogeant les passages.
+     * Filtré sur 'datedepartreelle' : un voyage jamais parti n'a rien à horodater, l'inclure
+     * ferait chuter le taux sans qu'aucun agent soit en faute.
+     *
+     * @return Voyage[]
+     */
+    public function findPartisAvecPassagesPourPeriode(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('v')
+            ->addSelect('l', 'a', 'ag', 'p', 'pg', 'c')
+            ->leftJoin('v.ligne', 'l')
+            ->leftJoin('l.arrets', 'a')
+            ->leftJoin('a.gare', 'ag')
+            ->leftJoin('v.passages', 'p')
+            ->leftJoin('p.gare', 'pg')
+            ->leftJoin('v.car', 'c')
+            ->andWhere('v.identreprise = :ide')
+            ->andWhere('v.deletedAt IS NULL')
+            ->andWhere('v.datedepartreelle IS NOT NULL')
+            ->andWhere('v.datedepartreelle >= :debut')
+            ->andWhere('v.datedepartreelle <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * TOUS les voyages RÉELLEMENT PARTIS d'une ligne (tout l'historique de l'entreprise), avec leurs
+     * passages — base du RECALAGE des durées de tronçon (médiane des durées réellement observées).
+     *
+     * On prend tout l'historique et non une période : plus il y a d'observations, plus la médiane est
+     * fiable, et un référentiel ne se recale pas sur trois voyages.
+     *
+     * @return Voyage[]
+     */
+    public function findPartisAvecPassagesPourLigne(int $ligneId, int $identreprise): array
+    {
+        return $this->createQueryBuilder('v')
+            ->addSelect('p', 'pg')
+            ->leftJoin('v.passages', 'p')
+            ->leftJoin('p.gare', 'pg')
+            ->andWhere('v.ligne = :ligne')
+            ->andWhere('v.identreprise = :ide')
+            ->andWhere('v.deletedAt IS NULL')
+            ->andWhere('v.datedepartreelle IS NOT NULL')
+            ->setParameter('ligne', $ligneId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getResult();
+    }
+
     /** Capacité et nb de voyages par gare de DÉPART EFFECTIVE (v.gareprovenance : gare intermédiaire pour un départ partiel, sinon origine de la ligne), voyages partant sur la période. */
     public function capaciteParGareDepart(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {

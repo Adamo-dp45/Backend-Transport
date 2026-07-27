@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use App\Domain\Enum\CourrierStatus;
 use App\Entity\Courrier;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -482,6 +483,29 @@ class CourrierRepository extends ServiceEntityRepository
             ->setParameter('ide', $identreprise)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    // -- Alertes -- //
+
+    /**
+     * Courriers RÉCEPTIONNÉS (arrivés, en attente de retrait) inchangés depuis plus longtemps que
+     * $limite (updatedAt <= $limite) : non livrés au destinataire. Gare d'arrivée hydratée (idgare).
+     *
+     * @return Courrier[]
+     */
+    public function findReceptionnesAnterieursA(int $identreprise, \DateTimeImmutable $limite): array
+    {
+        return $this->createQueryBuilder('c')
+            ->leftJoin('c.garearrivee', 'ga')->addSelect('ga')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
+            ->andWhere('c.statut = :receptionne')
+            ->andWhere('c.updatedAt <= :limite')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('receptionne', CourrierStatus::STATUT_RECEPTIONNE->value)
+            ->setParameter('limite', $limite)
+            ->getQuery()
+            ->getResult();
     }
 
     //    /**

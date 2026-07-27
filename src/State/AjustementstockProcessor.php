@@ -6,6 +6,7 @@ use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\Referencetype;
 use App\Domain\Enum\Typemouvement;
+use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\StockmouvementService;
 use App\Entity\Dto\AjustementstockInput;
 use App\Entity\User;
@@ -19,7 +20,8 @@ class AjustementstockProcessor implements ProcessorInterface
         private ProcessorInterface $processor,
         private Security $security,
         private StockmouvementService $stockmouvementService,
-        private PieceRepository $pieceRepository
+        private PieceRepository $pieceRepository,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -44,7 +46,6 @@ class AjustementstockProcessor implements ProcessorInterface
             throw new NotFoundHttpException('Pièce introuvable');
         }
 
-        // $data->motif -- Pour l'instant je n'utilise pas
         $type = $data->quantite >= 0 ? Typemouvement::ENTREE->value : Typemouvement::SORTIE->value;
 
         $this->stockmouvementService->createMovement(
@@ -55,6 +56,24 @@ class AjustementstockProcessor implements ProcessorInterface
             null,
             $entrepriseId,
             $user->getId()
+        );
+
+        /*
+            Le registre 'Inventaire' porte déjà QUI a ajusté, QUOI et COMBIEN (mouvement typé
+            AJUSTEMENT + auteur) : le journal n'a pas à le redire. En revanche le MOTIF saisi n'est
+            stocké nulle part — or sur un ajustement de stock, c'est justement le « pourquoi » qui
+            fait la valeur de l'audit. On le consigne donc ici.
+        */
+        $this->activiteLogger->log(
+            ActiviteLogger::STOCK_AJUSTE,
+            sprintf(
+                'Stock ajusté sur %s : %+d — motif : %s',
+                $piece->getLibelle() ?? '—',
+                $data->quantite,
+                trim((string) $data->motif) !== '' ? $data->motif : 'non renseigné'
+            ),
+            'Piece',
+            $piece->getId()
         );
 
         return $this->processor->process($piece, $operation, $uriVariables, $context);

@@ -83,7 +83,16 @@ class SoftDeleteProcessor implements ProcessorInterface
         */
             $blockers = $data->getSoftDeleteBlockers();
             if(!empty($blockers)) {
-                throw new UnprocessableEntityHttpException(implode(' ', $blockers));
+                /*
+                    Les 'blockers' énoncent le CONSTAT (« rattachée à 3 gare(s) active(s) ») ; on y
+                    ajoute la MARCHE À SUIVRE, sans quoi l'agent reçoit un refus sans issue. Un
+                    référentiel encore utilisé ne se supprime pas — on le détache d'abord, ou on le
+                    laisse en place : le garder ne gêne personne, il ne fausse aucun historique.
+                */
+                throw new UnprocessableEntityHttpException(
+                    implode(' ', $blockers)
+                    . ' Détachez ou supprimez d\'abord ces éléments. En attendant, cet enregistrement peut rester en place : il n\'y a aucun risque à le conserver.'
+                );
             }
         }
 

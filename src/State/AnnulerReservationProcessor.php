@@ -5,6 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\ReservationStatus;
+use App\Domain\Service\ActiviteLogger;
 use App\Entity\Reservation;
 use App\Entity\User;
 use App\Security\GareGuard;
@@ -24,7 +25,8 @@ class AnnulerReservationProcessor implements ProcessorInterface
     public function __construct(
         private ProcessorInterface $processor,
         private Security $security,
-        private GareGuard $gareGuard
+        private GareGuard $gareGuard,
+        private ActiviteLogger $activiteLogger
     )
     {
     }
@@ -47,6 +49,19 @@ class AnnulerReservationProcessor implements ProcessorInterface
         $reservation
             ->setStatut(ReservationStatus::STATUT_ANNULEE->value)
             ->setUpdatedBy($user->getId());
+
+        // Journal : l'annulation rend une place au voyage — symétrique de TICKET_ANNULE.
+        $this->activiteLogger->log(
+            ActiviteLogger::RESERVATION_ANNULEE,
+            sprintf(
+                'Réservation %s annulée (%s → %s)',
+                $reservation->getCode(),
+                $reservation->getGare()?->getLibelle() ?? '—',
+                $reservation->getGaredescente()?->getLibelle() ?? '—'
+            ),
+            'Reservation',
+            $reservation->getId()
+        );
 
         return $this->processor->process($reservation, $operation, $uriVariables, $context);
     }
