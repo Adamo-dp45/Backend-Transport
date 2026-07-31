@@ -25,13 +25,47 @@
 - 
 
 - 
+alerte non rechargement de page
+backups (aussi cron qui sauvegarde la bd voir symfony), commande pour créer super admin
+Comment apprendre postgresql pour quelqu'un qui maitrise sql et mysql
+module avant module notion avant notion application très organisé et cohérence code inutile
+
+
+
+
+
+
+
+On vas se connecter en tant qu'administrateur de l'entreprise, pour commencer l'administrateur doit créer les paramètres de la compagnie donc on vas créer les : gares, lignes, tarifs, cars, personnels(chauffeurs, mécaniciens..) : ensuite, l'administrateur crée son équipe qui sont les administrateurs de chaque gare pour qu'ils puissent créer leurs agents (guichetiers, agents courrier/bagage) et leur attribue des permissions et il ne peuvent pas créer d'autres administrateurs de gare
+
+La formule du scénario — l'origine prépare, l'intermédiaire réceptionne, le terminus clôture => Le périmètre par gare
+
+On vas simuler le scénario d'un voyage complet sur la ligne `Abidjan → Bouaké → Korhogo` donc on aura n acteurs (du genre chaque administrateur de gare se connecte) puis Abidjan qui est l'origine de la ligne prépare un voyage complet et fait partir le car(du genre affecter un car, commercial qui est un user(on vas y revenir plus tard), du personnel, vendre des tickets, enregistrer des courriers et bagages, Démarrer le voyage — l'heure de départ réelle est horodatée. Les courriers passent En transit et les bagages Embarqué automatiquement) .. ensuite tiré le bordereau pour le donner au chaffeur .. une fois le car en route la gare intermédiaire(Bouaké voit venir le car, le réceptionne et le fait repartir) voit le car arrivée vers lui et une fois arrivée il réceptionne(ce qui fait que L'heure d'arrivée est horodatée. En une action, l'application bascule les courriers qui descendent ici en Réceptionné(Remettre les colis — les courriers arrivés attendent leur destinataire. Quand il se présente, confirmez la livraison : le courrier passe Livré) et les bagages en Livré) le voyage et l'agent vend des tickets etc... bordereau.. puis fais repartir le car(l'heure de départ de Bouaké est horodatée) .. une fois le car en route la gare de terminus(Korhogo clôture le voyage) voit.. et une fois arrivée il clôturer le voyage pour libérer le car pour pouvoir organiser un voyage dessus .. L'heure d'arrivée réelle est enregistrée, les bagages restants passent Livré, et le voyage n'est plus modifiable
+
+Après ce scénario concret on suppose que la journée est terminé donc l'administrateur de l'entreprise va se connecter pour voir les statistiques ainsi que la recettes etc... , enfin, on explique les autres notions comme "Fidélité", "Remise", "Stock & approvisionnement", "Flotte & maintenance", "Parametre"
+
+déclarer et annuler logué
+expliquer le statut des sièges et la priorité
+réservation, fidélité vient après
+
+
+Réglez les paramètres métier pendant que vous y êtes : plafond de remise, programme de fidélité, délais de réservation et composition de la recette. Ils sont détaillés à la fin de ce guide
+
+Aussi expliqué pour le commercial (du genre expliqué au commercial ce qu'il est censé faire)
+
+Aussi ne pas oublié d'expliquer les détails comme quand le car tombe en panne en cours de route on peut le changer, aussi le faite la mise à jour automatique du statut des bagages et courriers à la reception et clôturation .. le confirmer livraison, aussi les détails conçernant les réservations no-show.., aussi le déclarer comme perdu, les annulations, la vente par tronçon, le désister et aussi pour l'évincé, aussi les différents états sur le plan de siège, ainsi de suite...
+
+
+
+
+
+
+
+
+
+Seul manque notable : pas de stat dédiée aux alertes (répartition par famille/gare/gravité sur une période) — utile pour repérer les problèmes récurrents. Autres pistes optionnelles : notifications par email/SMS (aujourd'hui les alertes sont in-app)
+
 - Pour la simulation du paiement dans la partie réservation on vas utilisé Stripe pour simuler
-- Concernant la notion du polling je me dis vente de ticket
-
-- Le commercial doit pouvoir faire une remise, aussi la gestion des bagages.. à tester sans admin gare
-
-
-Forcer montant bagage, ticket format, avancer curseur
 
 
 Hors-scope pour l'instant : vente hors-ligne (file d'attente + resync) — à rediscuter, réel enjeu pour un vendeur qui perd le réseau en route.
@@ -69,6 +103,12 @@ Je souhaite mettre en place une architecture flexible permettant à chaque entre
 - - 
 Générer les alertes à partir des données actuelles (idempotent, relançable) :
     php bin/console app:alertes:generer
+- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
+    > L'expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER` :: Une place réservée est tenue jusqu'à ce délai avant le départ, puis libérée. 0 = jusqu'au départ. (120 = 2 h)
+    > php bin/console app:reservations:expirer
+        */5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
+    > Ou 'loc..:8000/api/cron/reservations-expirer?token=' pour tester côter backend
+    > Le cron qui ne s'exécute pas sur l'hébergeur => C'est un grand classique de l'hébergement mutualisé (mauvais binaire PHP, mauvais `APP_ENV`, ou host qui ne propose qu'un cron **par URL** et pas en ligne de commande). Je regarde la sécurité pour te proposer une solution robuste (un endpoint HTTP déclenchable + du log pour vérifier).
 - La notification temps réel `WebSocket` ou polling `/alertes`
 
 - démarrer → réceptionner → repartir → clôturer un voyage
@@ -260,14 +300,6 @@ Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)`
     **React Native** ([resanative](resanative/src/features/reservation/components/ReservationDetails.tsx)) — même carte, mêmes règles, types + helpers ajoutés.
 
     Les trois champs optionnels sont **omis quand null** (skip_null_values) → les clients les traitent comme optionnels, le bloc n'apparaît qu'une fois le car parti et jamais sur l'historique.
-
-
-- Le cron sur `app:reservations:expirer` pour la réservation vu que c'est lui qui matérialise le passage en à régulariser
-    > L'expiration via le cron `app:reservations:expirer` (avant le départ) → no-show `A_REGULARISER` :: Une place réservée est tenue jusqu'à ce délai avant le départ, puis libérée. 0 = jusqu'au départ. (120 = 2 h)
-    > php bin/console app:reservations:expirer
-        */5 * * * * cd /chemin/vers/BK-Transport && /usr/bin/php bin/console app:reservations:expirer --env=prod --no-interaction >> var/log/cron-reservations.log 2>&1
-    > Ou 'loc..:8000/api/cron/reservations-expirer?token=' pour tester côter backend
-    > Le cron qui ne s'exécute pas sur l'hébergeur => C'est un grand classique de l'hébergement mutualisé (mauvais binaire PHP, mauvais `APP_ENV`, ou host qui ne propose qu'un cron **par URL** et pas en ligne de commande). Je regarde la sécurité pour te proposer une solution robuste (un endpoint HTTP déclenchable + du log pour vérifier).
 
 
 # Exploitation : durée par tronçon, horaires réels de passage, bordereaux & ponctualité

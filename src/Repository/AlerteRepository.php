@@ -103,6 +103,69 @@ class AlerteRepository extends ServiceEntityRepository
     }
 
     /**
+     * Statistiques des alertes d'une entreprise sur une période (vue ADMIN, sans audience) : volumes
+     * par famille / sévérité / statut / gare, évolution par jour, et délai moyen de résolution. Agrégation
+     * en PHP à partir d'une seule requête (robuste, indépendant des fonctions SQL de date).
+     *
+     * @return array<string, mixed>
+     */
+    public function statistiques(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        $rows = $this->createQueryBuilder('a')
+            ->select('a.famille AS famille', 'a.severite AS severite', 'a.statut AS statut', 'a.idgare AS idgare', 'a.createdAt AS createdAt', 'a.resolueLe AS resolueLe')
+            ->andWhere('a.identreprise = :ide')
+            ->andWhere('a.deletedAt IS NULL')
+            ->andWhere('a.createdAt >= :debut')
+            ->andWhere('a.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getArrayResult();
+
+        $total = count($rows);
+        $parFamille = $parSeverite = $parStatut = $parGare = $parJour = [];
+        $resolues = 0;
+        $sommeMin = 0;
+        $nbMesure = 0;
+
+        foreach ($rows as $r) {
+            $parFamille[$r['famille']] = ($parFamille[$r['famille']] ?? 0) + 1;
+            $parSeverite[$r['severite']] = ($parSeverite[$r['severite']] ?? 0) + 1;
+            $parStatut[$r['statut']] = ($parStatut[$r['statut']] ?? 0) + 1;
+            $gid = (int) ($r['idgare'] ?? 0); // 0 = alerte entreprise/direction (sans gare)
+            $parGare[$gid] = ($parGare[$gid] ?? 0) + 1;
+
+            $cree = $r['createdAt'];
+            $jour = $cree instanceof \DateTimeInterface ? $cree->format('Y-m-d') : substr((string) $cree, 0, 10);
+            $parJour[$jour] = ($parJour[$jour] ?? 0) + 1;
+
+            if ($r['resolueLe'] !== null) {
+                $resolues++;
+                if ($cree instanceof \DateTimeInterface && $r['resolueLe'] instanceof \DateTimeInterface) {
+                    $sommeMin += max(0, ($r['resolueLe']->getTimestamp() - $cree->getTimestamp()) / 60);
+                    $nbMesure++;
+                }
+            }
+        }
+        ksort($parJour);
+
+        return [
+            'total' => $total,
+            'resolues' => $resolues,
+            'actives' => $parStatut['ACTIVE'] ?? 0,
+            'lues' => $parStatut['LUE'] ?? 0,
+            'tauxResolution' => $total > 0 ? (int) round($resolues / $total * 100) : 0,
+            'delaiResolutionMoyenMin' => $nbMesure > 0 ? (int) round($sommeMin / $nbMesure) : null,
+            'parFamille' => $parFamille,   // libellé => nb
+            'parSeverite' => $parSeverite, // libellé => nb
+            'parStatut' => $parStatut,     // libellé => nb
+            'parGare' => $parGare,         // idgare (0 = sans gare) => nb
+            'parJour' => $parJour,         // 'Y-m-d' => nb
+        ];
+    }
+
+    /**
      * Marque LUES toutes les alertes ACTIVE visibles par l'utilisateur courant (audience appliquée).
      *
      * @return int nombre d'alertes basculées
