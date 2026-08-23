@@ -15,7 +15,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: DetailpersonnelRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Detailpersonnel', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Detailpersonnel', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Detailpersonnel']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,

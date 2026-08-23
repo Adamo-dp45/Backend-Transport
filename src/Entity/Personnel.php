@@ -33,7 +33,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 )] # On peut un 'code' par entreprise mais prendre en compte le 'deletedAt'
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Personnel', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Personnel', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Personnel']],
     paginationEnabled: false,
     order: ['createdAt' => 'DESC'],
@@ -75,7 +75,9 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            // Réservé à l'ADMIN d'entreprise : suspendre un agent est une décision RH, pas une modification
+            // de sa fiche.
+            security: "is_granted('ROLE_ADMIN')",
             uriTemplate: '/personnels/{id}/suspendre',
             requirements: ['id' => '\d+'],
             input: false,

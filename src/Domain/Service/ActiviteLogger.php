@@ -5,12 +5,26 @@ namespace App\Domain\Service;
 use App\Entity\Activite;
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 
 /**
  * Journalise « qui a fait quoi » : crée une ligne 'Activite'. On se contente de persist() — le flush
  * est porté par le processor appelant (appeler log() AVANT son flush final). Scopé à l'entreprise de
  * l'acteur courant ; ne loggue rien hors contexte utilisateur (ex. CLI).
+ *
+ * RÈGLE : une trace qui échoue ne fait JAMAIS échouer le geste. Journaliser est un service rendu à
+ * l'exploitation, pas une condition de la vente, du désistement ou de la clôture. 'log()' ne laisse
+ * donc remonter aucune exception : ce qui casse ici part dans le logger applicatif et le métier
+ * continue. Une activité perdue se constate ; une vente refusée parce que sa trace n'a pas pu
+ * s'écrire est une panne.
+ *
+ * La trace reste néanmoins ATOMIQUE avec le geste, et c'est voulu : elle part dans la MÊME
+ * transaction, donc si le geste échoue, le journal ne raconte pas quelque chose qui n'a pas eu lieu.
+ * Sortir l'écriture de la transaction rendrait bien l'INSERT inoffensif, mais au prix de cette
+ * propriété — un journal qui atteste une vente annulée en cours de route serait pire qu'un journal
+ * absent. On garde donc l'atomicité, et on retire à l'INSERT ses raisons d'échouer : toutes les
+ * valeurs sont BORNÉES ci-dessous aux limites réelles des colonnes.
  */
 class ActiviteLogger
 {
@@ -58,33 +72,67 @@ class ActiviteLogger
     // Stock — le registre 'Inventaire' porte déjà qui/quoi/combien ; l'activité porte le POURQUOI
     public const STOCK_AJUSTE = 'STOCK_AJUSTE';
 
+    /** Longueurs des colonnes 'activite' : au-delà, l'INSERT serait refusé par la base. */
+    private const MAX_TYPE = 60;
+    private const MAX_LIBELLE = 255;
+    private const MAX_CIBLETYPE = 50;
+
+    /** Borne de l'INT MySQL de 'cibleid' : un identifiant plus grand ferait échouer l'insertion. */
+    private const MAX_CIBLEID = 2147483647;
+
     public function __construct(
         private EntityManagerInterface $em,
-        private Security $security
+        private Security $security,
+        private LoggerInterface $logger
     )
     {
     }
 
     public function log(string $type, string $libelle, ?string $cibletype = null, ?int $cibleid = null): void
     {
-        $user = $this->security->getUser();
-        if (!$user instanceof User) {
-            return; // pas de contexte utilisateur → rien à tracer
+        try {
+            $user = $this->security->getUser();
+            if(!$user instanceof User) {
+                return;
+            }
+            $entrepriseId = $user->getEntreprise()?->getId();
+            if($entrepriseId === null) {
+                return;
+            }
+            $activite = (new Activite())
+                ->setType(mb_substr($type, 0, self::MAX_TYPE))
+                ->setLibelle(mb_substr($libelle, 0, self::MAX_LIBELLE))
+                ->setCibletype($cibletype !== null ? mb_substr($cibletype, 0, self::MAX_CIBLETYPE) : null)
+                ->setCibleid($this->identifiantExploitable($cibleid))
+                ->setAuteur($user)
+                ->setIdentreprise($entrepriseId)
+                ->setCreatedBy($user->getId())
+            ;
+            $this->em->persist($activite);
+        } catch (\Throwable $e) {
+            $this->signaler($e, $type, $cibletype, $cibleid);
         }
-        $entrepriseId = $user->getEntreprise()?->getId();
-        if ($entrepriseId === null) {
-            return;
-        }
-        $activite = (new Activite())
-            ->setType($type)
-            ->setLibelle(mb_substr($libelle, 0, 255))
-            ->setCibletype($cibletype)
-            ->setCibleid($cibleid)
-            ->setAuteur($user)
-            ->setIdentreprise($entrepriseId)
-            ->setCreatedBy($user->getId())
-        ;
-        $this->em->persist($activite);
+    }
+
+    /** Un identifiant hors de l'INT MySQL n'est pas exploitable : mieux vaut nul qu'un INSERT refusé. */
+    private function identifiantExploitable(?int $cibleid): ?int
+    {
+        return $cibleid !== null && $cibleid > 0 && $cibleid <= self::MAX_CIBLEID ? $cibleid : null;
+    }
+
+    /**
+     * Une trace perdue se constate dans les logs ; une vente refusée parce que son journal n'a pas pu
+     * s'écrire est une panne. On rapporte, on ne propage jamais.
+     */
+    private function signaler(\Throwable $e, string $type, ?string $cibletype, ?int $cibleid): void
+    {
+        $this->logger->error('Activité non journalisée : {message}', [
+            'message' => $e->getMessage(),
+            'type' => $type,
+            'cibletype' => $cibletype,
+            'cibleid' => $cibleid,
+            'exception' => $e
+        ]);
     }
 
     /** Raccourci pour un événement rattaché à un voyage. */

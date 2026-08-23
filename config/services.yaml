@@ -22,6 +22,12 @@ services:
     # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
+        exclude:
+            # Les fixtures étendent des classes de 'doctrine/doctrine-fixtures-bundle', qui est en
+            # 'require-dev' : en production ('composer install --no-dev') ces classes n'existent
+            # pas et la compilation du conteneur échouerait. Elles sont donc déclarées plus bas,
+            # sous 'when@dev' / 'when@test' uniquement.
+            - '../src/DataFixtures/'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
@@ -69,3 +75,22 @@ services:
     #            - { name: 'api_platform.doctrine.orm.query_extension.collection' }
     #            - { name: 'api_platform.doctrine.orm.query_extension.item' }
     # --
+
+# Fixtures — chargées UNIQUEMENT en dev et en test, comme le bundle dont elles dépendent.
+when@dev: &fixtures
+    services:
+        _defaults:
+            autowire: true
+            autoconfigure: true
+
+        App\DataFixtures\:
+            resource: '../src/DataFixtures/'
+
+        # Purger tolérant au cycle 'ticket' <-> 'reservation'. En décorant la fabrique du bundle,
+        # l'alias « default » suit le décorateur : 'doctrine:fixtures:load' recharge la base sans
+        # aucune option supplémentaire.
+        App\DataFixtures\Purger\PurgerSansContrainteFactory:
+            decorates: 'doctrine.fixtures.purger.orm_purger_factory'
+            arguments: ['@.inner']
+
+when@test: *fixtures

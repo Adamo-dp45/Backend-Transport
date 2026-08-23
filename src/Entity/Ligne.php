@@ -33,7 +33,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 */
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Ligne', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Ligne', 'read:Base']],
     denormalizationContext: ['groups' => ['write:LigneInput']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,

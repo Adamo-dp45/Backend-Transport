@@ -122,6 +122,18 @@ final class VoyagesReservablesProvider implements ProviderInterface
         if ($vendeurABord) {
             return $montee->getId() !== $voyage->getLigne()?->getGareterminus()?->getId();
         }
+        /*
+            DÉPART PARTIEL : le car ne passe JAMAIS par les gares situées avant sa provenance
+            effective. 'monteeDepassee' ne le voit pas tant que le voyage n'est pas parti (elle
+            renvoie false faute de position connue), si bien qu'un départ lancé depuis Bouaké était
+            proposé au guichet d'Abidjan — que 'TicketProcessor' et 'ReservationCreationService'
+            refusaient ensuite (« aucune vente possible avant cette gare »). Proposer un départ que
+            la création refuse derrière est pire que de n'en proposer aucun : on applique donc ici la
+            même borne qu'eux.
+        */
+        if (!$this->surLaRouteEffective($voyage, $montee)) {
+            return false;
+        }
         if ($this->voyageGuard->monteeDepassee($voyage, $montee)) {
             return false;
         }
@@ -132,6 +144,37 @@ final class VoyagesReservablesProvider implements ProviderInterface
         $limite = $this->echeance->limitePresentationPour($voyage, $montee, $entrepriseId);
 
         return $limite !== null && $limite > $now;
+    }
+
+    /**
+     * La gare est-elle sur la route que le car parcourt RÉELLEMENT (provenance effective → terminus) ?
+     *
+     * Une gare de la ligne située en amont d'un départ partiel n'en fait pas partie.
+     */
+    private function surLaRouteEffective(Voyage $voyage, Gare $montee): bool
+    {
+        $ligne = $voyage->getLigne();
+        if ($ligne === null) {
+            return true; // sans ligne, rien à borner : on ne masque pas le voyage
+        }
+
+        $ordreParGare = [];
+        foreach ($ligne->getArrets() as $arret) {
+            $gare = $arret->getGare();
+            if ($gare !== null) {
+                $ordreParGare[$gare->getId()] = (int) $arret->getOrdre();
+            }
+        }
+
+        $ordreMontee = $ordreParGare[$montee->getId()] ?? null;
+        if ($ordreMontee === null) {
+            return false; // gare hors de la ligne
+        }
+
+        $origine = $voyage->getOrigineEffective();
+        $ordreOrigine = $origine !== null ? ($ordreParGare[$origine->getId()] ?? 0) : 0;
+
+        return $ordreMontee >= $ordreOrigine;
     }
 
     /** Première gare de la ligne où il reste possible de monter, ou null s'il n'y en a plus aucune. */

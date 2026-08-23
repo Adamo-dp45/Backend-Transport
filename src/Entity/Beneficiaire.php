@@ -24,7 +24,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[ORM\Entity(repositoryClass: BeneficiaireRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Beneficiaire', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Beneficiaire', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Beneficiaire']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,

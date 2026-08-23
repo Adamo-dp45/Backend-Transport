@@ -36,7 +36,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: DepannageRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Depannage', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Depannage', 'read:Base']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
     order: ['createdAt' => 'DESC'],
@@ -54,7 +54,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
             security: "is_granted('VOIR', object)",
             requirements: ['id' => '\d+'],
             provider: DepannageProvider::class,
-            normalizationContext: ['groups' => ['read:Depannage', 'read:Base', 'read:Depannage:item'], 'skip_null_values' => false], /*
+            normalizationContext: ['groups' => ['read:Depannage', 'read:Base', 'read:Depannage:item']], /*
                 - Seule la FICHE embarque les listes (intervenants, pièces) ; la LISTE reçoit les agrégats.
             */
             openapi: new Operation(
@@ -164,7 +164,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            // Réservé à l'ADMIN d'entreprise : écrit un mouvement de STOCK. Sous 'MODIFIER', la même
+            // permission servait à corriger un libellé et à bouger des quantités.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : cette opération écrit un MOUVEMENT DE STOCK. Sous
+                'MODIFIER', la même permission servait à corriger un libellé et à bouger des
+                quantités — un magasinier devant rectifier une saisie héritait de l'inventaire.
+            */
+            security: "is_granted('ANNULER', object)",
             uriTemplate: '/depannages/{id}/annuler',
             requirements: ['id' => '\d+'],
             input: false,

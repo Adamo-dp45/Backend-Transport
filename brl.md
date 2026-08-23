@@ -12,7 +12,7 @@
     > php bin/console make:fixtures
     > php bin/console doctrine:fixtures:load
     > php bin/console make:migration
-    > php bin/console doctrine:migrations:migrate
+    > s
     > php bin/console doctrine:schema:update --force : `--env=test` pour les tests
         > php bin/console doctrine:schema:update --dump-sql
     > php bin/console doctrine:fixtures:load : `--env=test` pour les tests
@@ -25,11 +25,218 @@
 - 
 
 - 
-alerte non rechargement de page
-backups (aussi cron qui sauvegarde la bd voir symfony), commande pour créer super admin
-Comment apprendre postgresql pour quelqu'un qui maitrise sql et mysql
-module avant module notion avant notion application très organisé et cohérence code inutile
+* 
+Repo: Build yout own x qui apprend à faire tout soit même créer un langage ou framework
+https://pestphp.com/ pour les tests élégentes php
+cron qui sauvegarde la bd voir symfony
+Temps réel framework frontend
+- Guide utilisateur via Driver.js ou Intro.js avec persisantce de l'état sur lequel l'utilisateur est et peut recommencer
+    ## Comparaison Driver.js vs Intro.js
 
+    **Driver.js**
+    - Plus moderne, léger (~5kb gzip)
+    - Highlight visuel élégant — met en surbrillance l'élément ciblé avec un overlay
+    - API simple et flexible
+    - Pas de dépendances
+    - Meilleur pour des guides contextuels par page/module
+    - Gratuit et open source
+
+    **Intro.js**
+    - Plus ancien, plus lourd
+    - Style "tooltip numéroté" classique
+    - Nécessite une licence pour usage commercial
+    - Plus de configuration nécessaire
+
+    **Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
+* 
+
+
+
+Tests de montée en charge ( Plusieurs utilisateurs simultané ) k6, Apache bench
+
+Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
+    new GetCollection(
+        security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
+        openapi: new Operation(
+            summary: 'La liste des cars',
+            description: 'Permet de voir la liste des cars',
+            security: [['bearerAuth' => []]]
+        )
+    ), CAR
+Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
+
+
+Non merci, on revient sur le Cap iTransport
+Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
+
+
+
+
+
+
+
+
+
+
+Salut Claude Code,
+
+Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée (backend/frontend) :
+
+## Stack technique
+- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
+- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
+
+## Rappel
+- **Ignore les fichiers `brl.md`** dans les deux projets : ce sont de simples brouillons, sans valeur pour l'analyse (comme indiqué précédemment).
+
+## Ce que j'attends
+Comme le contexte de la session précédente n'est plus disponible, analyse à nouveau les deux projets (backend et frontend) afin de :
+- te remettre à jour sur l'architecture générale et les modules existants,
+- retrouver l'état d'avancement du projet,
+- être prêt pour la suite des instructions que je vais te donner.
+
+**Remarques :**
+- J'ai ajouté "comme le contexte de la session précédente n'est plus disponible" pour que Claude Code comprenne bien *pourquoi* il doit refaire cette analyse (sinon il pourrait supposer à tort qu'il a un souvenir persistant).
+- Si vous avez un fichier de notes/résumé de la session précédente (changelog, `NOTES.md`, etc.), c'est le bon moment pour le mentionner explicitement — ça évite de tout ré-analyser depuis zéro.
+- Voulez-vous que j'ajoute une section pour préciser sur quoi portera la suite du travail (nouvelle fonctionnalité, bugfix, etc.), ou gardez-vous ça pour un prompt séparé ?
+
+
+
+Salut Claude Code, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+
+
+
+
+
+
+
+
+
+
+
+
+
+php bin/console app:creer-super-admin
+
+Un point que j'ai corrigé après l'avoir testée : quand un super admin existe déjà, la version initiale posait une question de confirmation — qui, en --no-interaction, retombait sur « non » et rendait un succès sans rien créer. Un script de déploiement aurait cru le compte créé. Elle échoue maintenant avec un message clair, et --force permet d'en ajouter un délibérément.
+
+5 nouveaux tests dans CorrectionTicketTest.php, dont un qui inscrit noir sur blanc la conséquence que tu as acceptée : passé le départ, un billet de guichet n'est plus corrigible par personne, admin compris. Si ça devient gênant en exploitation, le test dira exactement quelle règle relâcher.
+
+composant modifié pour les zindex
+
+Impression depuis les fiches. Nouveau module vanille impression.js, sur le modèle de suivi.js : une délégation de clic sur [data-imprimer]. Les six liens concernés (bagage, courrier, billet, bordereau de gare, bordereau chauffeur ×2) impriment sans quitter la page. Un repli ouvre l'onglet si la visionneuse PDF refuse d'être pilotée.
+
+Le sélecteur affiche bien 4 voyages — dont LI-ABI-DAL-0002-V1, daté d'hier soir et non clôturé : le bug signalé est corrigé dans l'application réelle.
+Mais j'y vois aussi LI-ABI-KOR-0001-V4, qui part de Bouaké. Je vérifie si la vente depuis Adjamé serait acceptée.
+Confirmé : la vente est refusée (« aucune vente possible avant cette gare »), alors que le sélecteur propose quand même le voyage — l'inverse exact du bug que tu as signalé, dans le même sélecteur. Je corrige. :: VoyagesReservablesProvider.php
+Au passage, j'ai trouvé le défaut symétrique : un départ partiel lancé depuis Bouaké était proposé au guichet d'Abidjan, alors que TicketProcessor refuse la vente derrière. Le sélecteur applique désormais la même borne. Huit tests couvrent l'ensemble.
+
+
+/bordereau refondue
+
+La page s'ouvre déjà remplie sur « ma gare, aujourd'hui » — plus de ligne obligatoire, qui devient un filtre replié. Bandeau de totaux (recette, billets, bagages, courriers), raccourcis Hier/Aujourd'hui/Demain, puis une carte par départ avec l'heure en évidence, le statut (à quai / en route / clôturé), les chiffres de la gare et les deux boutons d'impression. Un dépliant montre les horaires réels, le retard, et la liste nominative des passagers avec le total encaissé — ce que contiendra le PDF, visible avant de lancer l'impression. Les fichiers d'impression n'ont pas été touchés, comme convenu.
+
+Deux garde-fous : au-delà de 30 départs les recettes ne sont pas calculées (un appel par voyage), et les totaux ne s'affichent que s'ils sont complets — un chiffre partiel sur un écran de caisse serait pire que pas de chiffre. J'ai aussi écarté les départs partiels qui ne passent pas par la gare : ils s'affichaient à zéro et faisaient douter du total.
+
+
+
+
+
+
+PHPUnit 13 veut un stub quand aucune attente n'est configurée. C'est la bonne remarque — je n'ai besoin que d'un stub. PermissionVoterTest
+
+cd Backend-Transport && make test-db && make test
+
+
+## Ce que ça produit
+
+**1 258 enregistrements**, deux compagnies (`ira-transport` complète, `sahel-voyages` minimale pour prouver l'isolation), et un super admin sans entreprise.
+
+Mot de passe unique pour tous les comptes : `Password123!`
+
+| Compte | Ce qu'il permet de tester |
+|---|---|
+| `super@itransport.ci` | hors périmètre entreprise : corbeille, maintenance |
+| `admin@ira-transport.ci` | fondateur, dashboard global avec finances |
+| `chef.abidjan@ira-transport.ci` | `ROLE_ADMIN_GARE`, bypass limité aux entités de gare |
+| `agent.bouake@ira-transport.ci` | gare **intermédiaire** : réception, revente |
+| `commercial@ira-transport.ci` | vente à bord (app Flutter commerciale) |
+| `exploitation@ira-transport.ci` | central sans gare : voit tout, sans le financier |
+| `suspendu@ira-transport.ci` | `UserChecker` + `JWTSubscriber` |
+
+Le scénario d'exploitation couvre les six états d'un départ : clôturé (hier, passages horodatés), **en route** (le car est à Bouaké, commercial à bord), planifié, **départ partiel** depuis Bouaké, imminent sans équipage, et retour. Plus un mois d'historique clôturé — sans lui, tout le module Rapports est vide de sens.
+
+## Trois choses qui ont demandé une décision
+
+**`EntityBase::onPrePersist()` écrase `createdAt` à chaque insertion.** Or `TicketRepository` filtre les recettes dessus. Tout aurait été daté de la seconde du chargement — aucune courbe exploitable. D'où [HorodatageTrait](Backend-Transport/src/DataFixtures/HorodatageTrait.php), qui repasse en DQL après le flush, en groupant par classe et par date. L'étendue va bien de J-30 à aujourd'hui.
+
+**Le cycle `ticket` ↔ `reservation` casse le rechargement.** Le premier chargement passe (base vide), le second échoue — et `--purge-with-truncate` échoue aussi. J'ai ajouté [PurgerSansContrainte](Backend-Transport/src/DataFixtures/Purger/PurgerSansContrainte.php), qui décore la fabrique du bundle pour suspendre les contraintes le temps de la purge. Le rechargement marche sans option.
+
+**Le bundle est en `require-dev`.** Tes fixtures étaient déjà exposées en prod via `App\: resource: '../src/'` sans `exclude` — en `composer install --no-dev`, la classe parente `Fixture` n'existe pas et le conteneur ne compile plus. J'ai exclu `src/DataFixtures/` du bloc principal et redéclaré sous `when@dev`/`when@test`. Ça neutralise au passage ce risque préexistant sur ton déploiement.
+
+## Vérifications passées
+
+- **Stock** : `stockinitial` égale exactement la somme algébrique des mouvements `Inventaire`, sur les 7 pièces. Un ajustement est bien écrit en `SORTIE` + référence `AJUSTEMENT` (pas en type `AJUSTEMENT`), et l'appro annulé garde son entrée + une sortie compensatoire.
+- **Étanchéité** : 0 billet dont le voyage appartient à une autre compagnie, 0 arrêt hors compagnie.
+- **Le balayeur d'alertes**, lancé sur ces données, produit les 5 situations construites pour lui — rupture, stock faible, dépannage prolongé, voyage sans personnel, no-show — sur les deux portées et les trois sévérités. Je n'ai créé aucune `Alerte` en fixture : elles sont dérivées, les écrire à la main aurait produit des alertes qui ne s'éteignent jamais.
+- **Fidélité** : `Koné Salif` culmine à 13 voyages, seuil franchi. J'ai dû ajouter 80 voyageurs occasionnels — avec 8 clients pour 260 billets, tout le monde affichait 33 trajets et le membre était indistinguable.
+
+Deux réserves à connaître. Les identifiants d'entreprise **changent à chaque rechargement** (la purge par `DELETE` ne remet pas l'auto-increment à zéro) — utilise le slug, pas l'id, dans tes requêtes de contrôle. Et les heures des voyages V2/V4/V5 sont **relatives à l'instant du chargement**, sinon un jeu chargé à 8 h montrerait un car arrivé à midi.
+
+
+
+php bin/console doctrine:fixtures:load --no-interaction
+
+Le bundle de fixtures est réservé à l'environnement de développement ; décorer son service depuis le fichier `services.yaml` principal casserait la build de production (`composer install --no-dev`). Je vais restreindre sa portée correctement.
+
+Le décorateur possède désormais l'alias par défaut. Laissez-moi recharger l'application en utilisant la base de données alimentée : c'est le véritable test.
+
+
+
+
+
+
+
+## Ce qui a été monté
+
+Le backend n'avait aucune infrastructure de test. J'ai installé PHPUnit 13 + browser-kit + css-selector (en miroir du front), créé la base `bk_transport_test` — le suffixe `_test` était déjà prévu dans `doctrine.yaml` — et ajouté les cibles `make test`, `test-domain`, `test-api`, `test-db`.
+
+| Suite | Tests | Ce qu'elle protège |
+|---|---|---|
+| `Domain/CapaciteService` | 16 | priorité amont, comptage de **sièges** et non de passagers, descente anticipée, éviction en chaîne, occupation maximale |
+| `Domain/ReservationEcheance` | 10 | heure de passage = somme des tronçons, départ partiel, règle du tout-ou-rien, paiement vs présentation |
+| `Domain/VoyageGuard` | 18 | origine prépare · intermédiaire réceptionne · terminus clôture ; `monteeAtteinte` vs `monteeDepassee` |
+| `Api/Authentification` | 9 | JWT, refresh, suspension **avant et après** émission du jeton, anti-force-brute |
+| `Api/PerimetreEntreprise` | 7 | étanchéité entre compagnies, soft delete, échappatoire du super admin |
+| `Api/PerimetreGare` | 7 | les trois régimes de scope, cumul avec le périmètre entreprise |
+| `Api/ReservationPublique` | 10 | surface anonyme bornée par `?slug=` |
+| **Front** (3 fichiers) | 29 | `ApiUser::hasPermission`, `PermissionVoter`, `TableQueryBuilder` |
+
+Chaque test construit ses propres données via [ScenarioBuilder](Backend-Transport/tests/Support/ScenarioBuilder.php), comme convenu, et son `TestDox` énonce la conséquence métier — pas le nom de la méthode.
+
+## Un vrai défaut trouvé, et corrigé
+
+`GET /api/me` **sans jeton renvoyait 500**, pas 401 : API Platform exécute le provider *avant* d'évaluer `security:`, donc [MeProvider](Backend-Transport/src/State/MeProvider.php) appelait `getId()` sur `null`. C'est exactement le piège « provider-avant-security » que ton README mentionne à propos de la corbeille — il mordait ici.
+
+La conséquence n'était pas cosmétique : le front redirige vers le login sur 401 (`AuthenticationExceptionListener`), un 500 lui faisait afficher une page d'erreur ; côté commercial Flutter, l'intercepteur ne déclenchait pas son refresh. Le `PATCH /api/me` était touché aussi. Corrigé par une garde de trois lignes qui laisse l'entry point JWT produire le 401. C'est la seule modification de code applicatif que j'aie faite.
+
+## Deux décisions techniques
+
+**Isolation par transaction annulée**, pas par TRUNCATE. Vider les 50 tables avant chaque test coûtait 3,6 s — 65 s pour 16 tests. La base n'est mise à plat qu'une fois par exécution, chaque test annule ensuite ses écritures : **65 s → 5 s**. Les transactions imbriquées sont converties en savepoints, sans quoi le `wrapInTransaction` de `ReservationCreationService` refermerait la transaction du test.
+
+**Le compteur anti-force-brute est remis à zéro par test.** Il vit dans le cache, pas en base : il échappait donc au rollback et survivait d'une exécution à l'autre, provoquant des 429 sur des tests sans rapport. Au passage, le limiteur lui-même est maintenant testé.
+
+## Deux détails relevés au passage
+
+Le docblock de `heurePassage()` illustre le calcul avec des durées **cumulées** (`Bouaké(240) → Korhogo(420)`), vestige du champ `dureeDepuisOrigineMinutes` renommé par la migration `Version20260722100000`. Le code somme bien des tronçons ; seul le commentaire est resté en arrière. L'arithmétique de l'exemple donne le même résultat, ce qui le rend d'autant plus trompeur.
+
+Le suffixe `_test` étant géré par `dbname_suffix`, la base de test suit automatiquement ton `DATABASE_URL` — mais **`make test-db` est à rejouer après chaque migration**, sinon les tests valident un schéma périmé.
 
 
 
@@ -141,27 +348,7 @@ Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)`
         date
         montant
         detail
-- Géolocalisation pour le suivi des cars en temps réel
-- Fais moi un système d'autocomplétion dans un formulaire de recherche sur plusieurs ressources dans une application Symfony
-- Guide utilisateur via Driver.js ou Intro.js avec persisantce de l'état sur lequel l'utilisateur est et peut recommencer
 
-## Comparaison Driver.js vs Intro.js
-
-**Driver.js**
-- Plus moderne, léger (~5kb gzip)
-- Highlight visuel élégant — met en surbrillance l'élément ciblé avec un overlay
-- API simple et flexible
-- Pas de dépendances
-- Meilleur pour des guides contextuels par page/module
-- Gratuit et open source
-
-**Intro.js**
-- Plus ancien, plus lourd
-- Style "tooltip numéroté" classique
-- Nécessite une licence pour usage commercial
-- Plus de configuration nécessaire
-
-**Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
 
 
 - Kernel.php pour les fusos horraire 
@@ -1207,3 +1394,584 @@ npm run build
 Puis tester :
 - vente d'un billet **sans** nom/contact → message d'erreur, pas d'appel API qui passe ;
 - vérifier qu'un POST direct sur l'API **sans** ces champs renvoie bien `422` avec les violations (preuve que le garde-fou backend marche).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+On vas y revenir.
+
+Je viens d'installer un projet Flutter dans le dossier. Je veux que tu développes l'application mobile pour la réservation et je veux une application propre, évolutive et maintenable, en appliquant les bonnes pratiques de développement Flutter
+
+
+
+
+
+
+
+Excellente question — c'est une brique classique du transport, et notre version a quelques particularités qui valent une explication posée. Je te fais ça en trois temps : le principe **classique**, **notre** version, puis le **parcours client**.
+
+Laisse-moi d'abord poser un schéma du cycle de vie pour ancrer le vocabulaire.
+
+Voici l'explication complète, en partant de zéro.
+
+## 1) La réservation « classique » — le principe général
+
+**Le problème de fond.** Dans le transport, ton stock est **limité** (N places dans un car) et **périssable** (une fois le car parti, les places invendues sont perdues pour toujours). La simple vente au comptoir (« je viens, je paie, je pars ») ne suffit pas : un client qui voyage dans 3 jours veut être **sûr** d'avoir sa place dès aujourd'hui, sans forcément se déplacer ni payer tout de suite.
+
+**La réservation = tenir une place à l'avance.** C'est un mécanisme qui met une place « de côté » pour un client **avant** le départ, pour qu'elle ne soit pas vendue à quelqu'un d'autre. C'est un engagement réciproque : la compagnie garde la place, le client s'engage (en payant) à la prendre.
+
+**Le cycle classique** (avion, train, Booking…) :
+1. **Recherche** d'un trajet + une date.
+2. **Sélection** d'un départ → le système vérifie qu'il reste de la place.
+3. **Blocage temporaire** (*hold*) : la place est gelée le temps de payer.
+4. **Paiement**.
+5. **Confirmation** : la réservation devient ferme, avec un **code de dossier** (le « PNR » en avion).
+6. **Émission du billet / enregistrement** : souvent **séparé** — le siège précis et le billet définitif arrivent plus tard.
+7. **Embarquement**.
+
+**Les 4 notions à retenir absolument :**
+- **Capacité / inventaire** : le nombre de places, qui diminue à chaque réservation.
+- **Blocage + expiration** : une place tenue mais **non payée** est **libérée** au bout d'un délai — sinon les gens bloqueraient tout sans jamais payer. C'est vital.
+- **Réservation ≠ billet** : réserver, c'est s'assurer une place ; le billet (avec le siège) vient après.
+- **No-show** : réservé/payé mais absent → la place est perdue (souvent non remboursée).
+
+## 2) Ce qu'on a construit — et ses particularités
+
+On a repris ce principe, mais adapté à **ton** métier (car, multi-gares, tronçons). Quatre choix le rendent un peu spécial :
+
+**a) On réserve une PLACE, pas un SIÈGE.** C'est LA grande idée. Au guichet, le client choisit son siège sur le plan du car. Mais pour une réservation à l'avance, **le car n'est souvent pas encore affecté**. Donc impossible de choisir un siège. → La réservation tient une place « abstraite » sur le tronçon (montée → descente) ; le **siège est attribué tout à la fin**, à la gare, quand le car est connu. *(Comme un cinéma en placement libre : tu paies ton entrée, tu choisis ton fauteuil en entrant.)*
+
+**b) Le « bon » ≠ le « billet de gare » (le découplage que tu as bien flairé).** Payer et retirer son siège sont **deux étapes distinctes** :
+- Le client **paie en ligne**, à l'avance, **sans qu'un car soit affecté** → il obtient un **BON** (justificatif payé, sans siège).
+- Plus tard, **à la gare**, il présente son bon → on lui **émet le billet** avec un siège concret.
+
+C'est exactement ce qui rend la réservation **mobile possible** : on ne peut pas exiger un car affecté 3 jours avant.
+
+**c) La capacité se compte PAR TRONÇON.** Un car fait Abidjan → Bouaké → Korhogo. Une place occupée sur *Abidjan→Bouaké* se **libère** ensuite pour *Bouaké→Korhogo*. Donc « il reste X places » dépend du **segment** regardé. Notre `CapaciteService` calcule, segment par segment, les places tenues (billets + réservations actives) et prend le pire cas → on ne survend jamais.
+
+**d) L'expiration a deux visages** (schéma ci-dessus) :
+- **Non payé** → à la deadline (départ − délai configurable), la place est **libérée** (revendable).
+- **Payé mais non retiré** (no-show) → le bon est **périmé**, la place libérée, et — selon ton choix — **l'argent est forfait** (non remboursable).
+
+Et deux détails d'architecture : **guichet et web/mobile partagent le même moteur** (`ReservationCreationService` → mêmes règles/prix/capacité), et le **paiement se fait par lien + webhook** (le prestataire encaisse sur sa page, puis nous « rappelle » pour confirmer — simulé pour l'instant).
+
+## 3) Comment le client réserve (le parcours concret)
+
+Sur le web (identique sur le futur mobile — **même API**) :
+
+| Étape | Ce qu'il voit | Ce qui se passe derrière |
+|---|---|---|
+| **1. Accueil** | Le lien de ta compagnie (`/reserver/{compagnie}`), ton nom/logo | Branding chargé depuis l'API publique |
+| **2. Ville** | Les villes desservies | Villes ayant au moins une gare active |
+| **3. Gare de départ** | Les gares de la ville → sa **provenance** | — |
+| **4. Destination + prix** | Les destinations desservies **avec le tarif** | Issu de ta **grille tarifaire** |
+| **5. Choix du départ** | Les prochains **voyages datés** + **places restantes** | Calcul de capacité en temps réel |
+| **6. Ses infos** | Nom + téléphone (**pas de compte**) | — |
+| **7. Paiement** | Redirection vers la page Mobile Money | La place est **déjà tenue** (`EN_ATTENTE`), l'horloge tourne |
+| **8. Confirmation** | « Réservation confirmée » + **code** + **bon PDF** | Webhook du prestataire → `CONFIRMÉE / PAYÉ` |
+| **9. À la gare** | Il présente son **code / bon** | L'agent clique « Émettre le billet » → **siège attribué** → billet imprimé → embarque |
+
+**Côté agent** (guichet), c'est plus court : l'agent crée la réservation pour le client, encaisse (espèces), puis émet le billet — souvent dans la foulée si le car est déjà là.
+
+---
+
+En une phrase : **réserver, c'est acheter le *droit* à une place à l'avance (le bon) ; ce droit se transforme en *siège concret* (le billet) au moment d'embarquer.** C'est cette séparation qui permet de vendre en ligne sans connaître le car, tout en garantissant qu'on ne survend jamais.
+
+Veux-tu que je détaille un aspect précis (le calcul de capacité par tronçon, la mécanique d'expiration, ou le branchement du vrai paiement) ?
+
+
+
+
+
+
+
+Avant de coder, je veux être honnête avec toi comme tu le demandes : pour te dire des choses **vraies** sur ton code (pas des généralités), je dois d'abord le lire. Je vais donc commencer par cette tâche concrète (l'autocomplete React) qui va justement me faire traverser beaucoup de tes formulaires et listings — et je te remonterai au fur et à mesure ce que je vois de bien et de moins bien, avec franchise.
+
+Commençons par comprendre l'existant : ton système `tom-select-remote` + `SearchController`, et comment les selects React sont faits aujourd'hui.
+
+Bien — `SearchController` expose `/search?resource=X&q=Y` → `[{value,label,raw}]` pour : fournisseurs, pieces, cars, voyages, gares, personnels, lignes, users, tickets. **Réutilisable directement** côté React. Regardons maintenant le JS existant, les primitives UI React dispo, un form cible, et le mécanisme de filtres des tables serveur.
+
+Tu as déjà `command.tsx` + `popover.tsx` côté React → je peux bâtir un **combobox distant** (le vrai équivalent React de tom-select) qui tape le même endpoint `/search`. Regardons ces primitives + le mécanisme de filtres des tables serveur.
+
+I have the full picture now. Your `/search` endpoint is well-designed and **reusable as-is** for React. You already have `command.tsx` + `popover.tsx`, so the clean React equivalent of tom-select is a **remote combobox** (Popover + Command + debounced fetch to `/search`).
+
+Let me read those two primitives and a first target form to build it correctly.
+
+I have everything. Let me build the reusable **`RemoteCombobox`** — the React equivalent of `tom-select-remote`, hitting the same `/search` endpoint.
+
+Composant créé. Maintenant, câblons-le. Regardons le premier formulaire cible — `ApprovisionnementForm` (select des pièces).
+
+Les formulaires de création/modif (appro, dépannage, voyage) ne sont pas des `*Form.tsx`. Vérifions s'ils sont en Twig ou React, et où sont les selects concernés.
+
+Découverte importante à te dire franchement : **la plupart de ces formulaires (appro, dépannage, voyage, bordereau, affectations) sont en Twig, pas en React.** Ton système `tom-select-remote` les couvre donc déjà — il n'a simplement pas été *branché* sur ces selects. Seuls les **listings** (tables React) ont besoin du nouveau composant. Vérifions le markup actuel de ces selects Twig.
+
+Ça révèle des choses importantes — laisse-moi vérifier un point (un doublon suspect) avant de te faire le bilan honnête.
+
+Vérifié : le "doublon" fournisseur est en fait l'ancien select **commenté** (`{# … #}`) — donc pas de bug, tu as bien appliqué `data-remote-select` sur le fournisseur. 👍
+
+Voici mon **bilan honnête** après avoir traversé ces fichiers :
+
+**Ce qui est bien :** ton système `tom-select-remote` + `SearchController` est **propre et bien pensé** (normalisation `{value,label,raw}`, préchargement, débounce). Tu l'as correctement appliqué par endroits (le fournisseur en appro).
+
+**Le vrai constat :** la plupart des selects de ta liste sont dans des **formulaires Twig** (appro, dépannage, voyage, bordereau, affectations) — pas React. Et beaucoup chargent **toutes** les options d'un coup (`{% for p in pieces %}`, tous les users, etc.) : c'est exactement le problème de scalabilité que tu pressens. La bonne nouvelle : **ton tom-select les couvre déjà**, il suffit de le brancher (`data-remote-select`). Seuls les **listings** (tables React) ont besoin du nouveau composant.
+
+Donc **deux chantiers** :
+- **A — Twig** : brancher `data-remote-select` sur les selects non convertis (pièces, car, ligne, commercial, personnel, bordereau) + gérer les lignes ajoutées dynamiquement.
+- **B — React** : le combobox distant (que je viens de créer) pour les filtres des listings.
+
+Je commence par **B** (il valide mon nouveau composant), puis **A**. D'abord, étendons le système de filtres des tables serveur.
+
+Maintenant, ajoutons le rendu du filtre `remote` dans `server-data-table.tsx`.
+
+Câblons les 4 filtres. Lisons leurs définitions de filtres actuelles + les extras des contrôleurs.
+
+Je convertis ces filtres `select` en `remote`. Lisons les blocs exacts pour éditer précisément.
+
+Les 4 filtres sont convertis en `remote`. Buildons pour voir ce qui devient inutilisé (props d'options à nettoyer) — c'est justement l'optimisation voulue.
+
+Build **OK** (0 erreur). Track B (filtres React) est câblé. Vérifions maintenant si les props d'options (`fournisseurs`/`cars`/`lignes`/`pieces`) sont devenues inutilisées — pour compléter l'optimisation (supprimer le chargement complet côté contrôleur).
+
+Ces props sont maintenant **des données mortes** (chargées mais plus utilisées) — c'est exactement ce qu'il faut optimiser. Retirons le chargement complet côté contrôleur + template + composant. Regardons les contrôleurs.
+
+Ces `extras` chargent toutes les options pour rien maintenant. Retirons-les proprement (contrôleur + template + composant). Lisons les blocs exacts.
+
+Maintenant les templates (retirer la prop) et les composants (Props + destructure). Lisons les blocs `react_component` des 4 index.
+
+Maintenant les composants : retirons la prop d'options (Props + destructure). Lisons les zones concernées.
+
+`pieceOptions` est dans un bloc **commenté** — donc `pieces` n'est plus utilisé. Retirons import + prop + destructure + deps.
+
+Track B complet (composant + filtres + optimisation contrôleurs). Vérifions : lint PHP contrôleurs, twig, et build FT.
+
+Tout passe : **PHP lint OK, twig OK, build FT OK** (0 erreur, plus aucune donnée morte). 
+
+Avant de conclure ce lot et d'attaquer les selects Twig, vérifions que `initRemoteSelects()` est bien appelé globalement (sinon les nouveaux `data-remote-select` ne s'initialiseraient pas).
+
+`initRemoteSelects()` tourne sur `turbo:load` → pour les selects Twig **statiques**, ajouter l'attribut suffira. Les lignes **dynamiques** (pièces appro/dépannage) demandent d'appeler `initRemoteSelect` sur la nouvelle ligne **et** d'adapter le calcul de prix (qui lit `data-prix` des options) — c'est le cas délicat.
+
+Enregistrons ce nouveau système en mémoire, puis je te fais le point.
+
+Point d'étape — **Track B terminé et vérifié** (build + lint OK).
+
+## Ce que j'ai livré (React)
+1. **`RemoteCombobox`** ([RemoteCombobox.tsx](FT-Transport/assets/react/components/RemoteCombobox.tsx)) — le vrai équivalent React de ton `tom-select-remote` : Popover + Command, recherche serveur débouncée sur le **même** `/search?resource=`, préchargement, pas de liste chargée en mémoire.
+2. **Filtre de table `remote`** — nouveau type dans `ServerTableFilter`, rendu dans `server-data-table.tsx`.
+3. **4 listings convertis** : Approvisionnements (fournisseur), Dépannages (véhicule), Voyages (ligne + véhicule), Inventaires (pièce).
+4. **Optimisation réelle** : j'ai supprimé le chargement de **toutes** les options côté contrôleur (`collection('/api/fournisseurs')`, `/api/cars`, `/api/lignes`, `/api/pieces`) + les props/templates devenus morts. Ces pages ne tapent plus l'API pour rien.
+
+## Mon avis franc, à ce stade
+- Ton architecture BFF (FT proxy → BK API Platform) est **cohérente et propre**, et le `SearchController` est bien fait — je l'ai réutilisé sans le toucher.
+- Le point faible récurrent que je vois : le réflexe **« charger toute la liste dans un `<select>` »** (fournisseurs, users, pièces, cars…). Ça ne tient pas à l'échelle et c'est répété à plusieurs endroits. C'est exactement ce qu'on est en train de corriger. Ce n'est pas « mal », c'est un choix de début de projet qui devient un coût maintenant.
+
+## Limite de vérification (honnête)
+Ces listings sont derrière le **login agent**, et `/search` exige une session authentifiée. Je n'ai **pas tes identifiants** et je ne les devinerai pas — donc j'ai tout validé ce qui est validable (build TypeScript, lint PHP/Twig, forme de l'endpoint), mais le clic réel (taper, voir les résultats, filtrer) est **à confirmer par toi**. Ouvre un listing (ex. Voyages) et teste le filtre ligne/véhicule.
+
+## Reste — Track A (selects Twig)
+Les formulaires (appro, dépannage, voyage new/edit, bordereau, affectations commercial/personnel/car) sont en **Twig** : j'y brancherai `data-remote-select` (ton système existant). **Un cas délicat** : le select **pièces** (appro/dépannage) est en lignes ajoutées dynamiquement **et** déclenche l'auto-remplissage du prix (lecture de `data-prix` sur les `<option>`). En autocomplete distant, il faudra lire le prix depuis le `raw.prixunitaire` de l'item — je le ferai proprement, mais c'est le seul endroit qui change un peu de comportement.
+
+Je peux enchaîner sur Track A tout de suite. Veux-tu que je fasse **tout Track A d'un coup**, ou **d'abord les selects simples** (commercial, affectations, voyage, bordereau) puis le cas pièces à part pour que tu valides le comportement du prix ?
+
+
+
+
+
+
+
+
+Parfait — je fais **d'abord les selects Twig simples** (commercial, affectations, voyage new/edit, bordereau), puis le cas « pièces » à part pour que tu valides le comportement du prix.
+
+Lisons le markup actuel de ces selects.
+
+`voyage/new|edit|car|personnel` n'ont pas de `<select>` littéral — sûrement des `form_widget` Symfony (EntityType) ou un autre widget. Regardons.
+
+Distinction importante : `voyage/commercial` et `bordereau` sont des **`<select>` bruts** (le contrôleur lit `$request` manuellement) → conversion directe facile. Mais `voyage new/edit car+ligne` et les affectations car/personnel sont des **champs Symfony `EntityType`** (`form_row(form.car)`) — là, tom-select se heurte à la validation des choix d'`EntityType`, c'est plus délicat.
+
+Vérifions comment ces FormTypes définissent leurs champs, et si tu as déjà résolu ce pattern quelque part.
+
+Bonne nouvelle : ce sont des `ChoiceType` (pas `EntityType`), avec des `choices` passées par le contrôleur. Pour les rendre distants, il faut : rendre le `<select>` vide + `data-remote-select`, **et** gérer la validation `ChoiceType` (qui refuse une valeur hors `choices`) via un listener `PRE_SUBMIT`. Lisons `VoyageFormType`.
+
+Compris. Les **vraiment simples** sont `commercial` et `bordereau` (selects bruts). Les voyage/affectation sont des `ChoiceType` → je ferai un mécanisme réutilisable propre juste après. Faisons d'abord les deux bruts. Lisons-les précisément.
+
+Convertissons le select commercial (resource `users`) avec préselection edit.
+
+Regardons l'action `commercial` du contrôleur pour retirer le chargement des users (avec la garde de permission).
+
+Il y a une subtilité de sécurité : le `collection('/api/users')` sert aussi de **sonde de permission** (USER_VOIR) pour afficher/masquer le formulaire. Regardons la garde du template pour ne pas la casser.
+
+La garde est `{% if users is empty %}`. Je garde la sonde de permission mais **allégée** (`itemsPerPage=1`) — le select est distant, plus besoin de tout charger.
+
+Maintenant le select **ligne** du bordereau. Lisons-le.
+
+Le bordereau est un filtre GET : je convertis le select **et** j'ajuste le contrôleur pour ne récupérer que le libellé de la ligne sélectionnée (au lieu de toutes). Lisons le contrôleur.
+
+Maintenant le template bordereau (select ligne → distant).
+
+Vérifions que `lignes` n'est plus référencé ailleurs dans le bordereau, puis lint PHP + Twig.
+
+Deux selects simples **faits et vérifiés** (lint PHP + Twig OK).
+
+## Fait dans ce lot (Twig, ton système tom-select)
+- **Commercial** ([voyage/commercial.html.twig](FT-Transport/templates/voyage/commercial.html.twig)) → `data-remote-select="users"` + préselection. Contrôleur : le `collection('/api/users')` (qui chargeait **tous** les utilisateurs) est réduit à une simple **sonde de permission** (`itemsPerPage=1`) — la garde « permission requise » est préservée.
+- **Bordereau — ligne** ([bordereau/index.html.twig](FT-Transport/templates/bordereau/index.html.twig)) → `data-remote-select="lignes"`. Contrôleur : plus de `collection('/api/lignes')` ; on ne récupère plus que le **libellé de la ligne filtrée** (via `/api/lignes/{id}`) pour l'afficher.
+
+## Correction honnête sur le classement
+En les ouvrant, j'ai vu que **« voyage » et « affectations » ne sont PAS des selects simples** : ce sont des champs **Symfony `ChoiceType`** (`form_row(form.car)`, `form.ligne`, `form.personnel`), avec les choix chargés par le contrôleur. On ne peut pas juste ajouter `data-remote-select` : `ChoiceType` **rejette à la validation** toute valeur absente de sa liste `choices`. Il faut un **mécanisme réutilisable** (un `RemoteChoiceType` avec un `choice_loader` qui accepte l'id soumis + l'attribut `data-remote-select` + la préselection edit). C'est plus d'ingénierie, et surtout ça touche un **chemin critique** (création/édition de voyage, affectation car/personnel).
+
+## Ma recommandation (sincère)
+Je te propose de traiter ce lot `ChoiceType` **à part et proprement** :
+1. Je construis un `RemoteChoiceType` réutilisable.
+2. Je l'applique à voyage new/edit (car+ligne), affectation car, affectation personnel, dépannage.
+3. J'allège les contrôleurs (plus de chargement complet).
+
+⚠️ **Mais je ne peux pas cliquer-tester ces formulaires** (ils sont derrière le login agent, pas de credentials) — or ce sont des **soumissions critiques**. Donc après implémentation, **il faudra que tu testes** une création de voyage + une affectation pour valider que la soumission passe.
+
+Puis on finit par le cas **pièces** (appro/dépannage) avec l'auto-remplissage du prix.
+
+Je lance le `RemoteChoiceType` + le lot voyage/affectation/dépannage ? (c'est parti si tu confirmes)
+
+
+
+
+
+
+
+
+
+Oui je souhaite enrichir le label de la ressource..
+
+Aussi :
+- Vu notre logique de multi-gare est ce qu'une gare doit pouvoir voir toutes les lignes qui le concerne lors de la création d'un voyage ou doit t'il voir que les lignes dans lesquelles il est l'origine en prenant en compte qu'une gare intermédiaire peut créer un voyage s'il a vendu plus de tickets que nécessaire alors il devient l'origine du voyage. (du genre une gare ne devrait pouvoir créer un voyage que si elle est l'origine de la ligne.)
+- Est ce qu'une gare intermédiaire doit pouvoir modifier ou changer le commercial d'un voyage dont il n'est pas l'origine !
+
+
+
+
+
+
+
+Enrichissons le label des pièces (ajout du stock, comme l'ancien select le montrait).
+
+Label enrichi. Lint + investiguons la logique multi-gare pour te répondre de façon **ancrée dans le code** (scope des lignes, création de voyage, affectation commercial).
+
+Le scope actuel est clair : un `LigneGareScopedInterface` (Ligne, Voyage) est visible si la gare de l'agent est **un arrêt quelconque** (origine, intermédiaire OU terminus) — donc aujourd'hui une gare intermédiaire voit et peut créer des voyages. Regardons la création de voyage + l'affectation commercial (permissions/logique).
+
+Regardons `AffectCommercialProcessor` en entier (la restriction de gare sur l'affectation commercial).
+
+`assertPeutGerer` (VoyageGuard) est la garde clé pour l'affectation commercial. Lisons-la.
+
+Label des pièces enrichi (le stock réapparaît : `libellé (stock : X)`), et ça vaut aussi pour l'appro — lint OK.
+
+Maintenant tes deux questions. J'ai lu la logique réelle pour te répondre du concret, pas au feeling.
+
+## Ce que fait ton code aujourd'hui
+La doctrine multi-gare est centralisée dans [VoyageGuard](BK-Transport/src/Security/VoyageGuard.php) :
+- **Préparation** (créer, modifier, affecter car/personnel/**commercial**, supprimer) → **tout le monde SAUF le terminus**. Donc **une gare intermédiaire peut aujourd'hui préparer/créer un voyage et gérer le commercial.**
+- **Réception** → gare **intermédiaire** uniquement.
+- **Clôture** → **terminus** uniquement.
+
+Et à la création, [VoyageProcessor](BK-Transport/src/State/VoyageProcessor.php) fixe `provenance = origine de la ligne` **quelle que soit** la gare qui crée. Donc une gare intermédiaire qui crée un voyage crée en fait un départ… depuis l'origine de la ligne (une autre gare qu'elle-même). C'est incohérent.
+
+## Mon avis (répond à tes 2 questions)
+
+**Q1 — visibilité des lignes à la création :** je recommande **origine uniquement**. Un voyage = un départ *depuis l'origine de la ligne*. Qu'une gare intermédiaire planifie un départ partant d'une autre gare n'a pas de sens. Ton cas « la gare intermédiaire a survendu → elle devient l'origine » est un besoin **distinct** : ce n'est pas « créer un voyage sur une ligne où je suis intermédiaire », c'est **créer un départ DEPUIS ma gare** (donc `provenance = ma gare`, pas l'origine de la ligne). À modéliser explicitement (un « départ partiel »), pas en assouplissant la règle générale.
+
+**Q2 — commercial par une gare intermédiaire :** je recommande **non**. Le commercial roule de l'origine au terminus ; c'est un réglage **au niveau du voyage**, qui appartient à la gare qui **lance** le voyage (l'origine). L'intermédiaire, lui, **réceptionne** — il ne prépare pas.
+
+## La doctrine cohérente que ça donne
+**L'origine prépare · l'intermédiaire réceptionne · le terminus clôture.**
+Concrètement : resserrer `VoyageGuard::assertPeutGerer` de « pas le terminus » → « origine (ou admin/central) », + enforcement à la création (VoyageProcessor) + filtrer le select ligne du form de création aux lignes dont la gare est l'origine.
+
+C'est un changement de l'autorisation cœur, donc je te laisse trancher la direction :
+
+Tes deux points sont excellents — ils affinent la doctrine. Laisse-moi répondre à la panne, puis t'expliquer le départ partiel.
+
+## La panne en cours de route (ton objection à Q1)
+Tu as raison : « origine prépare tout » casse si le car tombe en panne à une gare intermédiaire — c'est elle qui doit affecter un car de remplacement, pas l'origine (loin, pas au courant).
+
+La bonne façon de trancher, c'est de **distinguer deux natures d'action** sur un voyage :
+
+| Action | Nature | Qui |
+|---|---|---|
+| Créer, modifier (dates/ligne/places), **commercial** | **Propriété / planification** | **Origine** (+ admin) |
+| Affecter / **changer le car**, chauffeur/personnel | **Exploitation / incident** | Toute gare de la ligne **sauf terminus** (comme aujourd'hui) |
+| Réceptionner | — | Intermédiaire |
+| Clôturer | — | Terminus |
+
+Ainsi : **Q1 = oui** (créer = origine), **Q2 = non** (commercial = origine), **et la panne est couverte** (la gare où est le car peut swapper le car / le chauffeur). Le commercial, lui, est un choix de départ qui appartient à l'origine ; il n'a pas de raison de changer en route.
+
+*(On pourrait être plus fin en autorisant le swap car uniquement à la gare où le car se trouve — `garecourante` — mais c'est plus fragile ; « toute gare sauf terminus » pour le car est plus simple et couvre la panne.)*
+
+## Le principe du « départ partiel » (ton choix 2)
+Aujourd'hui un voyage = un départ **de l'origine de la ligne** : `provenance = origine`, et il dessert origine → terminus.
+
+Le départ partiel : prends la ligne **Abidjan → Bouaké → Korhogo**. Bouaké (intermédiaire) a vendu assez de billets pour lancer **son propre car** Bouaké → Korhogo, sans attendre celui d'Abidjan. Bouaké **devient l'origine de CE voyage précis** :
+- `provenance = Bouaké` (pas Abidjan),
+- il ne dessert que **Bouaké → … → Korhogo** (les arrêts en aval),
+- aucun billet vendable avant Bouaké, capacité/manifeste calculés sur cette fenêtre.
+
+**Ce que ça implique techniquement** : le `Voyage` doit connaître sa **vraie gare de provenance** (un FK `gareprovenance`), au lieu de déduire systématiquement l'origine depuis la ligne. Par défaut = origine de la ligne (voyages normaux) ; pour un départ partiel = la gare intermédiaire. Puis **tout ce qui itère la ligne** (manifeste, `CapaciteService`, gares de vente autorisées, réception, clôture) doit borner la fenêtre à `[gareprovenance → terminus]` au lieu de `[origine → terminus]`. C'est un vrai chantier (entité + plusieurs services), donc à faire **en 2ᵉ temps**, après le resserrement de doctrine qui, lui, est petit et autonome.
+
+## Ma proposition de séquencement
+1. **D'abord** : le resserrement de doctrine ci-dessus (petit, ciblé : `VoyageGuard` + enforcement création + filtre du select ligne). Ça répond à tes 2 questions.
+2. **Ensuite** : le départ partiel (`Voyage.gareprovenance` + adaptation des services), une fois le 1 validé.
+
+Parfait, c'est validé : **planification + commercial → origine ; car + chauffeur → toute gare sauf terminus ; réception → intermédiaire ; clôture → terminus.** Et on fait **le resserrement de doctrine d'abord**.
+
+Repérons tous les points à toucher : les appelants de `assertPeutGerer`, le processeur de modification, et les affectations car/personnel.
+
+Le mapping est clair :
+- **Car (AffectcarProcessor) + Personnel (AffectpersonnelProcessor)** → gardent `assertPeutGerer` (exploitation, couvre la panne). **Inchangés.**
+- **Création + modif (VoyageProcessor) + Commercial + suppression voyage** → passent en **origine-only**.
+
+Vérifions les 2 branches ambiguës : `VoyageProcessor:128` et `SoftDeleteProcessor:44/67`.
+
+Tout est clair. Mapping final :
+- **`assertPeutGerer` (not-terminus = exploitation)** → gardé pour **car + personnel** (dont la désaffectation personnel). Inchangé → couvre la panne.
+- **Nouveau `assertPeutPlanifier` (origine-only)** → **création + modif voyage + commercial + suppression voyage**.
+- **Select ligne création** → nouvelle ressource `lignes_origine` (lignes dont ma gare est l'origine).
+
+Implémentons. D'abord `VoyageGuard`.
+
+Mettons à jour les appelants. `VoyageProcessor` (création + modif). Lisons-le pour éditer précisément.
+
+`AffectCommercialProcessor` → origine-only.
+
+`SoftDeleteProcessor` : suppression d'un voyage → planification (origine). Lisons + éditons.
+
+UI : ressource `lignes_origine`. D'abord ajoutons le filtre `gareorigine` sur l'entité `Ligne`.
+
+Ajustons selon la convention du projet (relation filtrée par `.id` ?). Vérifions `Tarif`.
+
+Convention = `.id`. Corrigeons le filtre Ligne + trouvons `getGare()` du User FT.
+
+`ApiUser::getGare()` renvoie un array (`['id'=>...]`). Ajoutons `lignes_origine` au `SearchController`. Lisons la zone du branchement `tickets`.
+
+Ajoutons la méthode `searchLignesOrigine` (après `searchTickets`). Lisons la fin du fichier.
+
+Enfin, pointons le select ligne de la création vers `lignes_origine`.
+
+Tout est câblé. Vérifions : lint PHP (BK + FT) + `cache:clear` BK (compile le nouveau `ApiFilter` Ligne + les gardes).
+
+Lint tout OK. Confirmons que le `cache:clear` BK a bien réussi (compile la nouvelle métadonnée `ApiFilter` Ligne sans erreur).
+
+Les deux `cache:clear` réussissent → la nouvelle métadonnée (filtre `gareorigine.id`) et les gardes compilent proprement. La doctrine est en place. Notons-la en mémoire.
+
+Tout est fait pour ce lot. Récapitulatif.
+
+## 1. Label des pièces enrichi
+Le stock réapparaît dans l'autocomplete : `« Filtre à huile (stock : 12) »`, dans le `SearchController` (donc appro **et** dépannage). Lint OK.
+
+## 2. Doctrine voyage resserrée (validée par toi)
+« **L'origine planifie · l'intermédiaire réceptionne · le terminus clôture** », avec l'exception panne pour le car.
+
+Concrètement, dans [VoyageGuard](BK-Transport/src/Security/VoyageGuard.php) j'ai séparé deux natures d'action :
+
+| Action | Garde | Qui |
+|---|---|---|
+| Créer / modifier voyage, **commercial**, supprimer | **`assertPeutPlanifier` (nouveau)** | **Origine** (+ admin/central) |
+| Affecter / changer **car**, **chauffeur** | `assertPeutGerer` (inchangé) | Toute gare **sauf terminus** → couvre la **panne** |
+| Réceptionner | `assertPeutReceptionner` | Intermédiaire |
+| Clôturer | `assertPeutCloturer` | Terminus |
+
+Rebranchements : `VoyageProcessor` (création **et** modification), `AffectCommercialProcessor`, suppression voyage (`SoftDeleteProcessor`) → **origine-only**. `AffectcarProcessor` + `AffectpersonnelProcessor` → **inchangés** (exploitation, pour la panne).
+
+Et l'UI suit : le select **ligne** de la création de voyage pointe désormais sur une ressource **`lignes_origine`** (nouveau cas dans `SearchController`) qui ne renvoie que les lignes dont **ta gare est l'origine** (admin/central → toutes). J'ai ajouté le filtre `gareorigine.id` sur l'entité `Ligne`. ⚠️ L'UI n'est que du confort — **le vrai verrou est côté API** (`assertPeutPlanifier`).
+
+**Vérifié** : lint de tous les fichiers, `cache:clear` BK + FT OK (la nouvelle métadonnée de filtre + les gardes compilent). ⚠️ **Non cliqué au navigateur** (login agent) — à valider par toi : depuis une gare **intermédiaire**, tu ne dois plus pouvoir créer/modifier un voyage ni changer le commercial, **mais** tu dois toujours pouvoir affecter/changer le car (scénario panne).
+
+## 3. Reste pour plus tard
+Le **départ partiel** (une gare intermédiaire qui survend devient l'origine d'un nouveau départ, `provenance = sa gare`) est validé pour un 2ᵉ temps : il faudra un `Voyage.gareprovenance` + adapter manifeste/capacité/vente/réception/clôture à la fenêtre `[provenance → terminus]`. On l'attaque quand tu veux.
+
+Dis-moi quand tu as pu tester la doctrine, ou si on enchaîne sur le départ partiel.
+
+
+
+
+
+
+
+
+
+
+ J'ai l'erreur suivante quand je vais sur le listing des tickets, voyages, bagages, courriers, réservations en tant que administrateur "The total number of joined relations has exceeded the specified maximum. Raise the limit if necessary with the "api_platform.eager_loading.max_joins" configuration key (https://api-platform.com/docs/core/performance/#eager-loading), or limit the maximum serialization depth using the "enable_max_depth" option of the Symfony serializer (https://symfony.com/doc/current/components/serializer.html#handling-serialization-depth)."
+
+ #9 — Listing admin cassé (« max joined relations ») : Voyage porte maintenant 4 relations Gare (origine/terminus/provenance/courante) → la sérialisation imbriquée dépassait la limite de 30 jointures. J'ai relevé eager_loading.max_joins: 50 (api_platform.yaml) + réduit gareprovenance au seul groupe read:Voyage. Confirmé max_joins: 50 appliqué.
+
+
+
+
+
+
+
+Pour les notions de (voyages, bagage, tickets, courriers), on vas se mettre dans un scénario avec 3 gares(la gare de provenance, la gare intermédiaire et la gare de destination) dans les 2 cas de voyages(départ complet puis départ partiel) en tenant compte des gardes de gare, prend en compte le fait que les règles sont à appliquer côté backend et frontend et aussi sache que certaines règles sont déjà en place :
+
+```
+- Le départ complet
+    > On prend en exemple la ligne : Abidjan(gare 1 : origine) -> Bouaké(gare 2 : intermédiaire) -> Korhogo(gare 3 : terminus)
+    > Abidjan crée un voyage sur la ligne
+        > Abidjan peut (modifier, supprimer, affecter un car, affecter un personnel, affecter un commercial, démarrer) le voyage
+        > Abidjan peut (vendre des tickets, enregistrer des bagages et courriers) sur le voyage
+            > Pour les bagages il peut modifier, supprimer ou imprimer que ceux qu'il a crée
+                > On ne doit pouvoir imprimer le pdf d'un bagage que s'il a un billet lié et non s'il est embarqué
+            > Pour les tickets il peut modifier, supprimer, désister ou imprimer que ceux qu'il a crée
+            > Pour les courriers il peut modifier, supprimer, annuler, imprimer que ceux qu'il a crée
+                > On ne doit pouvoir imprimer le pdf d'un courrier que si la 'garedepart' et 'garearrivee' est saisi et non s'il est en transit
+    > Au niveau de Bouaké
+        > Bouaké peut (réceptionner, changer le car, affecter du personnel) le voyage
+        > Bouaké peut (vendre des tickets, enregistrer des bagages et courriers) sur le voyage
+            > Pour les bagages, il peut déclarer comme perdu les bagages qui ont pour destination Bouaké aussi ne doit pas pouvoir les imprimés vu que ce n'est pas lui qui a crée, il peut (modifier, supprimer ou imprimer) que ceux qu'il a crée
+            > Pour les tickets il peut modifier, supprimer, désister ou imprimer que ceux qu'il a crée
+            > Pour les courriers, il peut (déclarer comme perdu, confirmer la livraison..) les courriers qui ont pour destination Bouaké aussi ne doit pas pouvoir les imprimés, il peut (modifier, supprimer, annuler, imprimer) que ceux qu'il a crée
+    > Arrivée à Korhogo
+        > Korhogo peut clôturer le voyage et ne vend pas sur le voyage..
+        > Pour les bagages, il peut déclarer comme perdu les bagages qui ont pour destination Korhogo aussi ne doit pas pouvoir les imprimés
+        > Pour les courriers, il peut (déclarer comme perdu, confirmer la livraison..) les courriers qui ont pour destination Korhogo aussi ne doit pas pouvoir les imprimés
+
+- Le départ partiel
+    > On prend en exemple la même ligne : Abidjan(gare 1 : origine) -> Bouaké(gare 2 : intermédiaire) -> Korhogo(gare 3 : terminus)
+    > Bouaké crée un voyage sur la ligne ce qui a pour effet du changer la 'gareprovenance' du voyage
+        > Bouaké peut (modifier, supprimer, affecter un car, affecter un personnel, affecter un commercial, démarrer) le voyage
+        > Bouaké peut (vendre des tickets, enregistrer des bagages et courriers) sur le voyage
+            > Pour les bagages il peut modifier, supprimer ou imprimer que ceux qu'il a crée
+            > Pour les tickets il peut modifier, supprimer, désister ou imprimer que ceux qu'il a crée
+            > Pour les courriers il peut modifier, supprimer, annuler, imprimer que ceux qu'il a crée
+        > En gros ce que la gare d'origine peut faire
+    > S'il y'a des gares intermédiaires ils peuvent faire ce qu'une gare intermédiaire peut
+    > Arrivée à Korhogo
+        > Korhogo peut clôturer le voyage et ne vend pas sur le voyage..
+        > Pour les bagages, il peut déclarer comme perdu les bagages qui ont pour destination Korhogo aussi ne doit pas pouvoir les imprimés
+        > Pour les courriers, il peut (déclarer comme perdu, confirmer la livraison..) les courriers qui ont pour destination Korhogo aussi ne doit pas pouvoir les imprimés
+        > En gros ce que la gare de terminus peut faire
+    > Abidjan n'a pas d'action à faire sur ce voyage
+```
+
+
+
+
+
+
+
+Je propose que nous réorganisions les statistiques liées aux recettes. Actuellement, elles sont trop dispersées dans l'interface, ce qui nuit à la lisibilité et entraîne des répétitions.
+
+L'objectif est de regrouper toutes les informations relatives aux recettes dans une même section afin d'offrir une présentation plus claire, plus cohérente et plus agréable pour l'administrateur, tout en évitant les doublons.
+
+
+
+
+
+
+
+
+Bonne idée de repartir du concret. Je vais lire le code réel de la réservation (entité, services, processors, endpoints, front) pour t'en donner une explication fidèle et à jour, pas juste de mémoire.
+
+Le module a beaucoup grossi depuis mes notes (phase 1 backend). Je lis les fichiers cœur pour comprendre le flux complet.
+
+Maintenant le frontend (guichet agent + site public invité) :
+
+J'ai maintenant une vue complète du module (il a beaucoup grandi depuis la phase 1 : paiement, webhook, régularisation no-show, expiration cron, site public invité). Voici le principe et le fonctionnement, du concept au code réel.
+
+## Le concept en une phrase
+
+On réserve **une PLACE** (pas un siège précis) sur un **tronçon** `montée → descente` d'un voyage, **à l'avance** — éventuellement **avant même qu'un car soit affecté**. Le siège concret n'est attribué qu'au tout dernier moment, à **l'émission du billet**. Deux canaux partagent exactement le même moteur : le **guichet** (agent connecté) et le **mobile/web invité** (client sans compte).
+
+## Les deux entités
+
+**`Reservation`** — le « bon » de réservation :
+- `code` (`RES-2026-N`), `client` (identité durable dédupliquée par téléphone) + `nomclient`/`contactclient` (snapshot)
+- `voyage`, `gare` (montée), `garedescente`, `prix` **verrouillé** à la création depuis la grille tarifaire
+- `statut`, `dateexpiration`, `source` (`GUICHET` | `MOBILE`), `ticket` (rattaché à l'émission)
+- Paiement : `etatpaiement` (`EN_ATTENTE_PAIEMENT` | `PAYE` | `ECHEC`), `referencepaiement`, `datepaiement`
+- Régularisation : `penalitemontant`, `montantcomplement`
+- **Périmètre gare = `['gare', 'garedescente']`** (périmètre B, 2 gares) : la réservation ne concerne que sa montée et sa descente. La montée **agit** (confirme/émet), la descente ne fait que la « voir arriver ».
+
+**`ParametreReservation`** — un singleton par entreprise, auto-créé avec les défauts :
+- `delaiExpirationMinutes` (défaut **120**) : on peut réserver jusqu'à N min avant le départ
+- `penaliteType` (`AUCUNE`|`FIXE`|`POURCENTAGE`) + `penaliteValeur` : pénalité de régularisation
+- `fenetreRegularisationJours` (défaut **7**) : combien de jours un no-show payé reste récupérable
+
+## Les 5 statuts (`ReservationStatus`)
+
+| Statut | Sens |
+|---|---|
+| `EN_ATTENTE` | Créée, en attente de paiement |
+| `CONFIRMEE` | Payée ; billet émis ou à émettre |
+| `A_REGULARISER` | Payée mais **no-show** à l'échéance → récupérable (report + pénalité) |
+| `EXPIREE` | Perdue (impayée échue, ou fenêtre de régularisation dépassée) |
+| `ANNULEE` | Annulée par client/agent → place libérée |
+
+## Le cycle de vie complet
+
+```
+                         ┌──────────── création ────────────┐
+        GUICHET (agent)  │   ReservationCreationService      │  MOBILE (invité, /reserver/{slug})
+        POST /reservations│  (moteur PARTAGÉ, sous verrou)   │  POST /reservation/reservations
+                         └───────────────┬───────────────────┘   + initier paiement (simulé)
+                                         ▼
+                                   [ EN_ATTENTE ]  ── place seulement INDICATIVE ──┐
+                                         │                                          │
+              paiement guichet           │            paiement mobile              │ expiration
+      PATCH /{id}/confirmer  ◄────────────┼────────────►  webhook /paiement/webhook │ (impayée échue)
+      (ConfirmerReservation)             │            (PaiementWebhookProcessor)    ▼
+                                         ▼                                    [ EXPIREE ]
+                                   [ CONFIRMEE + PAYE ]  (aucun siège encore)
+                                         │
+              PATCH /{id}/emettre-billet │  car affecté requis, avant la deadline
+              (EmissionBilletService)    │  → attribue 1er siège LIBRE du tronçon
+                                         ▼
+                                 Ticket VALIDE émis  (canal RÉSERVATION)
+                                 reservation.ticket = billet
+                                         
+   ── no-show (cron app:reservations:expirer) ──►  [ A_REGULARISER ]
+        PATCH /{id}/regulariser?voyage=  → report + pénalité (+ complément si tarif↑) → billet émis
+        fenêtre dépassée ───────────────────────►  [ EXPIREE ]
+```
+
+**Détails clés de chaque étape :**
+
+1. **Création** (`ReservationCreationService::creer`, partagé guichet + public) : refuse un voyage clôturé / sans ligne / sans date ; calcule la fenêtre `départ − délai` ; un agent est **borné à sa gare** (sauf canal MOBILE) ; descente par défaut = terminus ; contrôle `ordreMontée < ordreDescente` et le **départ partiel** (rien avant la provenance effective du voyage) ; verrouille le `prix` depuis la grille tarifaire ; find-or-create du `Client` ; **vérifie la capacité sous verrou pessimiste** ; persiste en `EN_ATTENTE`. Le public y ajoute : résolution de l'entreprise par `slug`, **rate-limit par IP**, et initiation du paiement.
+
+2. **Confirmation = encaissement** (le paiement **ne dépend pas du car**) : au guichet `payer()` réussit immédiatement (simulé) ; en mobile, le front simule puis appelle le **webhook idempotent**. → `CONFIRMEE` + `PAYE`, **toujours aucun siège**.
+
+3. **Émission du billet** (« bon payé → billet de gare ») : exige `CONFIRMEE`+`PAYE`, un **car affecté**, avant la deadline. `EmissionBilletService` attribue le **premier siège libre sur tout le tronçon** et crée un `Ticket VALIDE` marqué **canal réservation** (donc exclu de la recette de gare — reconnu au paiement, cf. le rework 3 canaux). La réservation reste `CONFIRMEE` et pointe vers son billet.
+
+4. **No-show & régularisation** : le cron `app:reservations:expirer` fait 3 transitions de masse : `EN_ATTENTE` échue → `EXPIREE` ; `CONFIRMEE` payée non émise et échue → `A_REGULARISER` ; `A_REGULARISER` hors fenêtre → `EXPIREE`. La régularisation propose un **aperçu** (`GET /{id}/regularisation?voyage=`, ne persiste rien) puis **reporte** sur un nouveau départ : encaisse **pénalité** (politique compagnie) + **complément** si le tarif a monté (jamais de remboursement si moins cher), émet le billet, journalise `RESERVATION_REGULARISEE`.
+
+## ⚠️ La subtilité capacité (elle a évolué — et une doc est périmée)
+
+C'est le point le plus important à ré-intégrer. Dans `CapaciteService` **aujourd'hui** :
+- La **capacité effective** = sièges du car si affecté, sinon `voyage.placesprevues` (prévisionnel), sinon `null` → 0 dispo.
+- **Seuls les billets `VALIDE` (émis) consomment réellement une place.** Les réservations non encore émises **ne bloquent pas** la capacité : elles sont **purement indicatives** (`placesReservees()` sert juste à afficher « X places réservées sur ce tronçon » à l'agent).
+
+Autrement dit, le modèle est désormais **tolérant à l'overbooking** : une place n'est physiquement consommée qu'à l'émission du billet, pas à la réservation.
+
+**Incohérence à noter** : le docblock de l'entité `Reservation` (lignes 30-37) affirme encore *« une réservation EN_ATTENTE tient une place : elle compte dans la capacité… côté vente de billets »* — c'est **contredit** par le code réel de `CapaciteService` (lignes 63-66). Un commentaire à redresser quand on repassera dessus.
+
+## Le paiement est simulé
+
+`PaiementSimuleProvider` implémente `PaiementProviderInterface` : guichet = succès immédiat, en ligne = pas de page hébergée (`estSimule=true`, `url=null`), c'est le front qui simule puis tape le webhook. Pour brancher un vrai **Mobile Money** : nouvelle implémentation de l'interface + **vérification de signature** du webhook (déjà signalé en `⚠️` dans `PaiementWebhookProcessor`).
+
+## Côté frontend
+
+- **Guichet** : `/reservation` (liste), `/reservation/nouveau`, `/reservation/{id}` (show avec les actions confirmer / émettre / régulariser / annuler), `/reservation/config` (paramètres, admin).
+- **Site public invité** : `/reserver/{slug}` — sélection villes/gares/destinations/départs, création + webhook simulé, `/suivi`, `/historique`, et `/bon` (bon de réservation imprimable).
+
+---
+
+En résumé, la réservation est un **flux en 3 temps découplés** — *tenir une place → encaisser → matérialiser en billet+siège* — avec un filet de sécurité no-show (régularisation) et une expiration automatique, le tout partagé entre guichet et mobile par un moteur unique.
+
+Tu veux qu'on reprenne le travail sur un point précis ? Je pense notamment à : corriger l'incohérence du docblock capacité, brancher un vrai prestataire de paiement, planifier réellement le cron d'expiration, ou revoir la tolérance à l'overbooking (faut-il vraiment que les réservations ne réservent rien physiquement ?).

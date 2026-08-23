@@ -15,3 +15,23 @@ install: # vendor/autoload.php .. '-n' pour qu'il fait de manière silencieuse
 #	touch vendor/autoload.php
 
 # Pour le lancer 'make install' va lancer aussi 'vendor/autoload.php', si on a une connexion ssh 'make deploy' qui indique qu'il doit se connecter à ssh puis exécute 'cd..'
+
+# ---------------------------------------------------------------------------- Tests -----------
+.PHONY: test test-domain test-api test-db
+
+# Prépare la base de TEST ('bk_transport_test' — le suffixe '_test' vient de 'doctrine.yaml').
+# À rejouer après chaque migration, sinon les tests portent sur un schéma périmé.
+test-db:
+	php bin/console --env=test doctrine:database:create --if-not-exists
+	php bin/console --env=test doctrine:schema:update --force --complete
+
+test:
+	php vendor/bin/phpunit
+
+# Règles métier seules : la boucle courte pendant le développement.
+test-domain:
+	php vendor/bin/phpunit --testsuite domain
+
+# Sécurité et périmètres, à travers de vraies requêtes HTTP.
+test-api:
+	php vendor/bin/phpunit --testsuite api

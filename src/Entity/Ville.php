@@ -37,7 +37,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Ville', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Ville', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Ville']],
     order: ['nom' => 'ASC'],
     operations: [

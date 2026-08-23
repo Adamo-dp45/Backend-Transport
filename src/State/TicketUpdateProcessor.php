@@ -60,24 +60,39 @@ class TicketUpdateProcessor implements ProcessorInterface
             throw new BadRequestHttpException('Le voyage de ce billet est clôturé : modification impossible');
         }
 
-        // Le COMMERCIAL (vendeur à bord) peut corriger un billet qu'il a vendu, TANT QUE le car est
-        // encore à la gare de montée de ce billet (= sa position courante) : mêmes règles que la vente et
-        // la libération de siège (TicketProcessor, DescendreTicketProcessor), la gare de montée du billet
-        // n'étant PAS sa gare d'attache. Sinon (agent de gare) : gare émettrice + car pas encore passé.
-        $estCommercial = $voyage?->getCommercial()?->getId() === $user->getId();
+        /*
+            Le COMMERCIAL (vendeur à bord) ne corrige QUE SES PROPRES VENTES, tant que le car est
+            encore à la gare de montée du billet (= sa position courante) : mêmes règles que la vente
+            et la libération de siège (TicketProcessor, DescendreTicketProcessor), la gare de montée
+            du billet n'étant PAS sa gare d'attache.
+
+            On teste le VENDEUR DU BILLET, pas le commercial du voyage : être affecté à un départ
+            n'ouvre pas les billets émis au guichet par les gares qu'il dessert. 'Ticket::commercial'
+            n'est renseigné que sur les ventes à bord (TicketProcessor), il porte donc exactement
+            cette distinction.
+
+            CONSÉQUENCE ASSUMÉE : un billet vendu au guichet n'est plus corrigible par personne une
+            fois le car parti de sa gare de montée — ni par la gare émettrice, ni par un admin, ni
+            par le commercial. La correction doit se faire avant le départ.
+
+            Sinon (agent de gare) : gare émettrice + car pas encore passé.
+        */
+        $estCommercial = $data->getCommercial()?->getId() === $user->getId();
         if ($estCommercial) {
-            $gc = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
-            if ($gc === null || $gc->getId() !== $data->getGare()?->getId()) {
+            if (!$this->voyageGuard->surLaGareDeMontee($voyage, $data->getGare())) {
                 throw new BadRequestHttpException('Le car a quitté la gare de montée de ce billet : il n\'est plus modifiable.');
             }
         } else {
             $this->gareGuard->assertEstGare($user, $data->getGare(), 'Seule la gare émettrice peut modifier ce ticket');
 
             if ($voyage !== null) {
-                $this->voyageGuard->assertMonteeNonAtteinte(
+                // Même borne que la VENTE et que le commercial ci-dessus : tant que le car est à
+                // quai, la gare qui a émis le billet peut encore le corriger. C'est seulement son
+                // DÉPART qui ferme la correction.
+                $this->voyageGuard->assertMonteeNonDepassee(
                     $voyage,
                     $data->getGare(),
-                    'Le car a déjà atteint la gare de montée de ce billet : il n\'est plus modifiable.'
+                    'Le car a quitté la gare de montée de ce billet : il n\'est plus modifiable.'
                 );
             }
         }

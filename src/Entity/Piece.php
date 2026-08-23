@@ -33,7 +33,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Piece', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Piece', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Piece']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true, // On autorise l'utilisateur à pouvoir choisir le nombre de page qu'il veut ce qui lui permet de taper '&itemsPerPage=100' dans l'url
@@ -94,7 +94,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)", // Ou.. 'is_granted('AJUSTER', object)'
+            // Réservé à l'ADMIN d'entreprise : écrit un mouvement de STOCK. Sous 'MODIFIER', la même
+            // permission servait à corriger un libellé et à bouger des quantités.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : cette opération écrit un MOUVEMENT DE STOCK. Sous
+                'MODIFIER', la même permission servait à corriger un libellé et à bouger des
+                quantités — un magasinier devant rectifier une saisie héritait de l'inventaire.
+            */
+            security: "is_granted('AJUSTER', object)", // Ou.. 'is_granted('AJUSTER', object)'
             uriTemplate: '/pieces/{id}/ajuster',
             requirements: ['id' => '\d+'],
             input: AjustementstockInput::class,

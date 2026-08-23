@@ -9,6 +9,10 @@ use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Service\CapaciteService;
 use App\Entity\Ticket;
+use App\Entity\User;
+use App\Entity\Voyage;
+use App\Security\VoyageGuard;
+use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
@@ -39,7 +43,9 @@ class TicketProvider implements ProviderInterface
         private readonly ProviderInterface $collectionProvider,
         #[Autowire(service: ItemProvider::class)]
         private readonly ProviderInterface $itemProvider,
-        private readonly CapaciteService $capaciteService
+        private readonly CapaciteService $capaciteService,
+        private readonly VoyageGuard $voyageGuard,
+        private readonly Security $security
     )
     {
     }
@@ -70,9 +76,17 @@ class TicketProvider implements ProviderInterface
     private function marquer(Ticket $ticket): void
     {
         $voyage = $ticket->getVoyage();
+
+        // Position du car vis-à-vis de la gare de MONTÉE de ce billet : c'est la borne qui ferme le
+        // désistement, et la modification pour la GARE. Le front s'en sert pour ne pas proposer une
+        // action que le serveur refuserait.
+        $depassee = $voyage !== null && $this->voyageGuard->monteeDepassee($voyage, $ticket->getGare());
+        $ticket->setMonteedepassee($depassee);
+        $ticket->setModifiable($this->correctionOuverte($ticket, $voyage, $depassee));
+
         $entrepriseId = $ticket->getIdentreprise();
         if ($voyage === null || $voyage->getLigne() === null || $entrepriseId === null) {
-            return; // sans ligne, aucun ordre d'arrêt : rien à arbitrer
+            return; // sans ligne, aucun ordre d'arrêt : rien à arbitrer pour l'éviction
         }
 
         $voyageId = $voyage->getId();
@@ -81,5 +95,39 @@ class TicketProvider implements ProviderInterface
         // Un billet REPORTE/ANNULE n'est jamais dans la carte (billetsEvinces ne lit que les VALIDE) :
         // il ressort donc à false, ce qui est exact — il ne dispute plus aucun siège.
         $ticket->setEvince(isset($this->evincesParVoyage[$voyageId][$ticket->getId()]));
+    }
+
+    /**
+     * La correction reste-t-elle ouverte AU LECTEUR ? Reproduit, prédicat pour prédicat, ce
+     * qu'applique {@see App\State\TicketUpdateProcessor} — d'où l'appel aux mêmes méthodes de
+     * VoyageGuard plutôt qu'à une règle réécrite ici.
+     *
+     * Le VENDEUR À BORD a une borne à lui, mais SUR SES SEULES VENTES : il vend depuis le car, y
+     * compris après le départ, et doit pouvoir se relire tant que le véhicule n'a pas atteint
+     * l'escale suivante. Le juger avec la borne de la gare ('monteedepassee') lui masquait
+     * « Modifier » sur les billets qu'il venait d'émettre en route, alors que l'API les acceptait.
+     *
+     * Sur les billets qu'il n'a PAS vendus, il retombe dans le cas commun — c'est-à-dire la borne de
+     * la gare : être le commercial du voyage n'ouvre pas les billets émis au guichet.
+     *
+     * Ne couvre QUE la borne temporelle : l'appartenance du billet (gare émettrice / vendeur) et les
+     * permissions RBAC restent arbitrées ailleurs.
+     */
+    private function correctionOuverte(Ticket $ticket, ?Voyage $voyage, bool $monteeDepassee): bool
+    {
+        if ($voyage === null) {
+            return true; // aucun voyage à opposer : le processor ne bloquerait pas non plus
+        }
+
+        if ($voyage->getDatearriveereelle() !== null) {
+            return false; // voyage clôturé : fermé à tout le monde, commercial compris
+        }
+
+        $user = $this->security->getUser();
+        if ($user instanceof User && $ticket->getCommercial()?->getId() === $user->getId()) {
+            return $this->voyageGuard->surLaGareDeMontee($voyage, $ticket->getGare());
+        }
+
+        return !$monteeDepassee;
     }
 }

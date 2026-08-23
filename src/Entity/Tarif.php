@@ -33,7 +33,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Tarif', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Tarif', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Tarif']],
     paginationClientItemsPerPage: true, // pagination SERVEUR (perPage pilotable par le listing)
     order: ['createdAt' => 'DESC'],

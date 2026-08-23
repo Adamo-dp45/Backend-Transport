@@ -48,7 +48,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Client', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Client', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Client']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,

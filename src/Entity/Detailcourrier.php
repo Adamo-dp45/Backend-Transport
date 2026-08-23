@@ -20,7 +20,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
     denormalizationContext: ['groups' => ['write:Detailcourrier']],
     operations: [
         new Patch(
-            security: "is_granted('MODIFIER', 'Courrier')",
+            // Réservé à l'ADMIN d'entreprise : déclarer une perte engage la responsabilité de la compagnie
+            // vis-à-vis du client. Ce n'est pas une correction de saisie.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : déclarer une perte engage la responsabilité de la
+                compagnie vis-à-vis du client. Ce n'est pas une correction de saisie, et cela ne doit
+                pas venir avec elle.
+            */
+            security: "is_granted('DECLARER_PERDU', 'Courrier')",
             uriTemplate: '/detailcourriers/{id}/perdu',
             requirements: ['id' => '\d+'],
             input: false,

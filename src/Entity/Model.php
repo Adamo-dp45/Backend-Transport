@@ -28,7 +28,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Model', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Model', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Model']],
     paginationEnabled: false,
     order: ['createdAt' => 'DESC'],

@@ -28,7 +28,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Typepanne', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Typepanne', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Typepanne']],
     paginationEnabled: false,
     order: ['createdAt' => 'DESC'],

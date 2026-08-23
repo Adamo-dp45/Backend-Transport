@@ -22,7 +22,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: EntrepriseRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Entreprise', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Entreprise', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Entreprise']],
     operations: [
         new GetCollection(
@@ -117,7 +117,13 @@ class Entreprise extends EntityBase
     #[Groups('read:Entreprise', 'write:Entreprise')]
     private ?string $email = null;
 
+    /*
+        Le champ n'avait AUCUN groupe : invisible à l'API dans les DEUX sens. Il n'était donc jamais
+        renvoyé en lecture, et toute valeur envoyée en écriture était silencieusement ignorée — d'où
+        une « année de création » qu'on pouvait saisir sans qu'elle soit jamais enregistrée.
+    */
     #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    #[Groups('read:Entreprise', 'write:Entreprise')]
     private ?\DateTimeImmutable $anneecreation = null;
 
     #[ORM\Column(length: 255, nullable: true)]

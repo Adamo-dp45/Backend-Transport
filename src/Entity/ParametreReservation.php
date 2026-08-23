@@ -25,7 +25,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: ParametreReservationRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:ParametreReservation', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:ParametreReservation', 'read:Base']],
     operations: [
         new Get(
             uriTemplate: '/me/parametre-reservation',

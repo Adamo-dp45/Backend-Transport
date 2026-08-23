@@ -28,7 +28,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: ApprovisionnementRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Approvisionnement', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Approvisionnement', 'read:Base']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
     order: ['createdAt' => 'DESC'],
@@ -112,7 +112,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            // Réservé à l'ADMIN d'entreprise : écrit un mouvement de STOCK. Sous 'MODIFIER', la même
+            // permission servait à corriger un libellé et à bouger des quantités.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : cette opération écrit un MOUVEMENT DE STOCK. Sous
+                'MODIFIER', la même permission servait à corriger un libellé et à bouger des
+                quantités — un magasinier devant rectifier une saisie héritait de l'inventaire.
+            */
+            security: "is_granted('ANNULER', object)",
             uriTemplate: '/approvisionnements/{id}/annuler',
             requirements: ['id' => '\d+'],
             input: false,

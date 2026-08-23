@@ -29,7 +29,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Car', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Car', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Car']],
     paginationEnabled: false, 
     order: ['createdAt' => 'DESC'],

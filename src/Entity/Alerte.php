@@ -31,7 +31,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Index(name: 'idx_alerte_ent_statut', columns: ['identreprise', 'statut'])]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Alerte', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Alerte', 'read:Base']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
     order: ['createdAt' => 'DESC'],

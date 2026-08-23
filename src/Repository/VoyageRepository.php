@@ -302,10 +302,22 @@ class VoyageRepository extends ServiceEntityRepository
             ->leftJoin('a.gare', 'g')->addSelect('g')
             ->andWhere('v.identreprise = :ide')
             ->andWhere('v.deletedAt IS NULL')
+            /*
+                « OUVERT » = NON CLÔTURÉ, et rien d'autre. Il y avait ici un
+                'v.datedepartprevue > now - 2 days' qui écartait tout départ vieux de plus de deux
+                jours, clôturé ou non. Trois conséquences, toutes silencieuses :
+                  - le SÉLECTEUR DE VENTE perdait un voyage en retard que l'agent avait pourtant
+                    sous les yeux (car immobilisé, ligne suspendue) : plus aucun moyen de vendre ;
+                  - les DÉPARTS DE REPORT ('ReportsPossiblesProvider') se raréfiaient de même ;
+                  - l'alerte 'VOYAGE_DEPART_EN_RETARD' s'ÉTEIGNAIT passé deux jours — précisément
+                    quand le retard devient anormal et mérite d'être signalé.
+                Ce qui ferme la vente, c'est le PASSAGE DU CAR ('VoyageGuard::monteeDepassee'),
+                jamais l'ancienneté de la date prévue. Le volume reste borné par la clôture ; un
+                départ jamais clôturé est un défaut d'exploitation, que l'alerte ci-dessus signale
+                justement au lieu de le masquer.
+            */
             ->andWhere('v.datearriveereelle IS NULL')
-            ->andWhere('v.datedepartprevue > :depuis')
             ->setParameter('ide', $identreprise)
-            ->setParameter('depuis', (new \DateTimeImmutable())->modify('-2 days'))
             ->orderBy('v.datedepartprevue', 'ASC')
             ->getQuery()
             ->getResult();

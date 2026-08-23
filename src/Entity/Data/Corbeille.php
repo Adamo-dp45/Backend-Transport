@@ -33,7 +33,7 @@ use App\State\Corbeille\CorbeilleViderLotProcessor;
             provider: CorbeilleProvider::class,
             input: false,
             output: CorbeilleListeDto::class,
-            normalizationContext: ['groups' => ['read:Corbeille'], 'skip_null_values' => false],
+            normalizationContext: ['groups' => ['read:Corbeille']],
             openapi: new Operation(
                 summary: 'Corbeille multi-entreprises (super admin)',
                 description: 'Éléments soft-deletés de toutes les compagnies + compteurs. Filtres : ?type[]=ticket&entreprise=3',

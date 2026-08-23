@@ -43,7 +43,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: ReservationRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Reservation', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Reservation', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Reservation']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
@@ -65,7 +65,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Post(
-            security: "is_granted('CREER', 'Reservation') or is_granted('CREER', 'Ticket')",
+            /*
+                Plus de repli sur 'CREER Ticket' : savoir vendre un billet n'est pas savoir gérer une
+                réservation. Ce 'or' court-circuitait entièrement la permission 'Reservation' — un
+                profil sans AUCUN droit dessus encaissait, émettait et régularisait. Le guichetier,
+                lui, porte 'Reservation' en propre : il n'y perd rien.
+            */
+            security: "is_granted('CREER', 'Reservation')",
             processor: ReservationProcessor::class,
             openapi: new Operation(
                 summary: 'Création d\'une réservation (place tenue)',
@@ -74,7 +80,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object) or is_granted('CREER', 'Ticket')",
+            /*
+                Plus de repli sur 'CREER Ticket' : savoir vendre un billet n'est pas savoir gérer une
+                réservation. Ce 'or' court-circuitait entièrement la permission 'Reservation' — un
+                profil sans AUCUN droit dessus encaissait, émettait et régularisait. Le guichetier,
+                lui, porte 'Reservation' en propre : il n'y perd rien.
+            */
+            security: "is_granted('MODIFIER', object)",
             uriTemplate: '/reservations/{id}/confirmer',
             requirements: ['id' => '\d+'],
             input: false,
@@ -86,7 +98,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object) or is_granted('CREER', 'Ticket')",
+            /*
+                Plus de repli sur 'CREER Ticket' : savoir vendre un billet n'est pas savoir gérer une
+                réservation. Ce 'or' court-circuitait entièrement la permission 'Reservation' — un
+                profil sans AUCUN droit dessus encaissait, émettait et régularisait. Le guichetier,
+                lui, porte 'Reservation' en propre : il n'y perd rien.
+            */
+            security: "is_granted('MODIFIER', object)",
             uriTemplate: '/reservations/{id}/emettre-billet',
             requirements: ['id' => '\d+'],
             input: false,
@@ -118,7 +136,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
             paginationEnabled: false,
             output: ReportPossibleDto::class,
             // Forme stable : on conserve les champs nuls, comme le reste de la ressource.
-            normalizationContext: ['groups' => ['read:ReportPossible'], 'skip_null_values' => false],
+            normalizationContext: ['groups' => ['read:ReportPossible']],
             openapi: new Operation(
                 summary: 'Départs sur lesquels cette réservation peut être reportée',
                 description: 'Chaque départ est soumis au calcul de régularisation : la liste ne peut donc pas diverger de ce que le report acceptera. Renvoie aussi le décompte de chacun. Liste vide si la réservation n\'est pas à régulariser.',
@@ -126,7 +144,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object) or is_granted('CREER', 'Ticket')",
+            /*
+                Plus de repli sur 'CREER Ticket' : savoir vendre un billet n'est pas savoir gérer une
+                réservation. Ce 'or' court-circuitait entièrement la permission 'Reservation' — un
+                profil sans AUCUN droit dessus encaissait, émettait et régularisait. Le guichetier,
+                lui, porte 'Reservation' en propre : il n'y perd rien.
+            */
+            security: "is_granted('MODIFIER', object)",
             uriTemplate: '/reservations/{id}/regulariser',
             requirements: ['id' => '\d+'],
             input: false,
@@ -138,7 +162,13 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object) or is_granted('CREER', 'Ticket')",
+            // Réservé à l'ADMIN d'entreprise : touche une réservation PAYÉE. Sous 'MODIFIER', tout profil
+            // devant rectifier une saisie pouvait annuler un encaissement.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : on touche ici une réservation PAYÉE. Sous 'MODIFIER',
+                tout profil devant rectifier une saisie pouvait défaire un encaissement.
+            */
+            security: "is_granted('ANNULER', object)",
             uriTemplate: '/reservations/{id}/annuler',
             requirements: ['id' => '\d+'],
             input: false,

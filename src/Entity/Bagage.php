@@ -27,7 +27,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: BagageRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Bagage', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Bagage', 'read:Base']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
     order: ['createdAt' => 'DESC'],
@@ -86,7 +86,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
             ),
         */
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            // Réservé à l'ADMIN d'entreprise : déclarer une perte engage la responsabilité de la compagnie
+            // vis-à-vis du client. Ce n'est pas une correction de saisie.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : déclarer une perte engage la responsabilité de la
+                compagnie vis-à-vis du client. Ce n'est pas une correction de saisie, et cela ne doit
+                pas venir avec elle.
+            */
+            security: "is_granted('DECLARER_PERDU', object)",
             uriTemplate: '/bagages/{id}/perdu',
             requirements: ['id' => '\d+'],
             input: false,

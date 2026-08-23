@@ -74,10 +74,27 @@ class DesistementProcessor implements ProcessorInterface
 
         // Sécurité métier : seule la gare émettrice (gare de montée du billet) ou un admin peut désister.
         // Un utilisateur central sans gare (userGare null) passe ; les admins de gare ont leur bypass
-        // dans le voter de la permission TICKET_MODIFIER (sécurité de l'opération).
+        // dans le voter de la permission TICKET_DESISTER (sécurité de l'opération).
         $userGare = $user->getGare();
         if ($userGare !== null && $ticket->getGare()?->getId() !== $userGare->getId()) {
             throw new BadRequestHttpException('Seule la gare émettrice du billet peut traiter ce désistement');
+        }
+
+        /*
+            Le VENDEUR À BORD ne rembourse pas : la caisse, le justificatif et l'imputation du
+            désistement sont du ressort de la GARE.
+
+            Ce contrôle double la permission 'DESISTER' à dessein. Le contrôle de gare ci-dessus ne
+            suffit pas : le commercial d'un départ est lui-même RATTACHÉ à une gare, et sur les
+            billets de ce guichet il le franchissait — il annulait alors des ventes qui n'étaient pas
+            les siennes (constaté : HTTP 200, billet ANNULE). Les permissions sont par ailleurs
+            configurables par le super admin : si 'DESISTER' est un jour accordé au rôle qui sert de
+            commercial, la règle métier tient quand même ici.
+        */
+        if ($ticket->getVoyage()?->getCommercial()?->getId() === $user->getId()) {
+            throw new BadRequestHttpException(
+                'Le commercial à bord ne peut pas désister un billet : le remboursement est une opération de gare.'
+            );
         }
 
         $now = new \DateTimeImmutable();
@@ -99,13 +116,21 @@ class DesistementProcessor implements ProcessorInterface
             throw new BadRequestHttpException('Le motif est obligatoire pour annuler un billet (remboursement).');
         }
 
-        // ANTI « annulation après encaissement » (2) : une fois que le car a ATTEINT/DÉPASSÉ la gare de MONTÉE
-        // du passager, le service est en cours/rendu → plus de remboursement par annulation (report possible).
-        // Garde PARTAGÉE avec la modification de billet (cf. VoyageGuard::monteeAtteinte).
-        $this->voyageGuard->assertMonteeNonAtteinte(
+        /*
+            ANTI « annulation après encaissement » (2) : on n'annule plus une fois que le car a
+            QUITTÉ la gare de montée — le service est alors en cours, le passager est parti avec.
+
+            Auparavant la garde était 'assertMonteeNonAtteinte' : elle fermait l'annulation dès
+            l'ARRIVÉE du car à la gare. C'était incohérent avec le reste du système — au même
+            instant, la VENTE reste ouverte ('TicketProcessor' emploie 'monteeDepassee') et le
+            COMMERCIAL à bord peut encore corriger un billet. Un guichet pouvait donc vendre un
+            billet et se voir refuser de le corriger dans la minute, le car étant à quai.
+            « Être À la gare de montée n'est pas trop tard : c'est le moment où l'on embarque. »
+        */
+        $this->voyageGuard->assertMonteeNonDepassee(
             $ticket->getVoyage(),
             $ticket->getGare(),
-            'Le car a déjà atteint la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
+            'Le car a quitté la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
         );
 
         $ticket
@@ -201,15 +226,15 @@ class DesistementProcessor implements ProcessorInterface
             $this->capaciteService->billetsEvinces($ticket->getVoyage(), $entrepriseId)[$ticket->getId()]
         );
 
-        // Garde de position, comme l'ANNULATION : on ne reporte plus un billet dont le car a déjà
-        // ATTEINT sa gare de montée (service en cours/rendu). EXEMPTION des ÉVINCÉS : leur siège a été
-        // repris par la priorité amont, ils n'ont jamais pu monter — la compagnie doit pouvoir les
-        // reloger même après le passage du car (report imputable compagnie, cf. plus bas).
+        // Garde de position, comme l'ANNULATION : on ne reporte plus un billet dont le car a QUITTÉ
+        // la gare de montée. EXEMPTION des ÉVINCÉS : leur siège a été repris par la priorité amont,
+        // ils n'ont jamais pu monter — la compagnie doit pouvoir les reloger même après le passage
+        // du car (report imputable compagnie, cf. plus bas).
         if (!$estEvince) {
-            $this->voyageGuard->assertMonteeNonAtteinte(
+            $this->voyageGuard->assertMonteeNonDepassee(
                 $ticket->getVoyage(),
                 $ticket->getGare(),
-                'Le car a déjà atteint la gare de montée de ce billet : le report n\'est plus possible.'
+                'Le car a quitté la gare de montée de ce billet : le report n\'est plus possible.'
             );
         }
 

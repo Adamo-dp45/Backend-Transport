@@ -14,3 +14,7 @@
 ###< lexik/jwt-authentication-bundle ###
 
 /public/images/
+###> phpunit/phpunit ###
+/phpunit.xml
+/.phpunit.cache/
+###< phpunit/phpunit ###

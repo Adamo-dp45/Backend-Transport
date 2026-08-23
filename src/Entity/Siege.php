@@ -19,10 +19,8 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
     normalizationContext: ['groups' => ['read:Siege']],
-    // provider: SiegeStateProvider::class,
     operations: [
         new GetCollection(
-            // security: "is_granted('VOIR', 'Siege')",
             provider: SiegeStateProvider::class,
             openapi: new Operation(
                 summary: 'La liste des sièges',
@@ -31,7 +29,6 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Get(
-            // security: "is_granted('VOIR', object)",
             requirements: ['id' => '\d+'],
             openapi: new Operation(
                 summary: 'Un siège',

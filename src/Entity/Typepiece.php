@@ -46,9 +46,12 @@ use Symfony\Component\Serializer\Attribute\Groups;
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
     normalizationContext: [
         'groups' => ['read:Typepiece', 'read:Base'],
-        'openapi_definition_name' => 'Collection',
-        'skip_null_values' => false /*
-            - Vu que 'ApiPlatform' ne renvoi pas un champ s'il est 'null' on peut désactiver son comportement ainsi
+        'openapi_definition_name' => 'Collection'
+        /*
+            - 'ApiPlatform' ne renvoie pas un champ s'il est 'null' : le comportement est désactivé
+              GLOBALEMENT par 'skip_null_values: false' dans 'api_platform.yaml', plus ressource par
+              ressource. Le redéclarer ici n'apportait rien et laissait croire que les ressources
+              sans la ligne se comportaient autrement.
         */
     ],
     denormalizationContext: ['groups' => ['write:Typepiece']],

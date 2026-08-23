@@ -41,14 +41,20 @@ class ReservationEcheanceService
     /**
      * Heure à laquelle le car est attendu à $gare.
      *
-     * Les durées d'arrêt sont comptées depuis l'origine de la LIGNE, mais 'datedepartprevue' est
-     * l'heure de départ de l'ORIGINE EFFECTIVE DU VOYAGE — qui en diffère sur un DÉPART PARTIEL :
-     * quand Bouaké crée un voyage sur Abidjan → Korhogo, c'est Bouaké qui devient l'origine, et le
-     * départ annoncé est celui de Bouaké. On décale donc de la durée RELATIVE à cette origine :
+     * Chaque arrêt porte 'dureeTronconMinutes', la durée du SEGMENT QUI MÈNE À LUI (NULL à
+     * l'origine de la ligne) — et non un cumul depuis l'origine. Le décalage est donc la SOMME des
+     * tronçons parcourus.
      *
-     *   Ligne Abidjan(0) → Bouaké(240) → Korhogo(420), départ partiel de Bouaké à 08:00
-     *     Bouaké  : 08:00 + (240 − 240) = 08:00   (et non 12:00)
-     *     Korhogo : 08:00 + (420 − 240) = 11:00   (et non 15:00)
+     * 'datedepartprevue' est l'heure de départ de l'ORIGINE EFFECTIVE DU VOYAGE, qui diffère de
+     * celle de la ligne sur un DÉPART PARTIEL : quand Bouaké crée un voyage sur Abidjan → Korhogo,
+     * c'est Bouaké qui devient l'origine, et le départ annoncé est le sien. On ne somme donc que
+     * les tronçons situés APRÈS cette origine effective :
+     *
+     *   Ligne Abidjan(—) → Bouaké(+240) → Korhogo(+180)
+     *
+     *   Départ NORMAL d'Abidjan à 08:00        Départ PARTIEL de Bouaké à 08:00
+     *     Bouaké  : 08:00 + 240      = 12:00     Bouaké  : 08:00 + 0        = 08:00
+     *     Korhogo : 08:00 + 240 + 180 = 15:00    Korhogo : 08:00 + 180      = 11:00
      *
      * Repli sur le départ du voyage si la ligne ne renseigne pas ses durées (ou si la gare n'est pas
      * un de ses arrêts) : c'est le comportement historique, approximatif mais jamais plus permissif.

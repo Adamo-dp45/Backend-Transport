@@ -41,7 +41,12 @@ class EntityDiscoveryService
                 'Beneficiaire',
                 'ProgrammeFidelite',
                 'ParametreReservation',
-                'Arret'
+                'Arret',
+                'Passage',
+                'Activite',
+                'ConfigRemise',
+                'ConfigRecette',
+                'Maintenance'
             ])) {
                 $entities[] = $entityName;
             }

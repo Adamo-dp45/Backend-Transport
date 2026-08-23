@@ -43,7 +43,7 @@ class MeEntrepriseProcessor implements ProcessorInterface
             ->setContact2($data->contact2)
             ->setAdresse($data->adresse)
             ->setEmail($data->email)
-            ->setAnneecreation(new \DateTimeImmutable($data->anneecreation))
+            ->setAnneecreation($this->lireAnneeCreation($data->anneecreation, $entreprise->getAnneecreation()))
             ->setSigle($data->sigle)
             ->setSiteweb($data->siteweb)
             ->setRccm($data->rccm)
@@ -66,5 +66,29 @@ class MeEntrepriseProcessor implements ProcessorInterface
         return $this->processor->process($entreprise, $operation, $uriVariables, $context); /*
             - Pas de '->flush()' vu qu'on a le 'process'
         */
+    }
+
+    /**
+     * Année de création saisie, en distinguant les trois cas.
+     *
+     * Il y avait ici un 'new \DateTimeImmutable($data->anneecreation)' nu : sur un champ VIDÉ il
+     * enregistrait l'instant courant (et lève désormais, la chaîne étant nulle), et sur une saisie
+     * approximative comme « 2019 » il complétait avec le mois et le jour du jour.
+     *
+     *  - champ VIDÉ            → null, l'utilisateur veut effacer la date ;
+     *  - date LISIBLE          → la date saisie ;
+     *  - saisie ILLISIBLE      → on conserve l'existant plutôt que d'écraser par une date inventée.
+     */
+    private function lireAnneeCreation(?string $saisie, ?\DateTimeImmutable $actuelle): ?\DateTimeImmutable
+    {
+        if ($saisie === null || trim($saisie) === '') {
+            return null;
+        }
+
+        try {
+            return new \DateTimeImmutable(trim($saisie));
+        } catch (\Exception) {
+            return $actuelle;
+        }
     }
 }

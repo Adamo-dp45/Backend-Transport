@@ -19,7 +19,29 @@ final class PermissionVoter extends Voter
 
     protected function supports(string $attribute, mixed $subject): bool
     {
-        return in_array($attribute, ['VOIR', 'CREER', 'MODIFIER', 'SUPPRIMER', 'IMPRIMER', 'IMPORTER', 'EXPORTER']); # On ne s'occupe que des actions définies dans notre système
+        /*
+            Catalogue des actions du système.
+
+            Aux quatre actions communes s'ajoutent les actions DÉDIÉES aux opérations dont l'effet
+            n'a rien d'une modification de champ. Toutes existent pour la même raison : sous
+            'MODIFIER', un profil qui devait rectifier une saisie héritait au passage d'un pouvoir
+            sans rapport.
+              · DESISTER       — rembourser un billet (caisse)
+              · AJUSTER        — écrire un mouvement de stock (inventaire)
+              · ANNULER        — défaire un approvisionnement, un dépannage, une réservation payée
+              · DECLARER_PERDU — engager la responsabilité de la compagnie sur un colis ou un bagage
+
+            'IMPRIMER' et 'EXPORTER' ont été RETIRÉS : ils ne gardaient aucune opération, ni ici ni
+            dans le front, et l'écran des rôles ne les proposait pas — on les accordait sans jamais
+            les vérifier. 'IMPORTER' était dans le même cas.
+
+            Toute action ajoutée ici doit l'être AUSSI dans 'RoleFormType' (front), sans quoi elle
+            reste inassignable : c'est précisément ce qui avait laissé ces trois-là mourir.
+        */
+        return in_array($attribute, [
+            'VOIR', 'CREER', 'MODIFIER', 'SUPPRIMER',
+            'DESISTER', 'AJUSTER', 'ANNULER', 'DECLARER_PERDU',
+        ]); # On ne s'occupe que des actions définies dans notre système
     }
 
     protected function voteOnAttribute(

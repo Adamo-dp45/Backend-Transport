@@ -26,7 +26,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\Entity(repositoryClass: ProgrammeFideliteRepository::class)]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:ProgrammeFidelite', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:ProgrammeFidelite', 'read:Base']],
     operations: [
         new Get(
             uriTemplate: '/me/programme-fidelite',

@@ -187,12 +187,63 @@ class VoyageGuard
      */
     public function monteeDepassee(Voyage $voyage, ?Gare $garemontee): bool
     {
+        /*
+            DÉPART HORODATÉ de cette gare : la preuve la plus directe, et la SEULE qui vaille pour
+            une gare INTERMÉDIAIRE.
+
+            'garecourante' n'avance qu'à la RÉCEPTION, c'est-à-dire à l'ARRIVÉE du car. Une fois
+            reparti de Bouaké, le voyage garde donc « Bouaké » comme position : les deux tests
+            d'ordre ci-dessous répondaient faux et la gare continuait de vendre, de modifier et de
+            désister sur un car qu'elle avait vu partir. Le départ, lui, est consigné dans 'Passage'
+            (par 'RepartirVoyageProcessor' à l'escale, par 'VoyageDepartService' à l'origine).
+        */
+        if ($garemontee !== null && $this->aQuitteLaGare($voyage, $garemontee)) {
+            return true;
+        }
+
         $ordres = $this->ordresPosition($voyage, $garemontee);
         if ($ordres === null) {
             return false;
         }
 
         return $ordres['position'] > $ordres['montee'] || $ordres['montee'] <= $ordres['origine'];
+    }
+
+    /** Le départ du car de cette gare est-il consigné ? */
+    private function aQuitteLaGare(Voyage $voyage, Gare $gare): bool
+    {
+        foreach ($voyage->getPassages() as $passage) {
+            if ($passage->getGare()?->getId() === $gare->getId()) {
+                return $passage->getDepartReelle() !== null;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Le car est-il ENCORE POSITIONNÉ sur la gare de montée de ce billet ?
+     *
+     * C'est la borne du COMMERCIAL (vendeur à bord), et elle est volontairement DIFFÉRENTE de
+     * {@see monteeDepassee}, qui est celle de la gare. Le commercial voyage AVEC le car : la gare de
+     * montée d'un billet qu'il vend n'est pas sa gare d'attache, c'est la position du véhicule au
+     * moment de la vente. Il encaisse d'ailleurs APRÈS le départ (passagers montés sans avoir payé,
+     * cf. TicketProcessor) — un billet qu'il vient d'émettre est donc 'monteedepassee', et le juger
+     * avec la borne de la gare lui interdirait de corriger sa propre saisie dans la foulée.
+     *
+     * 'garecourante' n'avance qu'à la RÉCEPTION : elle reste sur la gare quittée pendant tout le
+     * trajet jusqu'à l'escale suivante, ce qui laisse au vendeur le tronçon en cours pour se relire.
+     * À l'arrivée suivante, la position change et la correction se ferme d'elle-même.
+     */
+    public function surLaGareDeMontee(?Voyage $voyage, ?Gare $garemontee): bool
+    {
+        if ($voyage === null || $garemontee === null) {
+            return false;
+        }
+
+        $position = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
+
+        return $position?->getId() === $garemontee->getId();
     }
 
     /** Variante levant une 400, avec un message adapté à l'action refusée. */

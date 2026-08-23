@@ -56,7 +56,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 */
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Voyage', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Voyage', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Voyage']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
@@ -74,7 +74,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             security: "is_granted('VOIR', object) or is_granted('ROLE_USER')",
             requirements: ['id' => '\d+'],
             provider: VoyageProvider::class, // + frise 'horaires' (dérivée), pipeline natif conservé
-            normalizationContext: ['groups' => ['read:Voyage', 'read:Base', 'read:Voyage:item'], 'skip_null_values' => false], /*
+            normalizationContext: ['groups' => ['read:Voyage', 'read:Base', 'read:Voyage:item']], /*
                 - La FICHE seule embarque les collections complètes (billets, courriers, bagages,
                   personnel) : elle les affiche. La LISTE ne reçoit que leurs compteurs — sinon on
                   hydrate et sérialise des collections entières juste pour afficher un nombre.
@@ -123,9 +123,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: VoyagesReservablesProvider::class,
             paginationEnabled: false,
             output: VoyageReservableDto::class,
-            // 'skip_null_values: false' comme le reste de la ressource : sans lui, un champ nul
-            // (heurepassage pour un profil sans gare) DISPARAÎT du JSON — forme instable pour le client.
-            normalizationContext: ['groups' => ['read:VoyageReservable'], 'skip_null_values' => false],
+            // Un champ nul (heurepassage pour un profil sans gare) reste dans le JSON à null au lieu
+            // de DISPARAÎTRE — forme stable pour le client. Assuré globalement par
+            // 'skip_null_values: false' dans 'api_platform.yaml'.
+            normalizationContext: ['groups' => ['read:VoyageReservable']],
             openapi: new Operation(
                 summary: 'Voyages sur lesquels une réservation peut encore être créée',
                 description: 'Décision prise côté serveur : elle dépend de la gare de l\'agent, de l\'avancement réel du car et des durées de trajet par arrêt. Le guichet ne doit pas la reconstituer par des filtres. `?usage=vente` applique les règles de la VENTE au guichet : pas de délai de présentation (le passager est là) et embarquement à la position du car pour le commercial du voyage.',
@@ -236,6 +237,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 security: [['bearerAuth' => []]]
             )
         ),
+        /* Bordereaux
+         */
         new Get(
             uriTemplate: '/voyages/{id}/bordereau',
             uriVariables: [
@@ -244,10 +247,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             security: "is_granted('VOIR', 'Voyage')",
             provider: BordereauProvider::class,
             output: BordereauOutput::class,
-            // skip_null_values: false → les horaires réels NON encore connus (arrivée à l'origine, tout
-            // au terminus avant le passage) restent dans le JSON à null, au lieu de DISPARAÎTRE. Sinon le
-            // template lit une clé absente et plante.
-            normalizationContext: ['groups' => [], 'skip_null_values' => false],
+            // Les horaires réels NON encore connus (arrivée à l'origine, tout au terminus avant le
+            // passage) restent dans le JSON à null au lieu de DISPARAÎTRE — sinon le template lit une
+            // clé absente et plante. Assuré globalement par 'skip_null_values: false'
+            // dans 'api_platform.yaml'.
+            normalizationContext: ['groups' => []],
             openapi: new Operation(
                 summary: 'Bordereau d\'un voyage par gare',
                 security: [['bearerAuth' => []]]
@@ -272,6 +276,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
     )
 )]
 #[ApiFilter(SearchFilter::class, properties: [
+    'id' => 'exact', /*
+        - Permet '?id[]=..&id[]=..' : le FT décide des voyages vendables via '/voyages/reservables'
+          puis vient chercher CES voyages-là en entier. Sans ce filtre il chargeait '/api/voyages'
+          page par page (25, triés 'createdAt DESC') et croisait les deux listes en mémoire — les
+          voyages les plus anciennement CRÉÉS, donc les plus proches ou déjà en retard, tombaient
+          hors de la première page et disparaissaient du sélecteur de vente.
+    */
     'codevoyage' => 'partial',
     'ligne.id' => 'exact',
     'car.id' => 'exact',

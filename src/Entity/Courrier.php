@@ -36,7 +36,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 // La contrainte..
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Courrier', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Courrier', 'read:Base']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
     order: ['createdAt' => 'DESC'],
@@ -52,7 +52,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
         new Get(
             security: "is_granted('VOIR', object)",
             requirements: ['id' => '\d+'],
-            normalizationContext: ['groups' => ['read:Courrier', 'read:Base', 'read:Courrier:item'], 'skip_null_values' => false], /*
+            normalizationContext: ['groups' => ['read:Courrier', 'read:Base', 'read:Courrier:item']], /*
                 - Seule la FICHE (et par elle le reçu PDF / le formulaire d'édition) embarque la liste
                   des colis ; la LISTE des courriers n'en reçoit que le nombre.
             */
@@ -158,7 +158,14 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            // Réservé à l'ADMIN d'entreprise : déclarer une perte engage la responsabilité de la compagnie
+            // vis-à-vis du client. Ce n'est pas une correction de saisie.
+            /*
+                Action DÉDIÉE, pas 'MODIFIER' : déclarer une perte engage la responsabilité de la
+                compagnie vis-à-vis du client. Ce n'est pas une correction de saisie, et cela ne doit
+                pas venir avec elle.
+            */
+            security: "is_granted('DECLARER_PERDU', object)",
             uriTemplate: '/courriers/{id}/perdu',
             requirements: ['id' => '\d+'],
             input: false,

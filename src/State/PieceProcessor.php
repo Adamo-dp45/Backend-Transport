@@ -10,6 +10,7 @@ use App\Entity\User;
 use App\Repository\MarquepieceRepository;
 use App\Repository\ModelRepository;
 use App\Repository\TypepieceRepository;
+use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -42,45 +43,54 @@ class PieceProcessor implements ProcessorInterface
             ->setPrixunitaire($data->prixunitaire)
             ->setCreatedBy($user->getId());
 
-        if($data->typepieceId) {
-            $typepiece = $this->typepieceRepository->findOneBy([
-                'id' => $data->typepieceId,
-                'identreprise' => $entrepriseId,
-                'deletedAt' => null
-            ]);
+        /*
+            Ces trois références sont FACULTATIVES : un identifiant nul veut dire « aucun », et doit
+            donc EFFACER la valeur existante.
 
-            if(!$typepiece) {
-                throw new NotFoundHttpException('Type de pièce invalide');
-            }
-            $piece->setTypepiece($typepiece);
-        }
-
-        if($data->marquepieceId) {
-            $marquepiece = $this->marquepieceRepository->findOneBy([
-                'id' => $data->marquepieceId,
-                'identreprise' => $entrepriseId,
-                'deletedAt' => null
-            ]);
-
-            if(!$marquepiece) {
-                throw new NotFoundHttpException('Marque de pièce invalide');
-            }
-            $piece->setMarquepiece($marquepiece);
-        }
-
-        if($data->modelepieceId) {
-            $model = $this->modelRepository->findOneBy([
-                'id' => $data->modelepieceId,
-                'identreprise' => $entrepriseId,
-                'deletedAt' => null
-            ]);
-
-            if(!$model) {
-                throw new NotFoundHttpException('Modèle de pièce invalide');
-            }
-            $piece->setModel($model);
-        }
+            Le code posait un simple 'if($data->typepieceId) { setTypepiece(...) }' sans branche
+            inverse : une fois un type choisi, plus aucun moyen de revenir en arrière — sélectionner
+            « — Sélectionner un type — » ne faisait rien et l'ancienne valeur restait. Le formulaire
+            proposait un choix vide que le serveur ignorait en silence.
+        */
+        $piece
+            ->setTypepiece($this->resoudre(
+                $this->typepieceRepository, $data->typepieceId, $entrepriseId, 'Type de pièce invalide'
+            ))
+            ->setMarquepiece($this->resoudre(
+                $this->marquepieceRepository, $data->marquepieceId, $entrepriseId, 'Marque de pièce invalide'
+            ))
+            ->setModel($this->resoudre(
+                $this->modelRepository, $data->modelepieceId, $entrepriseId, 'Modèle de pièce invalide'
+            ));
 
         return $this->processor->process($piece, $operation, $uriVariables, $context);
+    }
+
+    /**
+     * Référence facultative bornée à l'entreprise : null quand rien n'est choisi, 404 quand
+     * l'identifiant fourni ne correspond à rien de visible (référence d'une autre compagnie,
+     * enregistrement supprimé).
+     */
+    private function resoudre(
+        ServiceEntityRepository $repository,
+        int|string|null $id,
+        int $entrepriseId,
+        string $message
+    ): ?object {
+        if (empty($id)) {
+            return null;
+        }
+
+        $reference = $repository->findOneBy([
+            'id' => $id,
+            'identreprise' => $entrepriseId,
+            'deletedAt' => null,
+        ]);
+
+        if (!$reference) {
+            throw new NotFoundHttpException($message);
+        }
+
+        return $reference;
     }
 }

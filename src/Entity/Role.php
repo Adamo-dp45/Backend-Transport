@@ -30,7 +30,7 @@ use Symfony\Component\Validator\Constraints\Valid;
 */
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Role', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Role', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Role']],
     order: ['createdAt' => 'DESC'],
     operations: [

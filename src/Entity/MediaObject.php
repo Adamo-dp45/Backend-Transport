@@ -22,7 +22,7 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
 #[Uploadable()]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['media_object:read'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['media_object:read']],
     types: ['https://schema.org/MediaObject'],
     outputFormats: ['jsonld' => ['application/ld+json']],
     operations: [

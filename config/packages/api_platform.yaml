@@ -5,6 +5,21 @@ api_platform:
         stateless: true
         cache_headers:
             vary: ['Content-Type', 'Authorization', 'Origin']
+        normalization_context:
+            # Un champ NUL est SÉRIALISÉ (à null) au lieu d'être OMIS de la charge.
+            #
+            # Par défaut ApiPlatform le retire purement et simplement : côté FT, qui tourne en
+            # 'strict_variables', '{{ gare.contact2 }}' levait alors « Key "contact2" ... does not
+            # exist » dès qu'un second contact n'était pas renseigné — une erreur 500 qui n'apparaît
+            # que sur les enregistrements incomplets, donc jamais chez le développeur et toujours
+            # chez le client. L'entité 'User' portait déjà ce réglage en local ; on le généralise
+            # plutôt que de protéger un à un des centaines d'accès dans les gabarits.
+            #
+            # Sans effet pour les apps mobiles : en Dart comme en JS, une clé absente et une clé à
+            # null se lisent de la même façon. Les DTO publics qui documentent des champs
+            # « omis quand null » (suivi de réservation) restent donc corrects, à ceci près qu'ils
+            # sont désormais présents et nuls.
+            skip_null_values: false
     eager_loading:
         max_joins: 50 # Vu qu'une entité peut porter plus de 4 relations or 'ApiPlatform' a une limite de jointures de l'eager-loading '30' par défaut
 

@@ -32,7 +32,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 )]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Gare', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Gare', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Gare']],
     paginationEnabled: false,
     order: ['createdAt' => 'DESC'],

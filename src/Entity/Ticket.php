@@ -34,7 +34,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 */
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
-    normalizationContext: ['groups' => ['read:Ticket', 'read:Base'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:Ticket', 'read:Base']],
     denormalizationContext: ['groups' => ['write:Ticket']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
@@ -95,7 +95,12 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            /*
+                Permission DÉDIÉE, pas 'MODIFIER' : rembourser un client n'est pas corriger son nom.
+                Sous 'MODIFIER', tout profil ayant besoin de rectifier une saisie héritait de la
+                caisse — le vendeur à bord le premier, qui la touchait sur sa gare de rattachement.
+            */
+            security: "is_granted('DESISTER', object)",
             uriTemplate: '/tickets/{id}/desister',
             requirements: ['id' => '\d+'],
             input: DesistementInput::class,
@@ -292,6 +297,8 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
      *
      * Sert à ne pas gonfler le TAUX de désistement avec des relogements que la compagnie a provoqués :
      * un report d'éviction n'est pas un désistement volontaire.
+     * 
+     * (relogement d'un billet évincé par la priorité amont) Sert à isoler ces reports des désistements VOLONTAIRES dans le taux de désistement — la compagnie les a provoqués, ce ne sont pas des renoncements du client.
      */
     #[ORM\Column(options: ['default' => false])]
     #[Groups(['read:Ticket'])]
@@ -313,6 +320,38 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
      */
     #[Groups(['read:Ticket'])]
     private bool $evince = false;
+
+    /**
+     * Le car a-t-il QUITTÉ la gare de montée de ce billet ?
+     *
+     * DÉRIVÉ de la position réelle du véhicule ('VoyageGuard::monteeDepassee'), posé par
+     * {@see App\State\TicketProvider} comme {@see $evince}. C'est la borne qui ferme la
+     * MODIFICATION et le DÉSISTEMENT : tant qu'elle est fausse, le car est encore à quai et la gare
+     * émettrice peut corriger ou rembourser ce qu'elle vient de vendre.
+     *
+     * Exposé pour que le FRONT n'ait pas à reconstituer la règle : sans lui, il affichait « Modifier »
+     * et « Désister » sur des billets que le serveur refusait ensuite — l'agent découvrait
+     * l'interdiction après coup, par un message d'erreur.
+     */
+    #[Groups(['read:Ticket'])]
+    private bool $monteedepassee = false;
+
+    /**
+     * La CORRECTION de ce billet est-elle encore ouverte À CELUI QUI LIT ?
+     *
+     * Contrairement à {@see $monteedepassee}, qui est un fait sur le voyage, ce repère dépend du
+     * LECTEUR : la borne n'est pas la même pour la gare émettrice (le car ne doit pas avoir quitté la
+     * gare de montée) et pour le vendeur à bord SUR SES PROPRES VENTES (le car doit être encore
+     * positionné sur cette gare, cf. VoyageGuard::surLaGareDeMontee). Sur un billet qu'il n'a pas
+     * vendu, le commercial retombe sur la borne de la gare. Couvre aussi la clôture du voyage.
+     *
+     * Posé par {@see App\State\TicketProvider}, qui applique exactement les prédicats consommés par
+     * TicketUpdateProcessor : c'est ce qui garantit que « Modifier » ne s'affiche jamais sur un billet
+     * que l'API refusera. Il ne dit RIEN des permissions RBAC (TICKET_MODIFIER), que le front continue
+     * de combiner de son côté.
+     */
+    #[Groups(['read:Ticket'])]
+    private bool $modifiable = false;
 
     /*
         - Entrées TRANSITOIRES (non persistées) : l'agent saisit un type + une valeur,
@@ -621,6 +660,30 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     public function setEvince(bool $evince): static
     {
         $this->evince = $evince;
+
+        return $this;
+    }
+
+    public function isMonteedepassee(): bool
+    {
+        return $this->monteedepassee;
+    }
+
+    public function setMonteedepassee(bool $monteedepassee): static
+    {
+        $this->monteedepassee = $monteedepassee;
+
+        return $this;
+    }
+
+    public function isModifiable(): bool
+    {
+        return $this->modifiable;
+    }
+
+    public function setModifiable(bool $modifiable): static
+    {
+        $this->modifiable = $modifiable;
 
         return $this;
     }

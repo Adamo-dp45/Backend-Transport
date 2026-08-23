@@ -49,7 +49,7 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
 #[ORM\Table(name: '`user`')]
 #[ORM\UniqueConstraint(name: 'UNIQ_IDENTIFIER_EMAIL', fields: ['email'])]
 #[ApiResource(
-    normalizationContext: ['groups' => ['read:User'], 'skip_null_values' => false],
+    normalizationContext: ['groups' => ['read:User']],
     denormalizationContext: ['groups' => ['write:User']],
     paginationItemsPerPage: 25,
     paginationClientItemsPerPage: true,
@@ -57,6 +57,13 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
         new Post(
             name: 'Register',
             uriTemplate: '/register',
+            security: "is_granted('ROLE_SUPER_ADMIN')", /*
+                - L'INSCRIPTION N'EST PAS PUBLIQUE : c'est l'exploitant de la plateforme qui ouvre
+                  un compte à une nouvelle compagnie, depuis son espace d'administration. Ouverte,
+                  cette route laissait n'importe qui créer une entreprise et s'y nommer 'ROLE_ADMIN'.
+                - Le processor ne dépend PAS de l'entreprise de l'acteur (le super admin n'en a pas) :
+                  il crée l'entreprise puis son fondateur, il n'y a donc rien d'autre à adapter.
+            */
             input: RegisterInput::class,
             processor: RegisterProcessor::class, /*
                 - Va contenir la logique de l'inscription et ne fonctionne pas sur 'getCollection' et 'get', va traiter l'objet avant persistance
@@ -66,8 +73,9 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
             */
             status: Response::HTTP_CREATED,
             openapi: new Operation(
-                summary: 'Permet à un utilisateur de créer une entreprise et devenir administrateur',
-                description: 'Crée un nouvel utilisateur et son entreprise'
+                summary: 'Crée une compagnie et son administrateur fondateur (super admin uniquement)',
+                description: 'Réservé au super administrateur : enregistre une nouvelle entreprise et le compte ROLE_ADMIN qui la dirige.',
+                security: [['bearerAuth' => []]]
             )
         ),
         new GetCollection(
