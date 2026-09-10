@@ -12,7 +12,7 @@
     > php bin/console make:fixtures
     > php bin/console doctrine:fixtures:load
     > php bin/console make:migration
-    > s
+    > 
     > php bin/console doctrine:schema:update --force : `--env=test` pour les tests
         > php bin/console doctrine:schema:update --dump-sql
     > php bin/console doctrine:fixtures:load : `--env=test` pour les tests
@@ -21,38 +21,17 @@
     > php bin/console make:test
     > php bin/console make:state-processor
     > php bin/console make:state-provider
-
 - 
 
 - 
-* 
-Repo: Build yout own x qui apprend à faire tout soit même créer un langage ou framework
-https://pestphp.com/ pour les tests élégentes php
-cron qui sauvegarde la bd voir symfony
-Temps réel framework frontend
-- Guide utilisateur via Driver.js ou Intro.js avec persisantce de l'état sur lequel l'utilisateur est et peut recommencer
-    ## Comparaison Driver.js vs Intro.js
-
-    **Driver.js**
-    - Plus moderne, léger (~5kb gzip)
-    - Highlight visuel élégant — met en surbrillance l'élément ciblé avec un overlay
-    - API simple et flexible
-    - Pas de dépendances
-    - Meilleur pour des guides contextuels par page/module
-    - Gratuit et open source
-
-    **Intro.js**
-    - Plus ancien, plus lourd
-    - Style "tooltip numéroté" classique
-    - Nécessite une licence pour usage commercial
-    - Plus de configuration nécessaire
-
-    **Recommandation : Driver.js** — plus adapté à ton cas car tu as des guides par module (contextuels par page), il est plus léger, gratuit et son rendu est plus moderne.
-* 
+- Tirer les choses utile de la conversation `Claude` du desktop du travail
+- La possibilités d'activer ou désactiver des modules dans l'application
 
 
 
-Tests de montée en charge ( Plusieurs utilisateurs simultané ) k6, Apache bench
+Docker, Java(claude, chatgpt), Python(claude, chatgpt), Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
+
+
 
 Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
     new GetCollection(
@@ -65,12 +44,33 @@ Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
     ), CAR
 Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
 
-
-Non merci, on revient sur le Cap iTransport
 Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
 
+Le Mobile Money reste hors périmètre en attendant l'agrégateur
+- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
+- La possibilités de coché tous les sièges pour vendre
+- Quand tu regarde l'appli comment je pourrais écrire une explication ou guide pour les endroits éssenciel de l'application
 
+- 
+## Le constat qui domine tout le reste
 
+**Il n'existe aucune clôture de caisse.** L'application calcule la recette au franc près — `RecetteGareService` croise gare et agent, le bordereau l'imprime — mais rien ne rapproche ce chiffre de l'argent réellement remis. Aucune table, aucune entité, aucun écran. Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus coûteux : un écart ne se détecte qu'a posteriori, sans preuve opposable. C'est la seule proposition que je classe **critique**.
+
+Quatre autres manques vérifiés en base ou dans les sources :
+
+- **Aucun envoi asynchrone** — `MailerService::send()` appelle le mailer dans la requête. Même défaut de conception que celui qu'on vient de corriger sur le journal : un service accessoire qui décide du sort du geste principal.
+- **Aucun SMS**, alors que le téléphone est déjà la clé d'identité client dans `ClientResolver`.
+- **`/forgot` et `/reset` sans limite de débit**, quand la connexion, elle, est protégée. C'est cette asymétrie qui signale l'oubli — et c'est le meilleur rapport valeur/effort de la liste.
+- **La recherche globale ne cherche rien** : 13 lignes qui placent le curseur. Le champ et le raccourci `Ctrl+K` existent, la promesse n'est pas tenue.
+
+## Deux dépendances qui structurent l'ordre
+
+**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+
+**La tarification dynamique (E1) suppose le contrôle d'embarquement (B2).** Le surbooking est déjà assumé par le modèle, mais personne ne connaît le taux de présentation réel : le QR est généré côté frontend pour l'impression seulement, sans point de lecture ni état d'embarquement sur le billet. Sans cette donnée, toute politique de remplissage se pilote à l'aveugle.
+
+Une réserve sur B2 : le QR encode aujourd'hui le code du billet **en clair**. Il faudra le signer, sinon le contrôle validera n'importe quel code fabriqué.
+- 
 
 
 
@@ -109,13 +109,6 @@ Salut Claude Code, dans la session précédente on a travailler sur l'applicatio
 Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
 
 Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
-
-
-
-
-
-
-
 
 
 

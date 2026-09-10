@@ -8,9 +8,12 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 /**
  * Règles d'autorisation pour la gestion des utilisateurs (édition / suspension).
  *
- * Hiérarchie : super admin > admin entreprise > admin de gare > utilisateur.
+ * Hiérarchie : super admin > fondateur > admin entreprise > admin de gare > utilisateur.
  *  - Personne ne se gère soi-même via l'administration (un profil dédié existe pour ça).
- *  - Le fondateur et les admins entreprise ne sont gérables que par le super administrateur.
+ *  - Le FONDATEUR gère tous les comptes de SA compagnie, administrateurs compris : c'est lui qui les
+ *    nomme et les rétrograde, il doit donc pouvoir éditer leur fiche.
+ *  - Le fondateur lui-même n'est gérable que par le super administrateur.
+ *  - Les autres admins entreprise ne sont gérables que par le fondateur ou le super administrateur.
  *  - Un acteur non-admin (admin de gare OU utilisateur simple) ne peut gérer que les utilisateurs
  *    SIMPLES de SA gare : ni un admin de gare, ni un utilisateur d'une autre gare, et il doit
  *    lui-même être rattaché à une gare.
@@ -36,12 +39,28 @@ class UserManagementGuard
             return;
         }
 
-        // Fondateur et admins entreprise : réservés au super admin
+        // Le fondateur lui-même : réservé au super admin
         if ($target->isFounder()) {
             throw new AccessDeniedHttpException('Le fondateur ne peut être géré que par le super administrateur');
         }
+
+        /*
+            Le FONDATEUR est le sommet de la hiérarchie DE SA COMPAGNIE : c'est lui, et lui seul, qui
+            nomme et rétrograde ses administrateurs (PromouvoirUserProcessor le lui réserve). Refuser
+            l'édition de leur fiche à celui qui décide de leur promotion n'avait pas de sens.
+
+            Sûr à cet endroit : la cible n'est ni super admin (écarté plus haut), ni le fondateur
+            lui-même (juste au-dessus), ni l'acteur (premier contrôle). Le périmètre entreprise est
+            garanti par 'UserEntrepriseExtension', qui filtre AUSSI le chargement de l'item — un
+            fondateur ne peut donc pas atteindre l'administrateur d'une autre compagnie.
+        */
+        if ($actor->isFounder()) {
+            return;
+        }
+
+        // Les autres administrateurs d'entreprise : réservés au fondateur et au super admin
         if (in_array('ROLE_ADMIN', $target->getRoles(), true)) {
-            throw new AccessDeniedHttpException('Un administrateur ne peut être géré que par le super administrateur');
+            throw new AccessDeniedHttpException('Un administrateur ne peut être géré que par le fondateur ou le super administrateur');
         }
 
         // Admin entreprise : gère les admins de gare et les utilisateurs

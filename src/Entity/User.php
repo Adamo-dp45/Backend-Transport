@@ -30,6 +30,7 @@ use App\State\RegisterProcessor;
 use App\State\ResetPasswordProcessor;
 use App\State\SuspendreUserProcessor;
 use App\State\UserProcessor;
+use App\State\UserProvider;
 use App\State\UserProfileProcessor;
 use ArrayObject;
 use Doctrine\Common\Collections\ArrayCollection;
@@ -82,6 +83,7 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
             security: "is_granted('VOIR', 'User') or is_granted('ROLE_SUPER_ADMIN')", /*
                 - Pour le filtre du 'entreprise' on l'a fais dans 'UserEntrepriseExtension'
             */
+            provider: UserProvider::class, // + repere 'gerable' (derive), pipeline natif conserve
             openapi: new Operation(
                 summary: 'La liste des utilisateurs',
                 description: 'Permet de voir la liste des utilisateurs',
@@ -93,6 +95,7 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
             requirements: ['id' => '\d+'], /*
                 - Pour le filtre du 'entreprise' on l'a fais dans 'UserEntrepriseExtension'
             */
+            provider: UserProvider::class,
             openapi: new Operation(
                 summary: 'L\'utilisateur',
                 description: 'Permet de voir un utilisateur',
@@ -383,8 +386,29 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[Groups(['read:User'])]
     private ?string $statut = ReferenceStatus::ACTIF->value;
 
+    /*
+        Exposé en lecture : le front s'en sert pour badger le fondateur et pour décider qui peut
+        être promu. La clé n'était PAS sérialisée — les gabarits plantaient dessus en mode strict,
+        et le tableau des utilisateurs évaluait « promouvable » sur une valeur toujours indéfinie.
+    */
     #[ORM\Column(nullable: true)]
     private ?bool $isFounder = false;
+
+    /**
+     * CELUI QUI LIT peut-il gérer cet utilisateur — le modifier, le suspendre, le promouvoir ?
+     *
+     * NON PERSISTÉ, entièrement DÉRIVÉ de {@see App\Security\UserManagementGuard::canManage()} et posé
+     * par {@see App\State\UserProvider}. Dépend du LECTEUR, pas seulement de la cible : la hiérarchie
+     * (super admin, fondateur, admin d'entreprise), le périmètre de gare et l'interdiction de se gérer
+     * soi-même s'y combinent.
+     *
+     * Exposé parce que le front le redisait de son côté, et mal : le tableau des utilisateurs en
+     * tenait un « miroir » complet, la fiche une version incomplète où manquait l'auto-gestion — on y
+     * proposait « Modifier le profil et les rôles » sur sa propre fiche, pour un refus à
+     * l'enregistrement. Une règle de sécurité recopiée dérive ; celle-ci n'a plus qu'une source.
+     */
+    #[Groups(['read:User'])]
+    private bool $gerable = false;
 
     #[ORM\ManyToOne(inversedBy: 'users')]
     #[Groups(['read:User', 'write:User'])]
@@ -673,6 +697,24 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
         return $this;
     }
 
+    #[Groups(['read:User'])]
+    public function isGerable(): bool
+    {
+        return $this->gerable;
+    }
+
+    public function setGerable(bool $gerable): static
+    {
+        $this->gerable = $gerable;
+
+        return $this;
+    }
+
+    /*
+        Groupe posé sur l'ACCESSEUR : le serializer résout 'isFounder()' vers une propriété nommée
+        'founder', si bien qu'un groupe posé sur '$isFounder' n'attachait rien. La clé exposée est
+        donc 'founder' — c'est bien ce que lisaient les gabarits, il manquait seulement le groupe.
+    */
     #[Groups(['read:User'])]
     public function isFounder(): ?bool
     {
