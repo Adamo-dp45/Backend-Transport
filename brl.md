@@ -21,15 +21,94 @@
     > php bin/console make:test
     > php bin/console make:state-processor
     > php bin/console make:state-provider
+
+- **L..**
+    >
+
 - 
 
 - 
 - Tirer les choses utile de la conversation `Claude` du desktop du travail
 - La possibilités d'activer ou désactiver des modules dans l'application
 
-
-
 Docker, Java(claude, chatgpt), Python(claude, chatgpt), Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
+
+
+
+
+
+
+
+
+**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+
+Hors-scope pour l'instant : vente hors-ligne (file d'attente + resync) — à rediscuter, réel enjeu pour un vendeur qui perd le réseau en route.
+
+
+
+
+Excellent choix — c'est *le* vrai enjeu métier : le commercial vend précisément là où il n'y a pas de réseau. Mais la vente hors-ligne n'est pas un simple « cache local » : une vente déclenche côté serveur l'attribution du siège, le calcul du tarif et la génération du code billet. Avant de concevoir quoi que ce soit, je dois savoir **ce que le backend calcule au moment du `POST /api/tickets`** — sinon je conçois dans le vide.
+
+Je vais d'abord investiguer le backend réel (mémoire : *vérifier sur les données réelles*, *README backend = source de vérité métier*), puis te proposer un design avec les arbitrages à trancher.
+
+Le TicketProcessor est le cœur. Je le lis, ainsi que l'entité Ticket et le README backend (docs modules).
+
+J'ai le cœur du problème. Le `POST /api/tickets` est **fondamentalement synchrone et contextuel** — plusieurs choses y sont calculées/validées côté serveur au moment de l'appel, et c'est ça qui rend le hors-ligne non trivial. Je vérifie encore deux points sur l'entité `Ticket` (existe-t-il déjà une clé d'idempotence, une date de vente distincte ?) avant de te proposer l'architecture.
+
+J'ai tout ce qu'il me faut pour poser le diagnostic. Le point dur est clair, et cette fonctionnalité est assez lourde (elle touche le métier backend, y compris une migration) pour mériter un plan validé avant que j'écrive une ligne. Je charge les outils de planification.
+
+Le plan existant couvre le socle de l'app — je le réécrirai pour cette nouvelle phase (vente hors-ligne). J'ai déjà exploré le backend (TicketProcessor, entité Ticket). Je relis les deux fichiers Flutter du tunnel de vente actuel pour savoir précisément où se greffe le hors-ligne.
+
+J'ai maintenant la vue complète, côté backend **et** côté app. Le point de greffe Flutter est clair (`confirmer()` et `_loadSieges()` dans le VenteController).
+
+Récapitulatif du diagnostic — pourquoi la vente hors-ligne n'est pas un simple « cache local ». Au `POST /api/tickets`, le serveur (TicketProcessor) fait, **au moment de l'appel**, des choses qu'on ne peut pas rejouer telles quelles en différé :
+
+| Obstacle | Détail |
+|---|---|
+| **Garde de position** | Le commercial ne peut vendre que depuis `garecourante`. Or hors-ligne, la resync arrive *après* que le car a avancé → rejet « vendez depuis la position actuelle ». |
+| **Prix serveur** | Le prix est recalculé depuis la grille au POST, pas envoyé par l'app → le montant du reçu remis n'est pas garanti. |
+| **Code billet serveur** | `TCK-YYYY-N` généré à la persistance → pas de code officiel hors-ligne. |
+| **Siège / capacité sous verrou** | Deux ventes peuvent viser le même siège → collision à la resync. |
+| **Pas de clé d'idempotence** | Aucun champ sur `Ticket` → risque de doublon si la resync est ambiguë. |
+| **Remise / fidélité** | Validations serveur (plafond, éligibilité) non reproductibles hors-ligne. |
+
+Conclusion : la feature exige un **traitement backend dédié aux ventes différées** (+ une migration). Avant de rédiger le plan, trois arbitrages que je ne peux pas trancher à ta place.
+
+
+
+
+Une vente hors-ligne propre exige un traitement backend dédié (endpoint de resync idempotent, assouplissement de la garde de position, code billet renvoyé, migration d'un champ UUID). Comment procède-t-on ?
+
+On vas y revenir plus tard, pour l'instant on vas laisser comme ça
+
+Que peut faire le commercial HORS-LIGNE ?
+
+On vas y revenir plus tard, pour l'instant on vas laisser comme ça
+
+À la synchronisation, comment traiter le prix et les collisions de siège ?
+
+On vas y revenir plus tard, pour l'instant on vas laisser comme ça
+
+
+
+
+Compris — on **laisse en l'état**, je ne touche à rien. La vente reste en ligne (synchrone) comme aujourd'hui.
+
+L'investigation n'aura pas été inutile : elle a produit un diagnostic clair. Je le consigne dans le fichier de plan pour qu'on reparte de là le jour où tu voudras rouvrir le sujet (c'est le seul fichier que je peux écrire en mode plan — je ne modifie aucun code).
+
+C'est noté et rien n'a été touché — la vente reste en ligne comme aujourd'hui.
+
+**Ce qu'on retient pour plus tard** (consigné dans le fichier de plan, pour repartir de là) :
+- Le vrai blocage, c'est que le `POST /api/tickets` valide contre l'état **live** du voyage — surtout la **garde de position** (le commercial ne vend que depuis la position courante du car). Une vente rejouée après que le car a avancé est refusée. C'est pour ça qu'une vraie vente hors-ligne **exige du backend** (endpoint de resync idempotent + migration d'un champ UUID), pas seulement du Flutter.
+- Trois arbitrages restent ouverts pour quand tu voudras rouvrir : **backend d'un bloc ou socle Flutter d'abord**, **périmètre dégradé ou complet**, **resync snapshot/surbooking ou strict**.
+
+Je ne lance pas d'implémentation et je ne te propose pas de plan à approuver, puisque tu préfères laisser en l'état. 
+
+Pour info, on est encore en **mode plan** — tu peux en sortir quand tu veux. Le socle + la vente en ligne + « ma recette » sont livrés et verts (`flutter analyze` propre, tests OK). Dis-moi vers quoi tu veux aller ensuite.
+
+
+
+
 
 
 
@@ -78,6 +157,75 @@ Une réserve sur B2 : le QR encode aujourd'hui le code du billet **en clair**. I
 
 
 
+
+
+
+
+Salut Claude Code,
+
+Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
+
+## Stack technique
+- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
+- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
+- **Apps Mobile** : Flutter, React Native
+
+## Rappel
+- **Ignore les fichiers `brl.md`** du projet : ce sont juste des brouillons
+
+## Ce que j'attends
+
+Analyse le projet pour :
+- te remettre à jour sur l'architecture générale et les modules existants,
+- retrouver l'état d'avancement du projet,
+- être prêt pour la suite des instructions que je vais te donner.
+
+ 
+
+
+
+
+Salut Claude, j'ai développé une application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Aussi j'ai listé quelques informations sur les modules de l'application dans le README.md du Backend-Transport
+
+Ignore les fichiers brl.md des 2 projets, ce sont juste des brouillons
+
+Analyse les 2 projets pour bien pour comprendre
+
+
+
+
+
+
+Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi je t'avais dit qu'il y'a quelques informations sur les modules de l'application dans le README.md du Backend-Transport que tu mettais à jour régulièrement
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour, aussi les applications mobile pour la partie réservation
+
+
+
+
+
+
+
+
+
+
+
+
+Aussi je t'avais dit qu'il y'a quelques informations sur les modules de l'application dans le README.md du Backend-Transport que tu mettais à jour régulièrement
+
+
+
+
 Salut Claude Code,
 
 Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée (backend/frontend) :
@@ -102,13 +250,9 @@ Comme le contexte de la session précédente n'est plus disponible, analyse à n
 
 
 
-Salut Claude Code, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
 
-Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
 
-Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour
+
 
 
 
@@ -268,7 +412,7 @@ Seul manque notable : pas de stat dédiée aux alertes (répartition par famille
 - Pour la simulation du paiement dans la partie réservation on vas utilisé Stripe pour simuler
 
 
-Hors-scope pour l'instant : vente hors-ligne (file d'attente + resync) — à rediscuter, réel enjeu pour un vendeur qui perd le réseau en route.
+
 /api/stats/commercial est ROLE_ADMIN → vue manager (classement de tous les commerciaux). Inadaptée à « ma recette » d'un vendeur simple.
 /api/voyages/me/commercial est déjà scopé au commercial connecté et porte maRecette / mesTickets / mesBagages par voyage, mais seulement pour les voyages actifs non clôturés. :: ou toute l'histori.. avec meme les cloturer
 
@@ -341,6 +485,861 @@ Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)`
         date
         montant
         detail
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+resaflutter	Réservation grand public	Flutter, Riverpod, Dio, GoRouter, freezed
+resanative	Réservation grand public	Expo / React Native, TanStack Query, Zustand
+
+
+## Vue d'ensemble
+
+C'est un système à **4 dépôts**, pas 2 : le backend API, le frontend d'exploitation, et deux apps mobiles jumelles.
+
+| Projet | Rôle | Stack |
+|---|---|---|
+| `Backend-Transport` | API REST, toute la logique métier | Symfony, API Platform, Lexik JWT + refresh token, Doctrine/PostgreSQL |
+| `Frontend-Transport` | Back-office des compagnies | Symfony/Twig **client de l'API** (pas de base propre), React UX, shadcn, Tailwind v4 |
+| `resaflutter` | Réservation grand public | Flutter, Riverpod, Dio, GoRouter, freezed |
+| `resanative` | Réservation grand public | Expo / React Native, TanStack Query, Zustand |
+
+Les deux mobiles couvrent exactement le même périmètre (booking, history, track) : ce sont deux implémentations concurrentes de la même app, ce qui a du sens comme comparatif de stack.
+
+## Ce qui structure vraiment le backend
+
+Le multi-tenant repose sur **deux couches d'extensions Doctrine qui se superposent**, appliquées automatiquement à toutes les requêtes API Platform sauf les POST. `EntrepriseScopeExtension` borne à l'entreprise (via `EntrepriseOwnedInterface`, en filtrant aussi le softDelete au passage), puis `GareScopeExtension` borne à la gare — mais uniquement pour un agent rattaché à une gare et non-admin.
+
+Le point le plus élégant, c'est que le périmètre par gare est **déclaré par interface plutôt que codé en dur**, avec trois formes selon la nature de la donnée :
+
+- `GareOwnedInterface` — une seule gare (`User.gare`, `Ticket.gare`)
+- `MultiGareScopedInterface` — visible si l'une des deux gares est la sienne (`Courrier`, `Bagage`)
+- `LigneGareScopedInterface` — visible si la ligne dessert sa gare, via un chemin de relations (`Voyage: ['ligne']`, `Ticket: ['voyage','ligne']`)
+
+Le commentaire sur le `EXISTS` du cas ligne est important et mérite d'être conservé : un `INNER JOIN` sur les arrêts tronquerait la collection `arrets` sérialisée par l'eager-loading, et `/api/lignes/{id}` ne renverrait qu'un seul arrêt.
+
+Côté droits, il y a une séparation nette que j'ai trouvée bien pensée : `PermissionVoter` gère le RBAC en base (une seule requête via `hasPermission`), et le bypass `ROLE_ADMIN_GARE` est délibérément découplé des interfaces de scope — il s'appuie sur la liste explicite `GareScopedEntities::ENTITIES`. Une `Ligne` est filtrée par gare en lecture mais reste de la configuration entreprise qu'un admin de gare ne modifie pas. Cette distinction visibilité/possession est le genre de chose qu'on casse facilement par inadvertance.
+
+## Deux décisions métier à garder en tête
+
+**La capacité par tronçon.** `CapaciteService` modélise chaque billet comme un intervalle `[montée, descente)` et calcule l'occupation maximale sur les segments élémentaires — c'est ce qui permet de revendre un siège sur des tronçons disjoints. Et surtout : **une réservation non émise ne consomme aucune place**, elle n'est qu'indicative (surréservation tolérée). Seul un billet `VALIDE` bloque.
+
+**La façade publique.** `ReservationPublique` est une ressource non persistée, `PUBLIC_ACCESS`, où le périmètre entreprise ne vient pas d'un JWT mais du `?slug=` résolu par `EntreprisePubliqueResolver` (404 si slug inconnu ou entreprise suspendue). C'est le pivot des deux mobiles, et les deux ont fait le même choix : **une build = une compagnie** (`COMPANY_SLUG` en `--dart-define` côté Flutter, `EXPO_PUBLIC_COMPANY_SLUG` côté Expo).
+
+## Un écart entre le README et le code
+
+Le README (ligne 69) décrit la préparation d'un voyage comme : « créer, modifier, affecter car/personnel, supprimer → toute gare SAUF la destination ». Le code a depuis **scindé cette règle en deux**, et les appels dans les processors le confirment :
+
+- `assertPeutPlanifier` — gare d'**ORIGINE uniquement** : création, modification, commercial, suppression
+- `assertPeutGerer` — **toute gare sauf le terminus** : affecter le car et le personnel, pour couvrir l'incident en route (panne)
+
+Donc l'affectation car/personnel ne suit plus la même règle que la création/modification, contrairement à ce que dit le README. Le docblock de `VoyageGuard` documente bien la nouvelle doctrine (« l'origine prépare · l'intermédiaire réceptionne · le terminus clôture »), mais le README est resté sur l'ancienne. Je peux le corriger si tu veux.
+
+
+
+
+
+
+
+
+## 2. Slug vs ID — je te déconseille de basculer
+
+Ton intuition est probablement « l'id est stable, le slug peut changer ». Mais dans ton code **le slug est déjà immuable** : il est généré une seule fois dans `RegisterProcessor:48` et le champ n'est pas dans le groupe `write:Entreprise`, donc rien ne le réécrit jamais. L'argument principal en faveur de l'id tombe.
+
+Et passer à l'id coûterait deux choses :
+
+**L'énumération.** Avec `?id=1,2,3…` n'importe qui parcourt la liste complète de tes compagnies en une boucle. Or ces endpoints publics renvoient le branding, les villes, les gares, les destinations **et les tarifs** — c'est la carte commerciale de chaque compagnie, moissonnable intégralement. Le slug n'est pas un secret, mais il faut connaître le nom : il n'offre pas d'itérateur.
+
+**Le pinning au build.** Tes deux apps figent l'identifiant à la compilation (`--dart-define=COMPANY_SLUG`, `EXPO_PUBLIC_COMPANY_SLUG`), une build = une compagnie. `COMPANY_SLUG=transport-ira` est auto-documenté et une faute de frappe fait un 404 bruyant. `COMPANY_ID=7` est opaque, et un chiffre erroné pointe **silencieusement** la build vers les données d'une autre compagnie. Sur une release store, c'est le pire type de bug.
+
+Accessoirement la perf ne joue pas : `slug` est en `unique: true`, donc indexé.
+
+La seule vraie faiblesse du slug actuel est cosmétique : il dérive du libellé à l'inscription et n'est jamais régénéré, donc après un changement de nom commercial il reste figé sur l'ancien. Si ça te gêne, la bonne réponse n'est pas l'id — c'est de découpler le slug du libellé (le laisser saisissable une fois à l'inscription). Dis-moi si tu veux quand même la bascule, je la ferai, mais je pense que le slug est le bon choix ici.
+
+## 4. Plan des sièges — proposition (non implémentée)
+
+Le diagnostic : `PlanCar` est un **tableur**, pas un véhicule. Des carrés de 40px, des numéros de rangée en marge, et deux barres texte « Avant »/« Arrière ». Rien ne dit « bus » — la barre « Avant » est le seul indice et c'est du texte.
+
+Par ordre de rapport impact/effort :
+
+**Le couloir, en premier.** C'est le signal le plus manquant. Aujourd'hui `absCol` pose tous les sièges dans une grille contiguë et les trous sont des `<div>` vides — **un siège manquant et le couloir central sont visuellement identiques**. Un vrai bus se lit « 2 + couloir + 2 » instantanément. Rendre le couloir comme une vraie voie (fond distinct, plus étroit que les sièges) fait basculer la lecture à lui seul.
+
+**La coque.** Remplacer la carte rectangulaire par une silhouette : nez avant nettement plus arrondi que l'arrière (rayon asymétrique), une paroi extérieure et un plancher intérieur légèrement distincts, deux ou trois encoches de roues sur les flancs. Détails peu coûteux, effet « véhicule » immédiat.
+
+**La cabine.** À la place de la barre « Avant » : une zone conducteur avec volant, le siège chauffeur orienté, et la porte avant. C'est l'ancre d'orientation — on sait d'où on regarde.
+
+**La forme du siège.** Un carré `rounded-md` ne dit pas « siège ». Un dossier plus haut que l'assise (`rounded-t-lg rounded-b-sm` + une ligne d'assise en `inset shadow`), voire deux accoudoirs en pseudo-éléments, suffisent. Subtil, mais c'est ce qui fait la différence entre une case et une place.
+
+**La banquette arrière.** Ton enum `cote` a déjà `ARRIERE` : en bus c'est presque toujours une banquette pleine largeur de 4-5 places. La rendre comme un bloc continu plutôt que des sièges isolés, c'est gratuit et très reconnaissable.
+
+**Le blocage à trancher d'abord** : le couloir **n'existe pas dans le modèle**. Avec `cote: GRILLE`, `colonne` est absolue et rien ne dit quelle colonne est la voie. Trois options :
+
+1. **L'inférer** — la colonne vide sur la majorité des rangées est le couloir. Zéro migration, marche sur les cars existants, mais fragile sur un plan à trous légitimes.
+2. **Le déclarer** — un champ `alleeApres` (n° de colonne) sur `Car`. Une migration, explicite, robuste.
+3. **Par convention** — couloir après `floor(maxCol/2)`. Gratuit, mais faux dès qu'un plan est asymétrique (30 places 2+1).
+
+Je partirais sur **2**, quitte à initialiser via l'heuristique 1 dans la migration : c'est une donnée du véhicule, pas une devinette d'affichage.
+
+**Deux pièges à garder en tête** : le numéro de siège est ce que l'agent lit à voix haute, la métaphore ne doit jamais le rendre moins lisible — et 40px est petit pour un guichet tactile, je monterais à 44px minimum.
+
+Dis-moi si tu veux que j'attaque le plan des sièges, et par quelle option pour le couloir.
+
+
+
+
+
+
+
+
+## Le design cible
+
+La maquette montre les éléments qui donnent la lecture « véhicule » : coque au nez arrondi, poste de conduite (volant, siège chauffeur, porte avant), roues sur les flancs, dossiers de sièges (la barre sombre en bas de chaque place), et la banquette arrière rendue comme un **contenant à 5 cellules** — le siège 20, occupé, reste gris à l'intérieur du bloc, donc on garde l'état par place. Les 5 états et les pastilles `R`/`↻` sont là, à l'identique du composant fusionné.
+
+## Un point à clarifier avant de coder (couloir)
+
+Dans la maquette, j'ai dessiné le couloir en **bande de sol continue** — c'est ce qui distingue le couloir du siège manquant en rangée 3. Mais cette bande suppose qu'on sache *où* est le couloir, ce qui est justement l'info que `alleeApres` aurait portée.
+
+Puisque tu as tranché « laisse le couloir tel quel, pas de `alleeApres` », la version réelle gardera le couloir en **simple espace vide** comme aujourd'hui. Tout le reste du véhicule (coque, cabine, roues, dossiers, banquette) ne dépend pas de la position du couloir et sera implémenté tel que dessiné. Deux options pour le couloir lui-même :
+
+- **A — on le laisse en gap vide** (strictement ta décision) : la silhouette porte à elle seule la métaphore, mais couloir et siège manquant restent visuellement identiques.
+- **B — bande de sol par inférence frontend** : on déduit la colonne-couloir (celle vide sur la plupart des rangées) au rendu, sans champ ni migration — donc sans `alleeApres`. C'est une heuristique, faillible sur un plan très irrégulier, mais elle rétablit la distinction couloir / trou.
+
+Je partirais sur **B** (elle respecte « pas de `alleeApres` » tout en gardant le bénéfice principal), mais **A** est le plus fidèle à « laisse le ainsi ». 
+
+
+
+
+
+
+
+
+
+
+## Ce qui a changé
+
+**Duplication supprimée.** Le `SiegeCell` + `PlanCar` internes au `TicketForm` (~200 lignes) sont partis. Le fichier importe maintenant le composant partagé :
+
+```ts
+import PlanCar from "./PlanCar"
+```
+
+**Source unique.** [Billetterie/PlanCar.tsx](Frontend-Transport/assets/react/controllers/Billetterie/PlanCar.tsx) est désormais consommé par les trois écrans :
+- `TicketForm` (vente) — interactif complet, 5 états, `reservedIds` + `onLiberer`
+- `DesistementForm` (report) — sélection simple
+- `PlanCarReadonly` (fiche véhicule) — lecture seule
+
+Toutes les améliorations (correctif badge « R », légende adaptative, variantes dark sur les sièges) vivent donc à **un seul endroit**. Ça inverse le compromis que je t'avais signalé la dernière fois : plus deux fichiers à maintenir, un seul.
+
+## Le seul point technique
+
+Le composant partagé type ses callbacks en `SiegePlan` (le dénominateur commun), alors que les handlers du `TicketForm` (`toggleSiege`, `handleLibererSiege`) attendent son type `Siege` plus riche (`@id` requis, infos occupant). D'où deux casts à l'appel :
+
+```tsx
+onToggle={(siege) => toggleSiege(siege as Siege)}
+onLiberer={(siege) => handleLibererSiege(siege as Siege)}
+```
+
+C'est le genre d'incompatibilité qui te cassait le build avant. Le cast est **sûr** : les sièges rendus sont exactement `siegesData.sieges` (des `Siege[]`), donc l'objet que le plan renvoie au callback est réellement un `Siege` — le cast ne fait que le redire à TypeScript. C'est commenté dans le code. Si tu préfères zéro cast, l'alternative propre serait de rendre `PlanCar` générique (`<T extends SiegePlan>`) ; dis-le et je bascule là-dessus.
+
+
+
+
+
+
+
+La façon la plus propre, c'est de **rendre `PlanCar` générique** sur le type de siège — `PlanCar<T extends SiegePlan>` — au lieu de caster. Chaque consommateur garde son type riche : `TicketForm` infère `T = Siege` et passe ses handlers directement, sans `as`. Je te montre en l'implémentant. Je relis d'abord le `SiegeCell` actuel.
+
+Le plan : passer `onToggle`/`onLiberer` du `SiegeCell` en callbacks sans argument (pour que le générique ne propage pas la contravariance dedans), puis rendre `PlanCar` générique. J'enchaîne les modifications.
+
+Maintenant l'usage du `SiegeCell` dans la boucle — `PlanCar` capture `s: T` et le transmet aux callbacks.
+
+Enfin, dans `TicketForm`, je retire les casts : les handlers se passent directement.
+
+Zéro cast, build propre. Voilà la façon la plus propre — et pourquoi elle l'est.
+
+## Le principe : composant générique plutôt que cast
+
+Le cast n'était qu'un pansement : il forçait TypeScript à taire une incompatibilité réelle. La vraie source du problème, c'est que le composant partagé imposait **un seul** type de siège (`SiegePlan`) à tous ses appelants, alors que chacun a le sien. La solution propre est de le rendre **générique sur le type de siège** :
+
+```ts
+interface PlanCarProps<T extends SiegePlan> {
+    sieges: T[]
+    onToggle?: (siege: T) => void
+    onLiberer?: (siege: T) => void
+    // …
+}
+export default function PlanCar<T extends SiegePlan>({ … }: PlanCarProps<T>) { … }
+```
+
+Résultat, chaque écran récupère **son** type sans rien caster :
+- `TicketForm` passe `sieges={siegesData.sieges}` (`Siege[]`) → TypeScript infère `T = Siege`, donc `onToggle` attend un `Siege` et `toggleSiege` se passe **directement**.
+- `DesistementForm` → `T = SiegePlan & { "@id" }`, inchangé, toujours valide.
+- `PlanCarReadonly` → `T = SiegePlan`, pas de callback.
+
+## Le détail qui rend le générique possible
+
+Un générique naïf aurait juste déplacé le problème dans `SiegeCell` : lui passer `onToggle: (T) => void` là où il attend `(SiegePlan) => void` rebute sur la même contravariance. La clé, c'est de **découpler `SiegeCell` du type générique** en lui donnant des callbacks **sans argument** :
+
+```tsx
+// SiegeCell : ne sait plus QUEL siège, juste « clic sélection » vs « clic libération »
+onSelect?: () => void
+onLiberer?: () => void
+```
+
+C'est `PlanCar` qui capture le siège typé `s: T` dans la boucle et le réinjecte :
+
+```tsx
+onSelect={onToggle ? () => onToggle(s) : undefined}
+onLiberer={onLiberer ? () => onLiberer(s) : undefined}
+```
+
+`SiegeCell` n'a de toute façon besoin du siège que pour l'**afficher** (`siege: SiegePlan` suffit) ; c'est `PlanCar` qui a besoin du type riche pour les callbacks. La frontière est au bon endroit.
+
+## Pourquoi c'est mieux que le cast
+
+Le cast `as Siege` était sûr *à cet instant*, mais reposait sur une promesse non vérifiée par le compilateur : « fais-moi confiance, c'est bien un `Siege` ». Si demain quelqu'un branche `PlanCar` sur des sièges sans `@id`, le cast continue de mentir en silence — bug au runtime. Le générique, lui, fait **vérifier** cette contrainte par TypeScript à chaque appel : plus de promesse, une garantie.
+
+Un point runtime : générique ou pas, c'est effacé à la compilation — aucun impact sur `registerReactControllerComponents` ni sur les perfs. Build propre (8 warnings PostCSS préexistants).
+
+
+
+
+
+
+
+
+
+Perf du compte : sans relation directe Client→Bagage, getBagagesCount() traverse les billets du client (donc les hydrate) sur chaque ligne du listing. Acceptable pour un listing admin, mais si une fiche devient très volumineuse, il faudra passer à un DQL COUNT joignant tickets→bagages (comme le README le recommande pour les gros décomptes). Je peux le faire si tu veux.
+
+## Réserve #1 — compte des bagages optimisé (N+1 → 1 requête)
+
+J'ai remplacé la méthode qui traversait les billets par un **provider décorateur** calqué sur `InventaireProvider` :
+
+- [ClientRepository.php](Backend-Transport/src/Repository/ClientRepository.php) : `bagagesCountByClientIds()` — un seul **DQL COUNT groupé** (billets→bagages, `deletedAt IS NULL` des deux côtés) pour tout un lot d'IDs.
+- [ClientProvider.php](Backend-Transport/src/State/ClientProvider.php) : décore les providers Doctrine (collection + item), **conserve tout le pipeline** (filtres, tri, pagination, `EntrepriseScopeExtension`) et enrichit chaque client de `bagagesCount`.
+- [Client.php](Backend-Transport/src/Entity/Client.php) : `bagagesCount` devient un champ **transient** (non mappé, comme `User.fileUrl`) rempli par le provider ; `provider: ClientProvider::class` branché sur `GetCollection` et `Get`.
+
+Coût passé de « 1 requête + N counts par client sur la page » à **une seule requête pour toute la page**.
+
+
+
+
+
+
+
+
+
+
+**3. Revendre un siège occupé sur le MÊME tronçon → non, ça casse l'invariant.** Tout ton modèle repose sur « un siège = au plus un passager par segment » (`TicketProcessor::assertSiegeLibre` bloque un siège occupé sur un tronçon *qui chevauche*). Revendre le même siège sur le même tronçon = deux billets `VALIDE`, même siège, même trajet = deux personnes sur une place → conflit à l'embarquement, litiges de remboursement, et la capacité peut dépasser le nombre de sièges. Ce que tu veux probablement, c'est l'un de ces deux cas *légitimes*, déjà couverts ou couvrables autrement :
+- **No-show / départ anticipé** : libère le siège (`/descendre` ou annulation du billet occupant) *puis* revends — c'est le mécanisme « libérer » existant. Une place ne se revend qu'une fois **réellement** libérée.
+- **Survente volontaire** : c'est du **place-level** (vendre plus de places que de sièges en pariant sur les absents), pas du siège. À faire comme politique de surréservation par voyage, jamais en assignant deux fois le même siège physique.
+
+Donc : ne l'ouvre pas au niveau siège. Si tu veux gérer les absents ou survendre, dis‑le, c'est un autre design (propre).
+
+## Modification de ticket (#2/#3) — tu as raison, voici le gap précis
+
+Aujourd'hui la modif ne change QUE `nomclient`/`contactclient` (identité passager), via `UpdatedbyProcessor` qui garde seulement : voyage **clôturé** + gare émettrice + `updatedBy`. Deux vrais manques :
+
+1. **Le lien `client` devient incohérent.** Si on change `contactclient` (le téléphone = clé du client), rien ne **re‑résout** le `Client` (find‑or‑create via `ClientResolver`). Le snapshot change mais le FK `client` reste sur l'ancien. C'est ça la logique « pas à jour » — et c'est *cette* logique-là qui vit dans `TicketProcessor`. **Mais attention** : réutiliser le `TicketProcessor` complet (flux de création : capacité, prix, siège, remise, fidélité) pour un simple changement de nom serait dangereux. La bonne réponse n'est pas « swap vers TicketProcessor », c'est **ajouter la re‑résolution client au chemin de mise à jour**.
+
+2. **Pas de garde « car a atteint la gare de montée ».** Ton instinct est exact, et cette logique **existe déjà** au désistement ([DesistementProcessor.php:99‑118](Backend-Transport/src/State/DesistementProcessor.php)) : `datedepartreelle !== null` (le voyage a démarré) **+** position du car (`garecourante`) ≥ ordre de la gare de montée du billet → blocage, intermédiaire‑aware. Le `UpdatedbyProcessor` ne l'a pas. « Détecter si le voyage a démarré » = `datedepartreelle !== null` : exactement ça.
+
+
+
+
+
+
+
+
+Le template courrier existe déjà et couvre les bons champs. Mais je repère un vrai problème technique : il utilise display: flex (en‑tête, ligne valeur/frais) — or Dompdf ne supporte pas flexbox, donc ces blocs se rendent empilés au lieu d'être côte à côte, contrairement à ton image. Il faut passer par des <table>. Je lis le reçu bagage pour aligner les deux.
+
+
+
+
+
+## 1. Reçu courrier sur 2 pages — corrigé
+
+La cause : `PdfService::generate()` en mode thermique impose une page **fixe de 160 mm**, et mon reçu la dépassait. Plutôt que de seulement rétrécir la police, j'ai basculé sur **`generateThermalAutofit()`** — déjà présent dans le service et utilisé pour les billets : il calcule la hauteur de page qui tient exactement le contenu.
+
+C'est le bon choix ici parce que le nombre de **colis varie** : n'importe quelle hauteur fixe finira tôt ou tard par déborder sur une 2ᵉ page. Avec l'autofit, c'est une page quel que soit le nombre de lignes, et sans grand vide en bas.
+
+J'ai **aussi** resserré la typographie comme tu l'autorisais (titre 21→17 px, code 26→20 px, sections 14→12 px, marges réduites d'environ un tiers) : le reçu reste compact et économe en papier. Le reçu bagage bénéficie du même autofit.
+
+
+
+
+
+
+
+D'abord je cartographie : comment ces collections sont exposées côté backend, et qui les consomme réellement côté frontend (je ne veux pas casser une vue qui affiche les listes).
+
+`getTicketsCount()` existe mais via `->filter()`, qui hydrate quand même la collection. Avant de retirer quoi que ce soit de `read:Voyage`, je dois savoir qui consomme réellement ces listes côté frontend.
+
+Résultats bruités (ce sont surtout des stats, et `depannage.detailpersonnels` — autre entité). Je cible précisément les usages liés au **voyage**.
+
+Diagnostic clair : la **fiche voyage** (`voyage/show.html.twig`) a réellement besoin des listes complètes, alors que les **tableaux** n'en veulent que la taille. Les deux partagent le groupe `read:Voyage`. La bonne réponse ApiPlatform est un groupe dédié à l'item — et ce pattern existe déjà chez toi (`read:Gare:item`). Je vérifie son câblage.
+
+Pattern confirmé (`Get` avec `normalizationContext` enrichi), et `Detailpersonnel` étend `EntityBase` (donc `deletedAt`). Je lis l'opération `Get` du voyage.
+
+J'implémente. Le `Get` (fiche) reçoit un groupe dédié pour conserver les listes complètes :
+
+Maintenant les compteurs. Point important : `getTicketsCount()` utilisait `filter()`, qui **hydrate** toute la collection — inoffensif tant que les billets étaient sérialisés, mais ce serait devenu une régression. Je passe tout en `matching(Criteria)`, traduit en `COUNT` SQL.
+
+Backend fait. Côté frontend, je mets à jour le modèle et les deux tableaux qui comptaient via `.length`.
+
+## Le problème
+
+La liste des voyages sérialisait **quatre collections entières** (`tickets`, `courriers`, `bagages`, `detailpersonnels`) pour chaque ligne… alors que l'interface n'en affichait que le **nombre**. Sur une page de 25 voyages, l'API hydratait et transportait potentiellement des milliers d'objets pour afficher trois chiffres par ligne.
+
+Un piège que j'ai trouvé en chemin : `getTicketsCount()` utilisait `->filter()`, qui **charge toute la collection** en mémoire. C'était masqué tant que les billets étaient sérialisés de toute façon — mais retirer les collections sans y toucher aurait laissé l'hydratation en place, donc annulé le gain.
+
+## La correction
+
+**Séparation liste / fiche** (pattern déjà présent chez toi avec `read:Gare:item`) :
+- les 4 collections passent en **`read:Voyage:item`** → sérialisées **uniquement** sur `/api/voyages/{id}`, que la fiche voyage affiche réellement ;
+- l'opération `Get` reçoit `normalizationContext` avec ce groupe ;
+- la **liste** ne reçoit plus que des compteurs.
+
+**Compteurs en `COUNT` SQL** — `matching(Criteria)` au lieu de `filter()` : sur une collection non chargée, Doctrine traduit le critère en SQL et `count()` devient un `COUNT`, sans jamais hydrater. J'ai ajouté `courriersCount`, `bagagesCount`, `detailpersonnelsCount` et **réécrit `getTicketsCount()`** sur ce principe. Les éléments supprimés (`deletedAt`) sont exclus, cohérent avec les listes affichées.
+
+Effet de bord bienvenu : partout où un voyage est **imbriqué** dans une autre réponse (billet, bagage…), la charge s'allège aussi, puisque ces collections ne sont plus dans le groupe par défaut.
+
+
+## Note sur `Criteria` vs `filter()`
+
+Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)` : sur une collection non chargée, Doctrine traduit en SQL et `count()` devient un `COUNT`. C'est ce qui distingue une vraie optimisation d'un simple déplacement de code — `filter()` aurait continué à tout hydrater en silence.
+
+
+
+
+
+Découverte importante : les tableaux de dépannage ne font pas que compter detaildepannages — ils somment les quantités (.reduce((sum, d) => sum + d.quantite, 0)). Ce cas sort donc du simple .length. Je vérifie les opérations et le repository pour décider.
+
+
+
+
+
+
+Cette dérivation repose sur une convention : la banquette est la rangée du fond qui remplit le couloir. C'est vrai pour tout ce que ton générateur produit. Mais si un jour tu veux marquer comme banquette une rangée qui ne remplit pas le couloir (par ex. un car avec une porte arrière laissant un trou), la géométrie ne suffira plus.
+
+Si ce cas t'intéresse, la vraie réponse n'est pas un booléen à côté du plan, mais enrichir le plan lui‑même — par exemple un marqueur de rangée dans plansieges (B: 57 58 59 60 61). On garde une source unique, et l'intention devient explicite au lieu d'être devinée.
+
+1 2 . 3 4
+5 6 . 7 8
+B: 9 10 11 12 13     ← banquette, déclarée
+
+
+
+
+
+
+
+
+
+
+
+
+
+Bonnes questions — et elles touchent au cœur du modèle. Je ne veux pas répondre de mémoire, je lis le code réel : expiration, capacité, et ce qui rend un départ réservable.
+
+Découverte clé : à l'échéance, payée ≠ impayée (l'impayée meurt, la payée devient récupérable). Voyons maintenant **comment la date d'expiration est calculée** et ce qui rend un départ réservable.
+
+Voilà le nœud : `dateexpiration = départ − delaiExpirationMinutes` (120 par défaut), calculée **une seule fois à la création**, avec **le même délai** que la réservation soit payée ou non. Il me manque la règle « départ réservable ».
+
+Il me manque un point pour être juste : est‑ce que la création de réservation vérifie la capacité, et que se passe‑t‑il sans tarif ?
+
+J'ai les trois réponses, code en main. Et ton intuition est juste sur les trois points.
+
+## 1. Quand une place réservée est-elle revendable ? — **Toujours. Elle ne tient jamais.**
+
+Une réservation ne consomme **aucune** capacité, même payée :
+
+- `CapaciteService::placesDisponibles()` ne compte que les billets `VALIDE` (émis) ;
+- `placesReservees()` est purement **indicatif** (« X places réservées ») ;
+- même à la création, sous verrou pessimiste sur le voyage, `assertPlaceDisponible()` ignore les autres réservations.
+
+Conséquences concrètes : le guichet peut vendre **100 % des sièges** alors que 100 % sont réservés **et payés** ; et deux clients mobiles peuvent réserver « la dernière place » en même temps — le verrou sérialise les accès, mais le test lui‑même ne regarde pas les réservations.
+
+C'est un choix assumé et documenté (« surréservation tolérée », les no‑shows sont fréquents). Il se défend pour une réservation **impayée** — ce n'est qu'une intention. Il ne se défend pas pour une réservation **payée** : on encaisse sans rien garantir. C'est là l'incohérence de fond.
+
+## 2. Quand un voyage est-il réservable ?
+
+Conditions cumulées (`DepartsPubliquesProvider` + `ReservationCreationService`) :
+
+- voyage **futur**, non clôturé, rattaché à une ligne, avec date de départ ;
+- **`maintenant < départ − delaiExpirationMinutes`** (120 min par défaut) ;
+- montée et descente sont des arrêts de la ligne, dans le bon ordre ;
+- montée **pas en amont de la provenance réelle** (départ partiel) ;
+- capacité définie (car affecté ou `placesprevues`) et `placesDisponibles > 0` — calcul qui, encore une fois, ignore les réservations ;
+- un **tarif** existe pour le tronçon.
+
+Petite incohérence au passage : le tarif est **exigé à la création** (erreur bloquante), mais la **liste publique ne filtre pas** les départs sans tarif — elle les affiche avec `montant: null`. Le client peut donc voir un départ sans prix… qui échouera au moment de réserver.
+
+## 3. Même délai pour en attente et payée ? — Le délai oui, la conséquence non
+
+`dateexpiration = départ − delaiExpirationMinutes`, **figée à la création**, identique dans les deux cas. Ce qui diffère, c'est l'issue : `EN_ATTENTE` → `EXPIREE` (perdue), `CONFIRMEE` → `A_REGULARISER` (récupérable, avec pénalité + complément, pendant `fenetreRegularisationJours`).
+
+Ton doute est fondé : **un seul réglage porte deux notions incompatibles**.
+
+| Statut | Ce que le délai signifie réellement |
+|---|---|
+| `EN_ATTENTE` | délai de **paiement** |
+| `CONFIRMEE` | délai de **présentation** (no‑show) |
+
+Deux effets gênants :
+
+- **Un client qui a payé et se présente 1h30 avant le départ est traité en no‑show.** Pour voyager, il doit une pénalité + un complément tarifaire. Alors qu'arriver 90 minutes avant le bus est parfaitement normal.
+- **Le délai de paiement est ancré sur le départ, pas sur la création.** Réserver un départ dans trois semaines laisse ~trois semaines pour payer.
+
+## Ce que je propose
+
+1. **Scinder le réglage en deux** : `delaiPaiementMinutes` (à partir de la **création**, ex. 30 min, borné par le départ) et `delaiPresentationMinutes` (avant le **départ**, ex. 15 min, voire 0 = jusqu'au départ).
+2. **Faire tenir la place par une réservation payée** : `placesDisponibles` déduit les `CONFIRMEE` non émises et non expirées. L'impayée continue de ne rien tenir — ou seulement pendant sa courte fenêtre de paiement. C'est le point qui rend le reste cohérent.
+3. **Filtrer les départs sans tarif** dans la liste publique.
+
+Le point 2 est le plus structurant : il change le comportement de la vente au guichet (l'agent verrait moins de places disponibles quand des clients ont payé en ligne) et donc la recette. Je préfère que tu le valides avant que j'y touche.
+
+Tu veux que je parte sur les trois, ou seulement certains ?
+
+
+
+
+
+
+
+On y va. C'est un changement structurant, donc je lis d'abord les pièces exactes : statuts, repository des réservations, et le service de confirmation de paiement.
+
+Le repository m'apprend deux choses utiles : la réservation porte un `ticket` (donc « émise » est détectable), et `findActivesPourVoyage` récupère déjà le bon ensemble. Je recense tous les usages du délai actuel avant de le scinder.
+
+Recensement complet. `ReservationStatus::actifs()` n'est utilisé **nulle part** (et son commentaire affirme faussement que `EN_ATTENTE` tient une place) — je le corrigerai. Je lis l'entité de config pour le nommage exact des colonnes.
+
+J'implémente. **1/ L'entité de configuration** — le délai unique devient deux réglages distincts :
+
+**2/ La capacité** — c'est le cœur : une réservation **payée** tient désormais la place.
+
+Maintenant `CapaciteService` : les réservations payées entrent dans le calcul d'occupation.
+
+**3/ Les services** — délais scindés à la création, bascule d'échéance au paiement, et filtre du tarif.
+
+Au paiement, l'échéance doit basculer du délai de paiement vers celui de présentation.
+
+Reste les deux appelants du délai et le filtre du tarif dans la liste publique.
+
+**4/ Le DTO de config, son processeur et la migration.**
+
+La migration : je renomme la colonne existante (pour préserver les valeurs déjà réglées) et j'ajoute la nouvelle.
+
+Reste le frontend (formulaire de config) puis validation complète.
+
+Validation complète : plus aucune référence à l'ancien délai, lint, migration et mapping.
+
+Migration passée, schéma synchro, et le renommage a bien **préservé la valeur déjà réglée** (30 min) au lieu de la réinitialiser.
+
+## Ce qui change, point par point
+
+**1. Une réservation payée tient sa place.** C'était le cœur du problème : on encaissait sans rien garantir. Désormais `CapaciteService` déduit de la capacité les réservations `CONFIRMEE` non émises et non échues, avec la même logique d'intervalles par tronçon que les billets. Aucun double comptage : dès qu'une réservation devient un billet, elle porte un `ticket` et sort du calcul.
+
+Une réservation **impayée** continue de ne rien tenir — c'est une simple intention, la surréservation reste tolérée. C'est cette distinction qui manquait.
+
+`placesReservees()` ne compte donc plus que les `EN_ATTENTE` : les payées sont déjà retirées des places disponibles, les recompter aurait fait doublon à l'écran. Les pastilles ambre « R » du guichet gardent exactement leur sens — « pressenti, encore vendable ».
+
+**2. Deux délais au lieu d'un.**
+
+| Réglage | Ancré sur | Rôle |
+|---|---|---|
+| `delaiPresentationMinutes` (15) | le départ | dernière limite pour retirer son billet — et pour réserver |
+| `delaiPaiementMinutes` (30) | la création | temps pour payer une réservation en attente |
+
+`dateexpiration` porte l'échéance **qui s'applique à cet instant** : celle du paiement tant que c'est impayé, puis elle bascule sur la présentation **au moment de l'encaissement**. C'est ce qui corrige ton cas : un client ayant payé n'est plus déclaré no-show à l'heure limite de paiement. Le délai de paiement est aussi borné par celui de présentation — inutile de pouvoir payer après le départ du car.
+
+Effet de bord voulu : les transitions du cron (`EN_ATTENTE → EXPIREE`, `CONFIRMEE → A_REGULARISER`) comparent toujours `dateexpiration`, elles fonctionnent sans modification mais sur la bonne échéance.
+
+**3. Départs sans tarif filtrés.** La liste publique renvoie désormais vide plutôt que d'afficher un départ sans prix qui aurait échoué à la réservation (« Aucun tarif défini pour ce trajet »).
+
+**Au passage** : `ReservationStatus::actifs()` n'était utilisé nulle part et son commentaire affirmait faussement que `EN_ATTENTE` tenait une place. Remplacé par `tenantsPlace()`, qui dit désormais la vérité et sert réellement.
+
+## Deux points d'attention
+
+- **La migration renomme la colonne** (`delai_expiration_minutes` → `delai_presentation_minutes`) plutôt que de la recréer, ce qui préserve les valeurs. Mais l'ancienne valeur signifiait « on arrête de réserver X min avant le départ » ; elle devient « il faut se présenter X min avant ». Ton entreprise est à **30 min** — plausible pour une présentation, mais **vérifie que ça te convient**, car c'est maintenant le seuil de no‑show.
+- **Le guichet verra moins de places disponibles** dès qu'il y a des réservations payées en ligne. C'est l'effet recherché, mais c'est un changement visible pour tes agents — autant les prévenir.
+
+Je n'ai pas testé en live comme convenu ; la validation ici est statique (lint, migration jouée, schéma synchro, zéro référence résiduelle). Le contrôle réel serait : réserver depuis le mobile, payer, et vérifier que la place disparaît du guichet.
+
+
+
+
+
+
+
+## 4. Date de départ modifiée après paiement
+
+Cas réellement cassé : l'échéance était figée sur l'**ancienne** date. Reporter le départ déclarait no-show des clients ayant payé alors que le car n'était pas parti ; l'avancer laissait des réservations « valides » après le départ réel.
+
+`VoyageProcessor` détecte désormais le changement de `datedepartprevue` (via l'état original) et **replanifie** toutes les réservations vivantes du voyage — payées comme impayées.
+
+Au passage, la règle de calcul allait vivre à trois endroits (création, paiement, replanification). Je l'ai centralisée dans **`ReservationEcheanceService`**, seule source de vérité, que les trois consomment. C'est exactement le type de dérive qu'on vient d'éliminer ailleurs.
+
+
+
+
+
+
+
+Pour la partie "Payer une place qui n'existe plus" est ce que tu l'a fais ! je me dis que la réservaton en attente ne devrait plus pouvoir être payé si la dernière place est ténue par une réservation payé ! est ce que c'est logique ?
+
+## 2. Oui, c'est fait — et ta logique est la bonne
+
+C'est implémenté ([ReservationConfirmationService.php:63](Backend-Transport/src/Domain/Service/ReservationConfirmationService.php)), avant tout encaissement. Et ton scénario précis est bien couvert : comme `placesDisponibles` déduit désormais les réservations payées, si la dernière place est tenue par l'une d'elles, le compte tombe à 0 et la confirmation est refusée.
+
+La règle est cohérente : une réservation payée **tient** sa place, une réservation en attente ne tient **rien** — donc la seconde ne peut pas prendre la place de la première.
+
+**Mais il reste un trou que je dois te signaler.** Le webhook arrive **après** que le client a payé chez le prestataire. Refuser la confirmation ne lui rend pas son argent : on empêche l'incohérence, pas le prélèvement.
+
+La vraie parade est en amont : **tenir la place pendant la fenêtre de paiement**. C'est exactement à ça que sert le nouveau `delaiPaiementMinutes` (30 min) — un « hold » court, comme dans n'importe quel tunnel de réservation. Une `EN_ATTENTE` tiendrait sa place, mais seulement 30 minutes, jamais jusqu'au départ comme dans l'ancien modèle.
+
+Le compromis : quelques places bloquées jusqu'à 30 min pour des clients qui ne paieront peut-être pas. À l'inverse, sans ça, tu continueras d'encaisser des paiements que tu devras rembourser à la main.
+
+Ça change une ligne dans `ReservationStatus::tenantsPlace()` (y ajouter `EN_ATTENTE`) — la capacité filtre déjà sur `dateexpiration > now`, donc l'expiration du hold est automatique. Je te le propose plutôt que de le décider : tu veux que je l'active ?
+
+
+
+
+
+
+
+
+Vérifie si la cohérence est correcte lorsqu'on modifie la date de départ prévue du voyage !
+
+Bonne question — commençons par vérifier que ma replanification est seulement **atteignable**, et qu'aucun autre chemin ne modifie cette date.
+
+Deux bonnes nouvelles : `datedepartprevue` est bien dans le groupe d'écriture du Patch (donc ma replanification est atteignable), et **aucun service ne modifie cette date** — le Patch est l'unique chemin. Mais je vois un problème sérieux dans l'exécution.
+
+Le vrai défaut : ce `flush()` est appelé **au milieu** du processeur, avant les contrôles de changement de car qui peuvent lever une exception. Une modification simultanée de la date et d'un car indisponible commiterait donc la date… puis échouerait. Je corrige.
+
+Je vérifie maintenant les cas limites du décalage : réservations déjà en no‑show, et avance du départ.
+
+La simulation confirme que le **recalcul lui‑même est juste**. Je vérifie qu'aucun autre `flush` prématuré ne subsiste sur ce chemin.
+
+Vérification terminée. Le mécanisme est correct, mais l'audit a trouvé un défaut réel et deux angles morts.
+
+## Ce qui est sain
+
+- **`datedepartprevue` est bien dans `write:Voyage:update`** → la replanification est réellement atteignable (elle aurait pu être du code mort).
+- **Le Patch est l'unique chemin** qui modifie cette date : aucun service ne l'écrit ailleurs. La couverture est donc complète par construction.
+- **Le recalcul est juste**, vérifié par simulation :
+
+| Départ | Impayée (paiement) | Payée (présentation) |
+|---|---|---|
+| initial (18:00) | 08:30 | 17:45 |
+| **reporté +1 jour** | 08:30 | **21/07 17:45** |
+| **avancé (dans 20 min)** | 08:05 | 08:05 |
+
+Le report ne prolonge pas la fenêtre de paiement (ancrée sur la création — c'est voulu), mais repousse bien l'heure de présentation : le client qui a payé n'est plus déclaré no-show. Et si le départ est avancé, la limite de paiement est plafonnée par celle de présentation — on ne peut pas payer un car sur le point de partir.
+
+## Le défaut corrigé
+
+`replanifierPourVoyage` appelait `flush()` **au milieu** du processeur, avant les contrôles de changement de car. Un `PATCH` modifiant *à la fois* la date et un car indisponible aurait donc : enregistré la nouvelle date et les échéances → puis échoué sur « ce véhicule est déjà affecté » → et laissé la base **à moitié modifiée**, alors que la requête est refusée.
+
+Corrigé par un paramètre `flush` explicite : le processeur passe `false`, les réservations étant managées, elles sont écrites par le flush final **en même temps** que le voyage. Plus aucun `flush()` prématuré sur ce chemin.
+
+## Deux angles morts, décisions métier
+
+**1. Les réservations déjà en `A_REGULARISER` ne sont pas replanifiées.** Si un client a été déclaré no-show, puis que tu **reportes** le départ au lendemain, il reste marqué no-show — et devra payer une pénalité pour un car qui n'est finalement jamais parti. Techniquement cohérent (le statut a été acquis sur l'ancien horaire), humainement discutable. On pourrait les restaurer en `CONFIRMEE` quand le nouveau départ est encore à venir.
+
+**2. Avancer un départ dégrade les réservations payées, en silence.** Si le nouveau départ est trop proche, l'échéance recalculée est déjà passée : les places cessent immédiatement d'être tenues et le cron bascule les payées en `A_REGULARISER` — **avec pénalité**. Or c'est la compagnie qui a changé l'horaire, pas le client. Le système reflète la réalité (ils ne pourront pas se présenter), mais leur facturer la pénalité est injuste.
+
+Pour le 2, ma préférence va à ne pas pénaliser plutôt qu'à bloquer : interdire l'avance serait irréaliste en exploitation. Il faudrait distinguer un no-show « du fait du client » d'un « du fait de la compagnie » — ce qui suppose un marqueur sur la réservation.
+
+Les deux touchent à ta politique commerciale, donc je ne tranche pas seul. Tu veux que je traite l'un des deux ?
+
+
+
+Fais le 2
+
+## Ce que j'ai fait — no-show *du fait de la compagnie*
+
+Un client payé qui rate le car parce que **la compagnie a avancé le départ** ne paie plus de pénalité de report. Le complément tarifaire, lui, reste dû : c'est le prix du trajet, pas une sanction.
+
+**Le marqueur** — [Reservation.php:247](Backend-Transport/src/Entity/Reservation.php:247) porte `penaliteexoneree` (migration [Version20260720100000.php](Backend-Transport/migrations/Version20260720100000.php), appliquée, schéma en sync).
+
+**La pose** — [ReservationEcheanceService.php:79](Backend-Transport/src/Domain/Service/ReservationEcheanceService.php:79) reçoit désormais l'ancienne date de départ : c'est le seul moyen de savoir si le départ a été **avancé**. Si oui, les réservations **payées** du voyage sont exonérées, au moment même du recalcul des échéances — donc avant que le cron ne les bascule en `A_REGULARISER`, pas de course. Les impayées ne sont pas concernées : rien n'a été encaissé, elles perdent juste leur place.
+
+Je n'ai **pas** restreint le marquage aux échéances déjà dépassées : « avancé de 3 h, prévenu 20 min avant » est tout aussi subi par le client, et une règle simple s'explique au guichet.
+
+**L'effet** — [ReservationRegularisationService.php:88](Backend-Transport/src/Domain/Service/ReservationRegularisationService.php:88) renvoie une pénalité à 0 et un drapeau `exoneree` (pas seulement un message : un client API comme Next reçoit la donnée, pas un calcul à refaire). Le marqueur est **consommé** à la régularisation — il couvrait cet incident-là, un no-show ultérieur redevient imputable au client.
+
+**Côté agent** — l'aperçu affiche `0 FCFA (exonérée)` en vert et la raison, la carte de régularisation change de texte, et le message d'erreur d'émission de billet ne promet plus une pénalité qui ne sera pas prise. J'ai au passage corrigé un détail du template : quand aucun car n'était affecté, le message de l'API était écrasé — les deux avertissements s'affichent maintenant.
+
+**Vérification** — simulation sur une vraie réservation, en transaction annulée (commande temporaire, supprimée depuis) :
+
+```
+Réservation RES-2026-22 | départ 20/07/2026 11:20
+  report +3h -> exonérée=false | échéance 14:06
+  avance -5h -> exonérée=true  | échéance 06:06
+  pénalité exonérée=0 FCFA | normale=800 FCFA (10 % de 8000)
+```
+
+Plus `php -l`, `doctrine:schema:validate`, `lint:twig`, et l'export OpenAPI qui confirme `penaliteexoneree` + `exoneree`.
+
+Deux points que je n'ai **pas** traités, volontairement :
+
+- **Les apps mobiles n'ont pas bougé.** Elles n'affichent nulle part la notion de pénalité — y ajouter « sans pénalité » introduirait l'idée d'une sanction là où le client n'en a jamais entendu parler. Le vrai manque côté mobile est ailleurs : **rien ne prévient le client quand son départ est avancé**. Ça demande une brique de notifications, c'est un chantier à part.
+- **L'angle mort n°1 reste ouvert** : les réservations déjà `A_REGULARISER` ne sont pas replanifiées quand un départ est reporté.
+
+
+
+
+
+
+
+
+Vente directe de billets
+
+TicketProcessor:114 applique désormais assertMonteeNonDepassee, la même garde que la réservation : les deux aboutissent au même siège du même car, il serait absurde que l'une refuse ce que l'autre vend.
+
+Le piège, que j'ai failli rater : la garde est volontairement hors de la branche du commercial à bord. Ce vendeur encaisse aussi après le départ — les passagers montés sans avoir payé — et sa gare de vente est par construction la position du car. L'y soumettre lui aurait interdit de travailler dès que le car s'ébranle. Vérifié :
+
+Gare d'abidjan   vente REFUSÉE   (le car en est parti)
+Gare de bouaké   vente ok        (le car y va)
+Gare de korhogo  vente ok
+
+
+
+
+
+
+
+
+
+
+
+Je mets à jour les trois blocs concernés par le travail de cette session.
+
+Le README est à jour. Voici ce que j'y ai consigné.
+
+**Module `Réservation`** — passé de 5 à 11 lignes, c'est là que tout le travail a atterri : les deux délais distincts et leur sens selon le statut, le fait qu'une réservation *tient* sa place et se libère seule, le calage des échéances sur l'heure de passage, la garde des deux chemins de paiement, la clôture au passage réel du car, l'exonération de pénalité quand la compagnie avance un départ, les trois transitions du cron, et le principe que la réservabilité se décide côté serveur.
+
+**Module `Exploitation`** — `Arret.dureeDepuisOrigineMinutes` avec sa règle (0 à l'origine, strictement croissante, tout ou rien, facultative) ; la réception qui clôt aussi les montées dépassées ; et surtout la distinction `monteeAtteinte` / `monteeDepassee`, qui est le genre de nuance qu'on se réexplique mal six mois plus tard.
+
+**Module `Billetterie`** — la garde de position ajoutée à la vente, avec la précision qui compte : **pas** de délai de présentation au guichet, contrairement à la réservation.
+
+## Pour la prochaine session
+
+Deux points restent ouverts, tous deux signalés et non tranchés :
+
+1. **Le formulaire de vente de billets propose des voyages que l'API refuse maintenant.** [TicketController:248](Frontend-Transport/src/Controller/TicketController.php:248) liste tous les voyages non clôturés. C'est la divergence que j'ai introduite en ajoutant la garde. Ma proposition — un `?usage=vente` sur `/api/voyages/reservables` qui n'applique que la condition de position — attend ton arbitrage.
+
+2. **`preselect_voyage`** sur le formulaire de réservation : sans lien qui y mène, le cas est théorique.
+
+Et un rappel : j'ai lancé `app:reservations:expirer` pendant l'audit, ce qui a fait basculer **2 réservations payées en `A_REGULARISER`**. C'était la transition normale du cron sur des échéances réellement dépassées, mais c'est une écriture que j'aurais dû te soumettre avant.
+
+
+
+
+
+
+
+
+
+
+Aussi si par exemple la gare de Bouaké(gare intermédiaire crée un voyage sur la ligne Abidjan -> Korhogo), c'est la gare de Bouaké qui devient l'origine donc le temps estimé de la ligne ne devrait pas agir sur lui ! tu vois où je veux en venir ?
+
+Ton intuition sur le départ partiel était juste, et le bug était sérieux.
+
+## Le départ partiel — c'était faux
+
+Je calculais `datedepartprevue + durée depuis l'origine de la LIGNE`. Or sur un départ partiel, `datedepartprevue` est l'heure de départ de **l'origine effective du voyage**, pas de celle de la ligne. Bouaké créant un voyage Abidjan → Korhogo à 08:00, j'ajoutais les 240 min d'Abidjan → Bouaké **par-dessus** une heure qui était déjà celle de Bouaké.
+
+Le décalage est maintenant **relatif à l'origine effective** — vérifié sur la vraie ligne :
+
+```
+Ligne : Abidjan(0) → Bouaké(240) → Korhogo(420) · départ annoncé 08:00
+
+  Origine Abidjan (départ normal)      Origine Bouaké (DÉPART PARTIEL)
+    Abidjan  08:00                       Bouaké   08:00   (au lieu de 12:00)
+    Bouaké   12:00                       Korhogo  11:00   (au lieu de 15:00)
+    Korhogo  15:00
+```
+
+Les 3 h du tronçon Bouaké → Korhogo sont préservées. Une gare située **avant** l'origine effective donnerait un décalage négatif : je retombe sur l'heure de départ plutôt que sur une heure antidatée, qui aurait rendu l'échéance faussement permissive — la réservation y est de toute façon déjà refusée par le contrôle de provenance.
+
+Ça touchait **tout** ce qui dépend de l'échéance : réservabilité, fenêtre de paiement, no-show, régularisation.
+
+## Vente de billets — la logique retenue
+
+J'ai écarté la réutilisation directe de `/voyages/reservables` : le formulaire de vente consomme `commercial`, `garecourante`, `car.matricule`, `placestotal`, `datearriveereelle`, mon DTO allégé l'aurait cassé.
+
+Retenu : le contrôleur garde `/api/voyages` pour les données complètes, et **intersecte** avec `/api/voyages/reservables?usage=vente` pour la décision. Deux différences avec la réservation, que le provider applique fidèlement :
+
+- **pas de délai de présentation** — au guichet le passager est devant l'agent, on vend jusqu'au départ ;
+- **le commercial embarque depuis la position du car**, pas depuis sa gare d'attache, exactement comme `TicketProcessor`.
+
+Les quatre cas vérifiés :
+
+```
+Car pas encore parti, départ dans 5 min (délai 15 min)
+  usage=reservation → écarté      usage=vente → PROPOSÉ
+Car déjà parti de cette gare
+  usage=reservation → écarté      usage=vente → écarté
+```
+
+`preselect_voyage` est retiré du formulaire de réservation (contrôleur, template, composant).
+
+Le README reflète les deux nuances : le décalage relatif à l'origine effective, et `?usage=vente`.
+
+
+
+
+
+
+
+
+
+
+Au faite, on ne doit pas bloquer la vente de Abidjan ou autre, si Bouaké s'aperçois qu'il a perdu son siège au profit de Abidjan il va crée un voyage pour les sièges perdu donc on accepte les sièges en double..
+
+Ça change la règle métier de fond : la gare amont a une priorité absolue, et le surbooking est assumé. Je reviens donc sur mon correctif — il partait d'une hypothèse que tu invalides.  README
+
+
+
+
+
+
+
+
+
+
+Ta remarque sur la priorité perdue était la clé qui manquait. Voici le bilan.
+
+## La règle d'éviction, posée à un seul endroit
+
+`CapaciteService::billetsEvinces()` identifie les billets dont le siège a été repris **à leur propre point de montée** par un passager monté plus tôt. Ces gens ne monteront pas.
+
+Le calcul se fait dans l'ordre de montée, siège par siège : seul un occupant **retenu** peut en évincer un autre. Comparer les intervalles deux à deux aurait été faux — un billet lui-même évincé ne prend aucune place, il ne peut donc pas en priver un troisième.
+
+Vérifié sur ton voyage 19 (5 sièges, 9 billets) :
+
+```
+#153 siège 1  Abidjan → Bouaké
+#154 siège 2  Abidjan → Bouaké
+#155 siège 3  Bouaké  → Korhogo   ÉVINCÉ
+#156 siège 4  Bouaké  → Korhogo   ÉVINCÉ
+#157 siège 2  Bouaké  → Korhogo            ← récupère le siège libéré à Bouaké
+#158 siège 1  Bouaké  → Korhogo            ← idem
+#159 siège 5  Bouaké  → Korhogo
+#160 siège 3  Abidjan → Korhogo            ← reprend le siège 3
+#161 siège 4  Abidjan → Korhogo            ← reprend le siège 4
+```
+
+Exactement les deux passagers qui perdent leur place, et pas un de plus.
+
+Ta proposition sur les sièges perdus attend la session suivante — et le compteur `evinces` du manifeste lui servira de fondation : la détection existe désormais, il ne restera qu'à décider quoi en faire.
+
+
+
+
+
+
+
+
+
+
+
+
+Salut ! Je reprends le contexte. Laisse-moi analyser les deux projets.
+
+Contexte bien rechargé. Maintenant j'analyse les 4 projets.
+
+Je suis à jour. Voici ce que j'ai remis en place.
+
+## Les 4 projets
+
+| Projet | Stack | Rôle |
+|---|---|---|
+| `Backend-Transport` | Symfony + ApiPlatform + LexikJWT + refresh token | API, tout le métier |
+| `Frontend-Transport` | Symfony + Twig + React UX + Shadcn + Tailwind v4 | back-office (guichet, exploitation, dashboards) |
+| `resanative` | Expo / React Native + TanStack Query + Zustand | app de réservation client |
+| `resaflutter` | Flutter + Riverpod + Dio + freezed | même app, en Flutter |
+
+`brl.md` (BK et FT) : ignorés, comme convenu.
+
+## Backend — 146 entités, 106 providers/processors, 39 classes Domain
+
+L'architecture est celle que décrit le [README.md](Backend-Transport/README.md) : cloisonnement `EntrepriseScopeExtension` (entreprise) + `GareScopeExtension` (gare), droits par position sur le voyage (`VoyageGuard` : l'origine prépare · l'intermédiaire réceptionne · le terminus clôture), hiérarchie de comptes (`UserManagementGuard`), maintenance globale super-admin.
+
+Le cœur métier reste la **priorité absolue à la gare amont** : la capacité se juge au point de montée, on compte des **sièges** et non des passagers, et le surbooking aval est assumé. `CapaciteService` est partagé par la vente et la réservation.
+
+## Mobile — les deux apps sont strictement parallèles
+
+Mêmes 4 écrans (`home` / `booking` / `history` / `track`), même tunnel en 5 étapes (tronçon → départ → passager → paiement → confirmation), même bon PDF téléchargeable. Elles consomment la façade publique `/api/reservation/*` multi-tenant par `?slug=` ([ReservationPublique.php](Backend-Transport/src/Entity/Data/ReservationPublique.php)) : compagnie, villes, gares, destinations+tarifs, départs, création, suivi, historique, webhook de paiement. Ce sont les **seuls** clients de la réservation — `WebClientController` est bien resté en commentaire côté FT.
+
+Note : `resanative/AGENTS.md` impose de lire les docs Expo v57 versionnées avant d'écrire du code — je m'y tiendrai.
+
+## Le chantier en attente : sièges évincés
+
+J'ai vérifié l'état réel plutôt que de me fier à ma note. Il est exactement celui laissé en fin de session :
+
+- **Détection : faite.** `CapaciteService::billetsEvinces()` ([CapaciteService.php:209](Backend-Transport/src/Domain/Service/CapaciteService.php:209)) attribue les sièges dans l'ordre de montée ; un billet déjà évincé n'évince personne.
+- **Exposition : faite.** Le compteur `evinces` par gare dans [VoyageManifesteController.php:192](Backend-Transport/src/Controller/Api/VoyageManifesteController.php:192), et le booléen `conflit` par siège dans [SiegeStateProvider.php:154](Backend-Transport/src/State/SiegeStateProvider.php:154) → [Siege.php:109](Backend-Transport/src/Entity/Siege.php:109), groupe `read:Siege`.
+- **Affichage : pas fait.** `conflit` n'existe ni dans [siege.model.ts](Frontend-Transport/assets/react/models/siege.model.ts) (2 champs seulement) ni dans `SiegePlan` de [PlanCar.tsx:20](Frontend-Transport/assets/react/controllers/Billetterie/PlanCar.tsx:20), qui ne connaît que `revendu` (violet). L'API dit donc « conflit », l'écran affiche « revendu ».
+- **Traitement des passagers dépossédés : à trancher.** La proposition non validée reste : statut `DEPLACE_A_PREVOIR`, réutilisation du circuit de régularisation, règle « le dernier vendu en aval cède en premier ».
+
+Aucune commande temporaire ne traîne (`src/Command/` ne contient que `ExpirerReservationsCommand.php`).
+
+Je n'ai rien modifié. On reprend sur l'affichage du repère `conflit`, ou tu veux d'abord trancher le traitement des évincés ?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+========
+
+
 
 
 
@@ -1968,3 +2967,173 @@ Autrement dit, le modèle est désormais **tolérant à l'overbooking** : une pl
 En résumé, la réservation est un **flux en 3 temps découplés** — *tenir une place → encaisser → matérialiser en billet+siège* — avec un filet de sécurité no-show (régularisation) et une expiration automatique, le tout partagé entre guichet et mobile par un moteur unique.
 
 Tu veux qu'on reprenne le travail sur un point précis ? Je pense notamment à : corriger l'incohérence du docblock capacité, brancher un vrai prestataire de paiement, planifier réellement le cron d'expiration, ou revoir la tolérance à l'overbooking (faut-il vraiment que les réservations ne réservent rien physiquement ?).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Transport :
+
+    Point important : previous_data est un clone — persister celui-là créerait un doublon. C'est read_data qui porte l'entité gérée.
+
+    Cause trouvée : sans variable d'URI et en méthode non sûre, API Platform décide de ne pas lire — le provider ne tournait jamais.
+        new Patch(
+            uriTemplate: '/me/motdepasse',
+            security: "is_granted('ROLE_USER')",
+            read: true, /*
+                - EXPLICITE, ET INDISPENSABLE. `ReadListener` decide de lire
+                    quand l'operation a des variables d'URI OU que la methode est
+                    sure : `/me/motdepasse` n'a ni l'un ni l'autre, donc le
+                    provider ne tournait pas et le processor recevait `read_data`
+                    a null -- une 500 sur un chemin nominal. Mesure le 11/09/2026.
+            */
+            inp
+
+Dans la partie Frontend.., pour le Dashbord je veux qu'il soit au style réel de Shadcn (→ ui.shadcn.com) en (HTML, Css, etc...), responsive, moderne, etc...
+Tu n'a pas mis de sidebar dans le Dashbord ! Quand je dis que je veux que le tableau de bord soit au style réel de shadcn/ui (→ ui.shadcn.com) je faisais allusion au sidebar-07 de shadcn/ui (→ ui.shadcn.com) !
+
+Deux pièges d'API Platform trouvés en route, documentés en §8.10 et §8.11 : **sans variable d'URI, une opération non sûre ne lit pas** (`/me/motdepasse` levait une 500 sur son chemin nominal — corrigé par un `read: true` explicite), et **`previous_data` est un clone** alors que `read_data` est l'entité gérée — persister le premier aurait tenté d'attacher un détaché portant le même identifiant.
+
+
+
+
+
+
+
+
+
+
+- - **Symfony**
+> NotCompromisedPassword a exigé symfony/http-client (installé), et je l'ai réglé en skipOnError — sur une connexion de terrain coupée, la vérification ne doit pas empêcher de créer un compte.
+#[Assert\NotBlank(message: 'Le nouveau mot de passe est obligatoire')]
+#[Assert\Length(min: 10, minMessage: 'Le mot de passe doit faire au moins {{ limit }} caractères')]
+#[Assert\NotCompromisedPassword(
+    message: 'Ce mot de passe figure dans des fuites de données connues : choisissez-en un autre',
+    skipOnError: true // La vérification interroge un service distant : sur une connexion de terrain coupée, elle ne doit pas empêcher de créer un compte
+)]
+#[Assert\Regex(
+    pattern: '/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/',
+    message: 'Le mot de passe doit contenir au moins une minuscule, une majuscule et un chiffre'
+)]
+
+`validator.yaml`
+when@test:
+    framework:
+        validation:
+            not_compromised_password: false
+
+# Le bloc 'when@test' désactivait 'not_compromised_password', qui interrogeait un service distant pendant les tests. La contrainte n'est plus posée nulle part : le réglage n'avait donc plus d'objet.
+
+
+
+
+
+
+
+
+
+
+
+Tu dois choisir les DLL compatibles avec :
+
+* ta version de PHP (`php -v`)
+* ton architecture (`x64` ou `x86`)
+* Thread Safe (TS) ou Non-Thread Safe (NTS)
+
+Par exemple, pour PHP 8.4 en x64 Thread Safe :
+
+```ini
+extension=php_sqlsrv_84_ts_x64.dll
+extension=php_pdo_sqlsrv_84_ts_x64.dll
+```
+
+Place les DLL dans ton dossier `ext` de PHP, puis ajoute-les dans ton `php.ini`.
+
+Vérifie ensuite :
+
+```bash
+php -m | findstr sqlsrv
+```
+
+Tu devrais voir :
+
+```text
+pdo_sqlsrv
+sqlsrv
+```
+
+Si Doctrine est déjà installé, tu n'as normalement rien de particulier à ajouter.
+
+Doctrine DBAL prend en charge SQL Server via le driver `pdo_sqlsrv`. La documentation de [Doctrine DBAL](https://www.doctrine-project.org/projects/doctrine-dbal/en/current/reference/configuration.html?utm_source=chatgpt.com) détaille les paramètres de connexion disponibles.
+
+---
+
+## 6. Attention aux migrations
+
+C'est particulièrement important si ton projet était auparavant sous MySQL ou PostgreSQL.
+
+SQL Server possède certaines différences concernant :
+
+* les auto-increments → `IDENTITY`
+* les types `BOOLEAN`
+* `JSON`
+* `UUID`
+* les index
+* les contraintes
+* les types `DATETIME`
+* les longueurs maximales de `VARCHAR`
+* certaines syntaxes SQL spécifiques
+
+Par exemple, il vaut mieux éviter d'écrire directement des requêtes SQL spécifiques à MySQL comme :
+
+```sql
+LIMIT 10
+```
+
+Doctrine générera automatiquement la syntaxe appropriée pour SQL Server lorsque tu utilises le QueryBuilder :
+
+```php
+$repository->createQueryBuilder('u')
+    ->setMaxResults(10)
+    ->getQuery()
+    ->getResult();
+```
+
+**SQL Server - Microsoft**
+- On..  plusieurs versions
+    > `SQL Server sur site` la version qu'on peut installer en local ou sur hébergeur
+    > `!! Azure` !! cloud
+    > `!! Développeur` !! pour les développeurs, non `r` en production
+    > `!! Express` !! gratuite et `r` à la production
+- On a 3 types d'installation
+    > `Basic` va l'installer avec les paramètres par défaut
+    > `Custom` pour définir les paramètres
+    > `Download Media` pour télécharger les fichiers et l'ins.. se fera après
+- Pour avoir une interface graphique de la base de données on a `Install SSMS` SQL Server Management Studio
+    > Le nom du server ; Le nom de ma machine\le nom de l'instance
+    > Chiffrer : Facultatif sinon on aura une erreur de chaîne de certificat
+
+`microsoft.com/en-in/sql-server/sql-server-downloads`
+`learn.microsoft.com/fr-fr/ssms/install/install`
+
+MSSQLSERVER == L'instance par défaut
+SQLSERVERLESS
+User : sa
+password : Bakayoko10
+
+- Pour l'utiliser via `php`
+    > On.. télécharger les extensions `` et ``
+- 
+
+
+https://ui.shadcn.com/docs/skills 
