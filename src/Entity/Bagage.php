@@ -25,6 +25,16 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 #[ORM\Entity(repositoryClass: BagageRepository::class)]
+/*
+    - Le CODE d'un bagage est imprimé sur l'étiquette remise au client : il doit être unique. Il ne
+      l'était pas, et le générateur ('COUNT(*) + 1' sur les bagages non supprimés) réutilisait déjà un
+      code après une mise en corbeille — en silence. L'unicité est portée PAR ENTREPRISE, parce que le
+      code l'est aussi : 'BAG-2026-7' existe chez chaque compagnie.
+    - La RÉFÉRENCE d'un enregistrement hors ligne est unique : clé d'idempotence qui permet de rejouer
+      un lot de synchronisation sans dupliquer. Nulle au guichet.
+*/
+#[ORM\UniqueConstraint(name: 'uniq_bagage_codebagage', columns: ['identreprise', 'codebagage'])]
+#[ORM\UniqueConstraint(name: 'uniq_bagage_reference_offline', columns: ['reference_offline'])]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
     normalizationContext: ['groups' => ['read:Bagage', 'read:Base']],
@@ -236,6 +246,29 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     #[ORM\Column(nullable: true)]
     private ?int $identreprise = null;
 
+    /**
+     * Référence de l'ENREGISTREMENT HORS LIGNE qui a produit ce bagage — clé d'IDEMPOTENCE.
+     *
+     * Même rôle que {@see Ticket::$referenceOffline} : générée par le téléphone du vendeur à bord,
+     * elle rend le rejeu d'un lot de synchronisation sans effet la seconde fois. Nulle au guichet.
+     */
+    #[ORM\Column(length: 64, nullable: true)]
+    #[Groups(['read:Bagage'])]
+    private ?string $referenceOffline = null;
+
+    /**
+     * Montant réellement ENCAISSÉ à bord, quand l'enregistrement s'est fait hors ligne.
+     *
+     * Le téléphone facture depuis la grille de poids téléchargée ; si un administrateur la modifie
+     * pendant le trajet, le montant perçu en espèces peut différer de celle qui fait foi à la
+     * synchronisation. Le serveur reste seul juge de {@see $montant} — l'écart est consigné pour que
+     * la gare régularise. À ne pas confondre avec {@see $montantforce}, qui dit que l'AGENT a
+     * volontairement facturé hors grille.
+     */
+    #[ORM\Column(nullable: true)]
+    #[Groups(['read:Bagage'])]
+    private ?int $montantEncaisse = null;
+
     #[ORM\ManyToOne(inversedBy: 'bagages')]
     #[Groups(['read:Bagage'])]
     private ?Tarifbagage $tarifbagage = null; // NULL si montant forcé sans tarif correspondant et on le conserve pour l'historique même si la grille change
@@ -418,6 +451,30 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     public function setGaredepart(?Gare $garedepart): static
     {
         $this->garedepart = $garedepart;
+
+        return $this;
+    }
+
+    public function getReferenceOffline(): ?string
+    {
+        return $this->referenceOffline;
+    }
+
+    public function setReferenceOffline(?string $referenceOffline): static
+    {
+        $this->referenceOffline = $referenceOffline;
+
+        return $this;
+    }
+
+    public function getMontantEncaisse(): ?int
+    {
+        return $this->montantEncaisse;
+    }
+
+    public function setMontantEncaisse(?int $montantEncaisse): static
+    {
+        $this->montantEncaisse = $montantEncaisse;
 
         return $this;
     }

@@ -31,7 +31,16 @@ use Symfony\Component\Serializer\Attribute\Groups;
 /*
     - Plus d'unicité (voyage, siege) : un siège peut porter plusieurs tickets sur le même voyage
       tant que leurs tronçons [montée, descente) ne se chevauchent pas (cf. TicketProcessor).
+    - Le CODE, lui, EST unique : il est imprimé, remis au client et encodé en QR. Il ne l'était pas,
+      et le générateur ('COUNT(*) + 1' sur les billets non supprimés) réutilisait déjà un code après
+      une mise en corbeille — en silence. La vente hors ligne, où le téléphone génère le code, rendait
+      ce défaut intenable.
+    - La RÉFÉRENCE d'une vente hors ligne est unique : clé d'idempotence qui permet de rejouer un lot
+      de synchronisation sans dupliquer. Nulle en vente en ligne, et MySQL autorise autant de NULL
+      qu'on veut sous un index unique.
 */
+#[ORM\UniqueConstraint(name: 'uniq_ticket_codeticket', columns: ['codeticket'])]
+#[ORM\UniqueConstraint(name: 'uniq_ticket_reference_offline', columns: ['reference_offline'])]
 #[ApiResource(
     security: "is_granted('IS_AUTHENTICATED_FULLY')",
     normalizationContext: ['groups' => ['read:Ticket', 'read:Base']],
@@ -242,6 +251,33 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     #[ORM\JoinColumn(nullable: true)]
     #[Groups(['read:Ticket', 'read:Voyage'])]
     private ?User $commercial = null;
+
+    /**
+     * Référence de la VENTE HORS LIGNE qui a produit ce billet — clé d'IDEMPOTENCE.
+     *
+     * Générée par le téléphone du vendeur à bord au moment de la vente, avant toute connexion. Le lot
+     * de synchronisation peut être rejoué (réseau coupé en plein envoi, reprise après échec) : une
+     * référence déjà connue rend le billet existant au lieu d'en créer un second. Même rôle que
+     * {@see App\Entity\Alerte::$cle} pour le balayeur d'alertes.
+     *
+     * Nulle pour une vente EN LIGNE : c'est ce qui distingue les deux canaux d'émission.
+     */
+    #[ORM\Column(length: 64, nullable: true)]
+    #[Groups(['read:Ticket'])]
+    private ?string $referenceOffline = null;
+
+    /**
+     * Montant réellement ENCAISSÉ par le vendeur à bord, quand la vente s'est faite hors ligne.
+     *
+     * Le téléphone calcule le prix depuis la grille tarifaire téléchargée ; si un administrateur
+     * modifie un tarif pendant le trajet, le montant perçu en espèces peut différer de la grille au
+     * moment de la synchronisation. Le serveur reste SEUL juge du prix ({@see $prix} vient toujours de
+     * la grille, jamais de l'appareil) — cet écart est simplement consigné pour que la gare
+     * régularise. Nul hors de ce cas.
+     */
+    #[ORM\Column(nullable: true)]
+    #[Groups(['read:Ticket'])]
+    private ?int $montantEncaisse = null;
 
     /**
      * Réservation d'ORIGINE, si ce billet a été émis depuis un bon de réservation (nul sinon). La
@@ -672,6 +708,30 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     public function setMonteedepassee(bool $monteedepassee): static
     {
         $this->monteedepassee = $monteedepassee;
+
+        return $this;
+    }
+
+    public function getReferenceOffline(): ?string
+    {
+        return $this->referenceOffline;
+    }
+
+    public function setReferenceOffline(?string $referenceOffline): static
+    {
+        $this->referenceOffline = $referenceOffline;
+
+        return $this;
+    }
+
+    public function getMontantEncaisse(): ?int
+    {
+        return $this->montantEncaisse;
+    }
+
+    public function setMontantEncaisse(?int $montantEncaisse): static
+    {
+        $this->montantEncaisse = $montantEncaisse;
 
         return $this;
     }

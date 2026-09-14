@@ -22,6 +22,7 @@ use App\Entity\Reservation;
 use App\Entity\Role;
 use App\Entity\Siege;
 use App\Entity\Tarif;
+use App\Entity\Tarifbagage;
 use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\UserRole;
@@ -355,6 +356,24 @@ final class ScenarioBuilder
         $this->em->flush();
 
         return $bagage;
+    }
+
+    /**
+     * Une tranche de la grille de poids des bagages. `poidsmax` nul = dernière tranche, illimitée.
+     */
+    public function tarifbagage(Entreprise $entreprise, int $poidsmin, ?int $poidsmax, int $montant): Tarifbagage
+    {
+        $tranche = (new Tarifbagage())
+            ->setLibelle($poidsmax === null ? "Au-delà de {$poidsmin} kg" : "{$poidsmin} à {$poidsmax} kg")
+            ->setPoidsmin($poidsmin)
+            ->setPoidsmax($poidsmax)
+            ->setMontant($montant)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($tranche);
+        $this->em->flush();
+
+        return $tranche;
     }
 
     /** Plafond de remise de la compagnie (null = aucun plafond). */

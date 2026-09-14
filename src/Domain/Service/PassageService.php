@@ -51,6 +51,28 @@ class PassageService
         return $passage;
     }
 
+    /**
+     * Le passage DÉJÀ connu pour ce couple, SANS le créer. Null s'il n'y en a pas.
+     *
+     * Consulte le cache de requête AVANT la base, et c'est tout son intérêt : dans un lot de
+     * synchronisation, l'arrivée qui vient d'être posée n'est pas encore flushée. Une requête ne la
+     * verrait pas, et le départ qui la suit dans le même lot serait refusé au motif que le car n'est
+     * jamais arrivé — alors que l'opération précédente vient précisément de le déclarer.
+     */
+    public function connu(Voyage $voyage, ?Gare $gare): ?Passage
+    {
+        if ($voyage->getId() === null || $gare === null || $gare->getId() === null) {
+            return null;
+        }
+
+        $key = $voyage->getId() . ':' . $gare->getId();
+
+        return $this->cache[$key] ?? $this->passageRepository->findOneParVoyageGare(
+            $voyage->getId(),
+            $gare->getId()
+        );
+    }
+
     /** find-or-create (persist sans flush). Null si le voyage n'est pas persisté ou la gare manque. */
     private function pour(Voyage $voyage, ?Gare $gare): ?Passage
     {

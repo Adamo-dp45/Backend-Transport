@@ -43,6 +43,13 @@ class ActiviteLogger
     public const TICKET_REPORTE_EVICTION = 'TICKET_REPORTE_EVICTION'; // report d'un billet évincé (imputable compagnie, pas au client)
     public const TICKET_SUPPRIME = 'TICKET_SUPPRIME';
     public const TICKET_REMISE = 'TICKET_REMISE'; // remise appliquée sur un billet (audit anti-abus)
+    public const TICKET_HORS_LIGNE = 'TICKET_HORS_LIGNE'; // billet vendu à bord sans réseau, remonté à la synchronisation
+    public const TICKET_ECART_TARIF = 'TICKET_ECART_TARIF'; /*
+        - Le montant encaissé hors ligne diffère de la grille au moment de la synchronisation (un
+          tarif a été modifié pendant le trajet). Le serveur applique la grille ; la gare régularise
+          la différence avec le client. Sans cette trace, l'écart entre le reçu papier et le billet
+          enregistré passerait inaperçu.
+    */
     public const COURRIER_ANNULE = 'COURRIER_ANNULE';
     public const COURRIER_LIVRE = 'COURRIER_LIVRE';
     public const COURRIER_PERDU = 'COURRIER_PERDU';
@@ -52,6 +59,8 @@ class ActiviteLogger
     public const BAGAGE_ANNULE = 'BAGAGE_ANNULE';
     public const BAGAGE_SUPPRIME = 'BAGAGE_SUPPRIME';
     public const BAGAGE_MONTANT_FORCE = 'BAGAGE_MONTANT_FORCE'; // montant forcé ≠ tarif (audit anti sous-déclaration)
+    public const BAGAGE_HORS_LIGNE = 'BAGAGE_HORS_LIGNE'; // bagage enregistré à bord sans réseau, remonté à la synchronisation
+    public const BAGAGE_ECART_TARIF = 'BAGAGE_ECART_TARIF'; // montant perçu à bord ≠ grille de poids au moment de la synchronisation
 
     // Réservation — événements qui changent le SORT d'une place déjà payée
     public const RESERVATION_REGULARISEE = 'RESERVATION_REGULARISEE'; // no-show reporté sur un autre départ (pénalité)

@@ -12,7 +12,7 @@
     > php bin/console make:fixtures
     > php bin/console doctrine:fixtures:load
     > php bin/console make:migration
-    > 
+    > php bin/console doctrine:database:create
     > php bin/console doctrine:schema:update --force : `--env=test` pour les tests
         > php bin/console doctrine:schema:update --dump-sql
     > php bin/console doctrine:fixtures:load : `--env=test` pour les tests
@@ -31,7 +31,7 @@
 - Tirer les choses utile de la conversation `Claude` du desktop du travail
 - La possibilités d'activer ou désactiver des modules dans l'application
 
-Docker, Java(claude, chatgpt), Python(claude, chatgpt), Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
+Docker, Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
 
 
 
@@ -40,9 +40,42 @@ Docker, Java(claude, chatgpt), Python(claude, chatgpt), Server, Sql Postgre(clau
 
 
 
-**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+Moyen de paiement, on vas mettre plusieurs, mais on vas commencer par Stripe
 
-Hors-scope pour l'instant : vente hors-ligne (file d'attente + resync) — à rediscuter, réel enjeu pour un vendeur qui perd le réseau en route.
+
+
+
+php -S 10.0.2.2:8000 -t public
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+
+
+scoop install ngrok
+ngrok config add-authtoken $YOUR_AUTHTOKEN
+ngrok http 80 --url https://proud-gauntlet-elongated.ngrok-free.dev
+
+flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev
+
+
+
+
+
+
+
+
+
+Le prix ne vient jamais de l'appareil. Le téléphone calcule pour encaisser, le serveur recalcule depuis la grille. L'écart est consigné, pas appliqué : le contrôle anti-fraude reste entier. --- Faire attention à la remise
+Billet vendu 9 500 à bord  admin change tarif 	enregistré à 8 000 (grille), écart de 1 500 tracé au journal
+
+
+Je comble le trou que l'essai a révélé : sans réseau après un redémarrage, la liste des voyages ne chargeait pas — le vendeur ne pouvait même plus atteindre l'écran de vente.
+
+Trouvé au passage : le lot dispensait des permissions. Être le commercial du voyage est un bornage, pas un droit — un vendeur privé de CREER/Ticket l'obtenait en passant hors ligne. VENTE et BAGAGE sont désormais contrôlés opération par opération.
+
+Deux réserves : la correction du séparateur orphelin (« Siège 10 · 8000 FCFA · ») est dans la dernière build mais je ne l'ai pas re-jouée à l'écran, la file ayant été vidée ; et android/app/src/debug/AndroidManifest.xml autorise le trafic en clair — variant debug uniquement, la production reste en HTTPS.
+
+
+
+
 
 
 
@@ -105,6 +138,14 @@ C'est noté et rien n'a été touché — la vente reste en ligne comme aujourd'
 Je ne lance pas d'implémentation et je ne te propose pas de plan à approuver, puisque tu préfères laisser en l'état. 
 
 Pour info, on est encore en **mode plan** — tu peux en sortir quand tu veux. Le socle + la vente en ligne + « ma recette » sont livrés et verts (`flutter analyze` propre, tests OK). Dis-moi vers quoi tu veux aller ensuite.
+
+
+
+
+
+
+
+
 
 
 
@@ -3003,137 +3044,3 @@ Dans la partie Frontend.., pour le Dashbord je veux qu'il soit au style réel de
 Tu n'a pas mis de sidebar dans le Dashbord ! Quand je dis que je veux que le tableau de bord soit au style réel de shadcn/ui (→ ui.shadcn.com) je faisais allusion au sidebar-07 de shadcn/ui (→ ui.shadcn.com) !
 
 Deux pièges d'API Platform trouvés en route, documentés en §8.10 et §8.11 : **sans variable d'URI, une opération non sûre ne lit pas** (`/me/motdepasse` levait une 500 sur son chemin nominal — corrigé par un `read: true` explicite), et **`previous_data` est un clone** alors que `read_data` est l'entité gérée — persister le premier aurait tenté d'attacher un détaché portant le même identifiant.
-
-
-
-
-
-
-
-
-
-
-- - **Symfony**
-> NotCompromisedPassword a exigé symfony/http-client (installé), et je l'ai réglé en skipOnError — sur une connexion de terrain coupée, la vérification ne doit pas empêcher de créer un compte.
-#[Assert\NotBlank(message: 'Le nouveau mot de passe est obligatoire')]
-#[Assert\Length(min: 10, minMessage: 'Le mot de passe doit faire au moins {{ limit }} caractères')]
-#[Assert\NotCompromisedPassword(
-    message: 'Ce mot de passe figure dans des fuites de données connues : choisissez-en un autre',
-    skipOnError: true // La vérification interroge un service distant : sur une connexion de terrain coupée, elle ne doit pas empêcher de créer un compte
-)]
-#[Assert\Regex(
-    pattern: '/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/',
-    message: 'Le mot de passe doit contenir au moins une minuscule, une majuscule et un chiffre'
-)]
-
-`validator.yaml`
-when@test:
-    framework:
-        validation:
-            not_compromised_password: false
-
-# Le bloc 'when@test' désactivait 'not_compromised_password', qui interrogeait un service distant pendant les tests. La contrainte n'est plus posée nulle part : le réglage n'avait donc plus d'objet.
-
-
-
-
-
-
-
-
-
-
-
-Tu dois choisir les DLL compatibles avec :
-
-* ta version de PHP (`php -v`)
-* ton architecture (`x64` ou `x86`)
-* Thread Safe (TS) ou Non-Thread Safe (NTS)
-
-Par exemple, pour PHP 8.4 en x64 Thread Safe :
-
-```ini
-extension=php_sqlsrv_84_ts_x64.dll
-extension=php_pdo_sqlsrv_84_ts_x64.dll
-```
-
-Place les DLL dans ton dossier `ext` de PHP, puis ajoute-les dans ton `php.ini`.
-
-Vérifie ensuite :
-
-```bash
-php -m | findstr sqlsrv
-```
-
-Tu devrais voir :
-
-```text
-pdo_sqlsrv
-sqlsrv
-```
-
-Si Doctrine est déjà installé, tu n'as normalement rien de particulier à ajouter.
-
-Doctrine DBAL prend en charge SQL Server via le driver `pdo_sqlsrv`. La documentation de [Doctrine DBAL](https://www.doctrine-project.org/projects/doctrine-dbal/en/current/reference/configuration.html?utm_source=chatgpt.com) détaille les paramètres de connexion disponibles.
-
----
-
-## 6. Attention aux migrations
-
-C'est particulièrement important si ton projet était auparavant sous MySQL ou PostgreSQL.
-
-SQL Server possède certaines différences concernant :
-
-* les auto-increments → `IDENTITY`
-* les types `BOOLEAN`
-* `JSON`
-* `UUID`
-* les index
-* les contraintes
-* les types `DATETIME`
-* les longueurs maximales de `VARCHAR`
-* certaines syntaxes SQL spécifiques
-
-Par exemple, il vaut mieux éviter d'écrire directement des requêtes SQL spécifiques à MySQL comme :
-
-```sql
-LIMIT 10
-```
-
-Doctrine générera automatiquement la syntaxe appropriée pour SQL Server lorsque tu utilises le QueryBuilder :
-
-```php
-$repository->createQueryBuilder('u')
-    ->setMaxResults(10)
-    ->getQuery()
-    ->getResult();
-```
-
-**SQL Server - Microsoft**
-- On..  plusieurs versions
-    > `SQL Server sur site` la version qu'on peut installer en local ou sur hébergeur
-    > `!! Azure` !! cloud
-    > `!! Développeur` !! pour les développeurs, non `r` en production
-    > `!! Express` !! gratuite et `r` à la production
-- On a 3 types d'installation
-    > `Basic` va l'installer avec les paramètres par défaut
-    > `Custom` pour définir les paramètres
-    > `Download Media` pour télécharger les fichiers et l'ins.. se fera après
-- Pour avoir une interface graphique de la base de données on a `Install SSMS` SQL Server Management Studio
-    > Le nom du server ; Le nom de ma machine\le nom de l'instance
-    > Chiffrer : Facultatif sinon on aura une erreur de chaîne de certificat
-
-`microsoft.com/en-in/sql-server/sql-server-downloads`
-`learn.microsoft.com/fr-fr/ssms/install/install`
-
-MSSQLSERVER == L'instance par défaut
-SQLSERVERLESS
-User : sa
-password : Bakayoko10
-
-- Pour l'utiliser via `php`
-    > On.. télécharger les extensions `` et ``
-- 
-
-
-https://ui.shadcn.com/docs/skills 

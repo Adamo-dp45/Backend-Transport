@@ -4,7 +4,7 @@ namespace App\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
-use App\Domain\Service\ActiviteLogger;
+use App\Domain\Service\AvanceePositionService;
 use App\Entity\Dto\AvancerCommercialInput;
 use App\Entity\User;
 use App\Entity\Voyage;
@@ -26,8 +26,7 @@ class AvancerCommercialProcessor implements ProcessorInterface
         private ProcessorInterface $processor,
         private Security $security,
         private EntityManagerInterface $em,
-        private ActiviteLogger $activiteLogger,
-        private \App\Domain\Service\PassageService $passageService
+        private AvanceePositionService $avanceePosition
     )
     {
     }
@@ -60,46 +59,19 @@ class AvancerCommercialProcessor implements ProcessorInterface
             throw new AccessDeniedHttpException('Seul le commercial du voyage peut faire avancer la position du car');
         }
 
-        if ($voyage->getDatearriveereelle() !== null) {
-            throw new BadRequestHttpException('Ce voyage est clôturé');
-        }
-
-        $ligne = $voyage->getLigne();
-        if (!$ligne) {
-            throw new BadRequestHttpException('Ce voyage n\'est rattaché à aucune ligne');
-        }
-
-        // Ordres des arrêts
-        $ordreParGare = [];
-        foreach ($ligne->getArrets() as $arret) {
-            $ordreParGare[$arret->getGare()->getId()] = $arret->getOrdre();
-        }
-
-        $cibleId = $data->gare->getId();
-        if (!isset($ordreParGare[$cibleId])) {
-            throw new BadRequestHttpException('Cette gare n\'est pas un arrêt de la ligne du voyage');
-        }
-
-        // Position courante (défaut = origine EFFECTIVE : gareprovenance pour un départ partiel)
-        $courante = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
-        $ordreCourant = $courante ? ($ordreParGare[$courante->getId()] ?? 0) : 0;
-        $ordreCible = $ordreParGare[$cibleId];
-
-        // Avancement MONOTONE : on n'avance que vers l'aval
-        if ($ordreCible <= $ordreCourant) {
+        /*
+            La règle vit dans 'AvanceePositionService' : clôture, appartenance à la ligne, monotonie,
+            horodatage du passage et journal. Le REJEU d'une file hors ligne l'emprunte à l'identique
+            — une position calculée de deux façons finirait par diverger, et elle décide aussi bien
+            des trajets vendables que des réservations honorées.
+        */
+        if (!$this->avanceePosition->avancer($voyage, $data->gare)) {
+            /*
+                Le service rend 'false' quand le car y était déjà : un rejeu. En ligne, c'est une
+                erreur de l'utilisateur — il croit avancer et n'avance pas, autant le lui dire.
+            */
             throw new BadRequestHttpException('Le car ne peut avancer que vers une gare située plus loin sur la ligne');
         }
-
-        $voyage->setGarecourante($data->gare);
-
-        // Passage réel : le commercial déclare que le car est ARRIVÉ à cette gare.
-        $this->passageService->marquerArrivee($voyage, $data->gare, new \DateTimeImmutable());
-
-        $this->activiteLogger->voyage(
-            ActiviteLogger::VOYAGE_POSITION,
-            sprintf('Position du car avancée à %s', $data->gare->getLibelle()),
-            $voyage->getId()
-        );
 
         return $this->processor->process($voyage, $operation, $uriVariables, $context);
     }

@@ -107,6 +107,71 @@ class BagageProcessor implements ProcessorInterface
         // Billet du client OBLIGATOIRE : le bagage SUIT le billet (voyage, gares, identité, canal).
         $ticket = $this->resoudreTicket($data, $identreprise);
 
+        return $this->enregistrer(
+            $data,
+            $ticket,
+            $userId,
+            $identreprise,
+            codebagage: null,
+            ecrire: fn (Bagage $bagage) => $this->processor->process($bagage, $operation, $uriVariables, $context)
+        );
+    }
+
+    /**
+     * Enregistre un bagage encaissé HORS LIGNE par le vendeur à bord, au moment où sa file remonte.
+     *
+     * Passe par le MÊME pipeline que le guichet — grille de poids, canal de recette, statut dérivé du
+     * voyage, audit du forçage. Deux choses seulement changent, et elles ne relâchent aucune règle :
+     *
+     *  * le CODE vient du téléphone. Il est déjà imprimé sur l'étiquette collée sur le bagage ; le
+     *    régénérer ici rendrait l'étiquette du client illisible pour le système.
+     *  * la RÉFÉRENCE d'idempotence est posée, pour qu'un rejeu du lot ne crée pas un second bagage.
+     *
+     * Le billet, lui, est résolu par l'appelant : hors ligne il est désigné par son CODE et non par
+     * son identifiant, qui n'existe pas encore quand la vente elle-même attend dans la même file.
+     */
+    public function enregistrerHorsLigne(
+        BagageInput $data,
+        Ticket $ticket,
+        string $codebagage,
+        string $reference,
+        ?int $montantEncaisse
+    ): Bagage
+    {
+        /** @var User $user */
+        $user = $this->security->getUser();
+
+        return $this->enregistrer(
+            $data,
+            $ticket,
+            $user->getId(),
+            $user->getEntreprise()->getId(),
+            codebagage: $codebagage,
+            ecrire: function (Bagage $bagage) use ($reference, $montantEncaisse): Bagage {
+                $bagage->setReferenceOffline($reference)->setMontantEncaisse($montantEncaisse);
+                $this->em->persist($bagage);
+                $this->em->flush();
+
+                return $bagage;
+            }
+        );
+    }
+
+    /**
+     * Le corps commun au guichet et au rejeu hors ligne. Seules l'origine du code et la façon d'écrire
+     * en base distinguent les deux appelants — tout le reste est identique, et doit le rester.
+     *
+     * @param callable(Bagage): Bagage $ecrire
+     */
+    private function enregistrer(
+        BagageInput $data,
+        Ticket $ticket,
+        int $userId,
+        int $identreprise,
+        ?string $codebagage,
+        callable $ecrire
+    ): Bagage
+    {
         $voyage = $ticket->getVoyage();
         if ($voyage !== null && $voyage->getDatearriveereelle() !== null) {
             throw new BadRequestHttpException('Le voyage du billet est clôturé, enregistrement de bagage impossible');
@@ -140,10 +205,10 @@ class BagageProcessor implements ProcessorInterface
             ->setMontantforce($montantforce)
             ->setTarifbagage($tarifbagage)
             ->setStatut($this->resoudreStatut($voyage))
-            ->setCodebagage($this->generateCode($identreprise))
+            ->setCodebagage($codebagage ?? $this->generateCode($identreprise))
         ;
 
-        $bagage = $this->processor->process($bagage, $operation, $uriVariables, $context);
+        $bagage = $ecrire($bagage);
         $this->auditForcage($bagage, 'enregistrement');
 
         return $bagage;

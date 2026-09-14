@@ -42,7 +42,41 @@ class TicketProcessor implements ProcessorInterface
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = [])
     {
         /** @var Ticket $data */
+        return $this->emettre(
+            $data,
+            differee: false,
+            ecrire: fn (Ticket $ticket) => $this->processor->process($ticket, $operation, $uriVariables, $context)
+        );
+    }
 
+    /**
+     * Émission d'un billet vendu HORS LIGNE par le vendeur à bord, rejouée à la synchronisation.
+     *
+     * Passe par le MÊME pipeline que la vente en ligne — cohérence du tronçon, provenance effective,
+     * grille tarifaire, plafond de remise, rattachement client, canal commercial : tout est identique.
+     * Dupliquer ces règles ailleurs les ferait dériver, et c'est le chemin d'écriture le plus chargé
+     * en gardes de toute l'application.
+     *
+     * Seules trois choses changent, et elles sont documentées à leur point de relâchement ci-dessous :
+     * l'occupation du siège, la capacité et le code de billet. Le verrou sur le voyage, lui, est
+     * conservé : c'est lui qui sérialise le rejeu d'un lot.
+     */
+    public function emettreHorsLigne(Ticket $data): Ticket
+    {
+        return $this->emettre($data, differee: true, ecrire: function (Ticket $ticket): Ticket {
+            $this->em->persist($ticket);
+            $this->em->flush();
+
+            return $ticket;
+        });
+    }
+
+    /**
+     * @param bool     $differee vente encaissée hors ligne, rejouée après coup (cf. emettreHorsLigne)
+     * @param callable $ecrire   stratégie d'écriture : pipeline API Platform en ligne, persist direct hors ligne
+     */
+    private function emettre(Ticket $data, bool $differee, callable $ecrire)
+    {
         /**
          * @var User
          */
@@ -102,8 +136,17 @@ class TicketProcessor implements ProcessorInterface
         // - Sinon, un agent rattaché à une gare ne vend qu'au départ de SA gare.
         $estCommercial = $voyage->getCommercial() && $voyage->getCommercial()->getId() === $user->getId();
         if ($estCommercial) {
+            /*
+                RELÂCHEMENT (1/3) — position du car, en vente DIFFÉRÉE.
+
+                Le commercial EST dans le car : la gare où il a vendu est, par construction, celle où
+                le véhicule se trouvait à cet instant. Entre-temps le car a pu avancer — lui-même le
+                déclare, ou une gare en aval l'a réceptionné. Comparer la vente à la position ACTUELLE
+                rejetterait donc systématiquement les billets d'un tronçon déjà franchi, c'est-à-dire
+                précisément ceux qu'on synchronise.
+            */
             $gc = $voyage->getGarecourante() ?? $voyage->getOrigineEffective();
-            if ($gc !== null && $monteeId !== $gc->getId()) {
+            if (!$differee && $gc !== null && $monteeId !== $gc->getId()) {
                 throw new BadRequestHttpException('Vous vendez depuis la position actuelle du car (' . $gc->getLibelle() . ')');
             }
         } else {
@@ -194,23 +237,43 @@ class TicketProcessor implements ProcessorInterface
         // → empêche la double-réservation d'un même siège/tronçon (et la collision de codeticket).
         return $this->em->wrapInTransaction(function () use (
             $data, $voyage, $siege, $entrepriseId, $ordreParGare, $ligne,
-            $ordreMontee, $ordreDescente, $tarifMontant, $remise, $operation, $uriVariables, $context
+            $ordreMontee, $ordreDescente, $tarifMontant, $remise, $differee, $ecrire
         ) {
             $this->em->lock($voyage, LockMode::PESSIMISTIC_WRITE);
 
-            // (Re)vérifie la disponibilité du siège sur le tronçon, à l'abri des ventes concurrentes
-            $this->assertSiegeLibre($data, $voyage, $siege, $entrepriseId, $ordreParGare, $ligne, $ordreMontee, $ordreDescente);
+            /*
+                RELÂCHEMENTS (2/3 et 3/3) — occupation du siège et capacité, en vente DIFFÉRÉE.
 
-            // Capacité : on ne vend pas une place promise à une réservation active (billets + réservations < capacité)
-            $this->capaciteService->assertPlaceDisponible($voyage, $ordreMontee, $ordreDescente, $entrepriseId);
+                Le passager est DÉJÀ ASSIS et a DÉJÀ PAYÉ : refuser ici n'annulerait pas la vente, cela
+                ferait seulement disparaître un billet encaissé du système. On accepte donc, et c'est
+                la doctrine d'éviction (CapaciteService::billetsEvinces, priorité à la gare amont) qui
+                arbitre ensuite qui occupe réellement le siège — exactement le rôle pour lequel elle
+                existe. Le surbooking est déjà assumé par le modèle ; le hors ligne en augmente la
+                fréquence, il n'en change pas la nature.
+            */
+            if (!$differee) {
+                // (Re)vérifie la disponibilité du siège sur le tronçon, à l'abri des ventes concurrentes
+                $this->assertSiegeLibre($data, $voyage, $siege, $entrepriseId, $ordreParGare, $ligne, $ordreMontee, $ordreDescente);
 
-            // Code + prix NET (tarif - remise) : toutes les recettes (SUM(prix)) restent justes
-            $codeticket = $voyage->getCodevoyage() . '-' . $this->generateCode($entrepriseId, $voyage->getId());
-            $data
-                ->setCodeticket($codeticket)
-                ->setPrix($tarifMontant - $remise);
+                // Capacité : on ne vend pas une place promise à une réservation active (billets + réservations < capacité)
+                $this->capaciteService->assertPlaceDisponible($voyage, $ordreMontee, $ordreDescente, $entrepriseId);
+            }
 
-            $result = $this->processor->process($data, $operation, $uriVariables, $context);
+            /*
+                Le code : généré ici en ligne, REPRIS TEL QUEL en différé. Le téléphone l'a déjà
+                imprimé sur le reçu du client, QR compris — le serveur ne peut plus en décider.
+                L'unicité est garantie par la série dédiée au bord (suffixe « B ») et par l'index
+                unique sur 'codeticket'.
+            */
+            if (!$differee) {
+                $data->setCodeticket($voyage->getCodevoyage() . '-' . $this->generateCode($entrepriseId, $voyage->getId()));
+            }
+
+            // Prix NET (tarif - remise) : toutes les recettes (SUM(prix)) restent justes. Il vient
+            // TOUJOURS de la grille, jamais de l'appareil — même hors ligne.
+            $data->setPrix($tarifMontant - $remise);
+
+            $result = $ecrire($data);
 
             // AUDIT anti-abus : toute remise (manuelle ou fidélité) est tracée dans le journal d'activité
             // — qui l'a posée (auteur), combien, pour qui, sur quel billet. Base de la détection des abus.
