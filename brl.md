@@ -1256,16 +1256,9 @@ Le README reflète les deux nuances : le décalage relatif à l'origine effectiv
 
 
 
-
-
-
 Au faite, on ne doit pas bloquer la vente de Abidjan ou autre, si Bouaké s'aperçois qu'il a perdu son siège au profit de Abidjan il va crée un voyage pour les sièges perdu donc on accepte les sièges en double..
 
 Ça change la règle métier de fond : la gare amont a une priorité absolue, et le surbooking est assumé. Je reviens donc sur mon correctif — il partait d'une hypothèse que tu invalides.  README
-
-
-
-
 
 
 
@@ -1356,6 +1349,284 @@ Je n'ai rien modifié. On reprend sur l'affichage du repère `conflit`, ou tu ve
 
 
 
+## Ce que ce chiffre ne vaut pas
+
+**3,57 % n'est pas une fréquence de production.** Les 3 voyages touchés sont la même ligne Abidjan → Korhogo, avec `cap=5` et 8-9 billets vendus — c'est ton scénario de test de surbooking de la session précédente, pas de l'exploitation. Aucun des 3 voyages n'est d'ailleurs réellement parti (`datedepartreelle` vide). La fréquence ne tranche donc rien, et je ne vais pas prétendre le contraire.
+
+## Ce que le diagnostic tranche quand même
+
+Trois faits qui ne dépendent pas du volume :
+
+**1. Les 6 billets sont toujours `statut=VALIDE`.** Six passagers détiennent un billet que le système déclare valide, pour un siège qu'il a déjà attribué à quelqu'un d'autre. C'est un état faux, que ça arrive 6 fois ou 600.
+
+**2. L'un d'eux vient d'une réservation** (`resa=oui`). Donc : client mobile, paiement Mobile Money, billet émis, évincé — et `/api/reservation/suivi` lui répondra que tout va bien. C'est le cas le plus exposé, sans agent au guichet pour lui expliquer.
+
+**3. 100 % des évictions viennent d'une seule gare.** Le compteur `evinces` par gare du manifeste est donc déjà à la bonne granularité.
+
+## Ce que je propose, revu à la baisse
+
+Le volume ne justifie pas le workflow lourd. Je retire la proposition de la session dernière sur deux points :
+
+**Pas de statut stocké `DEPLACE_A_PREVOIR`.** Il dériverait : si le passager amont se désiste, le siège se libère et l'évincé redevient légitime — mais le statut stocké, lui, resterait faux. L'éviction est aujourd'hui **dérivée et auto-guérissante**, exactement dans la doctrine du projet (« état entièrement dérivé → aucune dérive », module Fidélité). Il faut la garder dérivée et l'exposer, pas la figer.
+
+**Pas de pénalité au report.** La pénalité de régularisation punit un no-show. Un évincé n'est pas un no-show : c'est la compagnie qui lui a pris son siège. C'est précisément le cas que couvre déjà `penaliteexoneree`, construit pour les départs avancés avec la justification « le changement vient de la compagnie, pas du client ». Même situation, même exonération, mécanisme déjà en place.
+
+Reste donc un chantier léger : exposer l'éviction sur le billet (dérivée), l'afficher là où on lit un statut de billet — plan des sièges, liste, manifeste, et suivi public — et offrir à la gare une action de report exonérée qui réutilise le circuit de régularisation.
+
+
+
+
+
+La gare émettrice **est** la gare dépossédée — Bouaké a vendu les 6 billets et c'est Bouaké qui les perd. Celle qui doit reloger est donc déjà la seule autorisée à agir. Une action dédiée réécrirait cette règle à l'identique.
+
+## Les deux seuls ajouts nécessaires
+
+**1. Un discriminant sur le motif.** Aujourd'hui un report d'éviction serait indistinguable d'un report demandé par le client. Ça pollue l'anti-fraude : le module Journal d'activité suit le « taux d'annulation par agent », et un agent qui reloge six évincés passerait pour un agent suspect alors qu'il subit une règle d'exploitation. Il faut que `ActiviteLogger` sache que ce report est **imputable à la compagnie**.
+
+**2. La garde du voyage clôturé.** `reporter()` refuse si le voyage d'origine est clôturé ([:70](Backend-Transport/src/State/DesistementProcessor.php:70)) — or une éviction se découvre tard, potentiellement après la clôture. À trancher : soit on relève la garde pour ce cas, soit on impose de traiter les évincés avant clôture (ce qui donne un sens fort au compteur `evinces` du manifeste : le terminus ne clôture pas tant qu'il reste des évincés non traités).
+
+## Quand une action dédiée aurait été justifiée
+
+Si le relogement avait des règles propres — priorité sur le prochain départ, gratuité d'un surclassement, délai garanti. Ce n'est pas le cas : le tronçon, la ligne et le prix sont identiques. Un endpoint dédié dupliquerait la centaine de lignes de validation siège/tronçon/ligne, alors que `assertSiegeLibre()` est **déjà** dupliqué entre `TicketProcessor` et `DesistementProcessor`. En rajouter une troisième copie serait le vrai coût.
+
+Le point 2 est un arbitrage métier que je ne peux pas trancher seul : on relève la garde, ou on bloque la clôture tant qu'il reste des évincés ?
+
+
+
+
+Ce que la mesure a révélé sur le plan des sièges
+
+En vérifiant TicketForm, j'ai constaté que le plan est toujours chargé par tronçon (montee + descente obligatoires). Or conflit est global au voyage. Conséquence : sur un tronçon situé en aval du point où l'éviction se produit, un siège en conflit peut être légitimement libre ou occupé par un passager qui, lui, voyage bien. Le colorer comme « revendu » y serait faux — et pendant une vente, ça pourrait dissuader un agent de vendre un siège pourtant vendable.
+
+Autrement dit, le plan — que ta note désignait comme la prochaine étape — s'avère la surface la plus faible et la plus piégeuse pour ce repère. D'où mes deux questions.
+
+
+
+Le plan des sièges est toujours vu par tronçon, alors que « conflit » est global au voyage. Comment rendre le repère conflit dans PlanCar ?
+
+Overlay discret non bloquant
+
+Faut-il exposer l'éviction au client invité via /api/reservation/suivi (apps mobiles Flutter + React Native) ?
+
+Non, rien côté client
+
+
+Une seule pièce : marquer le report d'un évincé comme imputable à la compagnie, pour que ActiviteLogger ne compte pas ces reports dans le « taux d'annulation par agent » (anti-fraude). C'est un changement backend — DesistementProcessor + un discriminant sur le motif — plus un petit ajustement de l'UI de désistement.
+
+C'est la partie « traitement », distincte de l'affichage qu'on vient de finir. Je m'y attaque, ou tu préfères t'arrêter là et que je te propose d'abord la mise à jour de la section Billetterie du README pour acter le repère d'éviction ?
+
+
+
+
+Correctif 4 — garde de position dans reporter(), avec exemption des évincés. Je la place juste après la détection d'éviction :   reporter() applique assertMonteeNonAtteinte comme annuler(), avec exemption des évincés (la compagnie doit pouvoir les reloger même après le passage du car). Le code rejoint le contrat du README.
+
+
+
+entité Passage, capture aux 4 points + action /repartir + bouton commercia
+Donc l'ordre naturel est : réception → (bordereau si besoin) → repartir → (bordereau complet).
+
+
+
+
+
+
+
+
+Deux sujets. Je commence par le **bug de fuseau horaire** (c'est un problème de données en prod, prioritaire), puis je fais l'exposition mobile.
+
+Le symptôme (15:00 → 13:00 en prod, correct en local, écart de 2h) est une signature classique de **fuseau horaire**. La différence local/prod = le `date.timezone` du serveur. Je dois voir le trajet exact de la date : saisie → back → affichage. Je regarde l'affichage dans `VoyageTable`, la fonction de formatage, et la sérialisation.
+
+`formatDate` est la clé de l'affichage. Je la lis.
+
+`formatDate` n'est pas dans functions.ts. Je regarde son import dans VoyageTable et sa définition.
+
+Affichage: `new Date(d).toLocaleDateString("fr-FR", {...})` **sans `timeZone`** → rend dans le fuseau du **navigateur**. Le navigateur est le même en local et en prod → donc l'écart vient forcément du **back** : l'instant absolu sérialisé (ou la valeur stockée) diffère entre local et prod.
+
+Mon raisonnement pur donne des résultats contradictoires selon le fuseau supposé (navigateur, serveur FT, serveur API, MySQL) — trop de permutations. La mémoire est claire : **mesurer, ne pas conclure sur lecture**. Je vais tracer le mécanisme exact : (1) comment le FT poste la date à l'API, (2) le fuseau PHP, (3) la valeur réellement stockée en base, (4) ce que sérialise l'API. Je commence par le trajet d'écriture côté FT.
+
+Le FT poste `format('Y-m-d\TH:i:s.v\Z')` — le `\Z` est un **littéral** : il imprime le wall-clock (15:00) avec un « Z » collé, **sans convertir** en UTC. Donc l'écriture envoie la même valeur en local et prod. L'écart doit donc venir de la **lecture/sérialisation** de l'API (l'offset attaché dépend du fuseau PHP du serveur). Mais mon raisonnement pur se contredit — je mesure.
+
+Je récupère les faits durs : fuseau PHP configuré des deux apps, config de normalisation datetime de l'API, et je regarde une valeur réelle.
+
+Pas de config timezone explicite dans le back → il utilise `date_default_timezone_get()` (donc le `date.timezone` du php.ini : souvent différent local/prod). Je mesure directement sur le système local : fuseau PHP, valeur brute stockée en base, objet hydraté, et la chaîne JSON exacte que sort l'API. Je regarde d'abord une commande Tmp existante pour la structure, puis j'écris un diagnostic **lecture seule**.
+
+Diagnostic **lecture seule** : fuseau PHP, fuseau MySQL, valeur brute en base (SQL direct), objet hydraté avec offset, et la chaîne JSON exacte sérialisée par le serializer (groupe `read:Voyage`).
+
+**Diagnostic mesuré — voici le mécanisme complet.** En local :
+- PHP `date_default_timezone_get()` = **UTC**
+- Valeur brute en base = `2026-07-23 15:50:00` (DATETIME **naïf**, sans fuseau)
+- Objet hydraté = `15:50:00+00:00` → JSON API = `2026-07-23T15:50:00+00:00`
+
+Comme l'affichage local est correct (15:50), **le navigateur de l'utilisateur est à UTC+0** (Abidjan) — cohérent : `new Date("15:50+00:00")` rendu en UTC+0 = 15:50.
+
+Maintenant je remonte la chaîne d'écriture pour confirmer que la valeur stockée est bien **la même** en local et prod (indépendante du fuseau), donc que le bug est purement à la **lecture**. Je vérifie le Doctrine type + le point de bootstrap où fixer le fuseau, et le fuseau du FT.
+
+Mécanisme confirmé : DATETIME **naïf** en base + Doctrine réhydrate dans le fuseau PHP du serveur (ici UTC → offset `+00:00`). Je cherche une trace de config de fuseau (Docker/php.ini/deploy) qui confirmerait le `Europe/Paris` en prod, et je vérifie le fuseau du FT.
+
+Confirmé : **aucune** config de fuseau dans les deux apps ni dans le déploiement → chaque hôte impose son `date.timezone` (local = UTC, prod ≠ UTC). C'est exactement la cause de l'écart. Je mesure le fuseau du FT pour être complet.
+
+Les deux apps sont en **UTC en local**, aucune config de fuseau nulle part → chaque hôte impose son `date.timezone`. Diagnostic complet et mesuré. J'applique le correctif au niveau racine (fixer le fuseau applicatif à UTC dans les deux Kernels, indépendamment du php.ini de l'hôte). Je lis le Kernel du FT.
+
+Les deux Kernels sont identiques. Je fixe le fuseau applicatif à **UTC** dans chacun, via le constructeur (couvre web + CLI, s'exécute avant toute hydratation).
+
+Le pin est en place. Maintenant je **prouve** la prédiction : je sérialise le même voyage sous UTC (le pin) puis sous `Europe/Paris` (simulation prod) pour démontrer le décalage de −2h exact que l'utilisateur observe.
+
+**Preuve faite.** Même valeur naïve `2026-07-23 15:50:00` en base :
+- Serveur **UTC** → JSON `15:50+00:00` → affiché **15:50** ✓
+- Serveur **Europe/Paris** → JSON `15:50+02:00` → affiché **13:50** (−2h) ✗
+
+C'est exactement ton symptôme (15:00 → 13:00). Je supprime la commande de diagnostic.
+
+Je scanne rapidement les autres endroits où des datetime « prévus » sont affichés, pour répondre précisément à ton « est-ce que ça se fait ailleurs ».
+
+Voilà le diagnostic complet et **prouvé par mesure**, puis j'enchaîne sur l'exposition mobile.
+
+## Bug fuseau horaire — pourquoi 15:00 → 13:00 en prod
+
+**Cause racine : aucune des deux apps ne fixe de fuseau horaire.** Elles héritent du `date.timezone` du php.ini de l'hôte — **UTC en local, mais un fuseau UTC+2 en prod** (typiquement `Europe/Paris`, ce qui colle avec le −2h en juillet = heure d'été CEST).
+
+Le trajet mesuré d'une date de départ prévue :
+
+1. Tu saisis `15:00` (heure murale). Le FT la poste avec `format('Y-m-d\TH:i:s.v\Z')` — le `\Z` est un **littéral** : il colle un « Z » sans convertir → l'API reçoit `15:00Z`.
+2. Doctrine stocke un `DATETIME` **naïf** : `2026-07-23 15:00:00` (sans fuseau). ✅ **Identique en local et en prod.**
+3. À la **lecture**, Doctrine réhydrate cette valeur naïve dans le fuseau PHP **du serveur**, et l'API la sérialise **avec cet offset**. C'est là que tout se joue — je l'ai reproduit sur ton voyage réel (valeur stockée `15:50`) :
+
+| Serveur | JSON sérialisé | Affiché (navigateur UTC+0) |
+|---|---|---|
+| **UTC** (ton local) | `15:50:00+00:00` | **15:50** ✓ |
+| **Europe/Paris** (ta prod) | `15:50:00+02:00` | **13:50** ✗ (−2h) |
+
+Le navigateur (`new Date(...).toLocaleDateString(...)` dans `formatDate`) rend l'**instant absolu** dans le fuseau de la machine — et ta machine est à **UTC+0 (Abidjan)**. La même valeur stockée, étiquetée `+02:00` par le serveur prod, devient un instant 2 h plus tôt → −2h à l'écran.
+
+## Est-ce que ça se fait ailleurs ? — Oui
+
+C'est un **bug de fuseau serveur**, donc il touche **partout où une date « prévue » saisie est renvoyée au navigateur puis rendue en JavaScript** : `VoyageTable`, `VoyagesCollectionTable`, `TicketTable`, les formulaires React (`ReservationForm`, `DesistementForm`, `ReservationWeb`), les heures de passage calculées, **et les apps mobiles**. En revanche :
+- Les rendus **Twig côté serveur** (`|date`) ne bronchent pas : ils réhydratent ET affichent dans le même fuseau serveur, qui s'annule.
+- Les horodatages **générés serveur** (`createdAt`, départ/arrivée réels, passages) restent corrects : ils préservent un instant réel de bout en bout.
+
+## Correctif appliqué (racine, une seule cause)
+
+J'ai épinglé le fuseau applicatif à **UTC** dans les deux Kernels ([Backend](Backend-Transport/src/Kernel.php), [Frontend](Frontend-Transport/src/Kernel.php)), indépendamment du php.ini de l'hôte. La compagnie opère en UTC+0 (Abidjan) et ton local est déjà en UTC et correct → la prod se comportera désormais **exactement comme le local**, et **toutes** les surfaces ci-dessus (dont le mobile) sont corrigées d'un coup.
+
+⚠️ **Une nuance à connaître pour la prod** : les horodatages « temps réel » déjà écrits en base **sous Europe/Paris** (départs/arrivées réels passés) seront désormais relus en UTC et s'afficheront +2h. Sur des données de test jetables c'est sans conséquence ; les nouvelles écritures seront cohérentes. Dis-moi si ta prod contient des données réelles à préserver — sinon on est bon.
+
+---
+
+Je passe à l'**exposition mobile** (position du car + retard estimé dans le suivi). Je lis d'abord la façade publique pour voir ce qui est déjà exposé.
+
+Le suivi renvoie un `ReservationPubliqueDto` via le mapper. Je lis le DTO et le mapper pour voir où greffer la position du car + le retard estimé.
+
+Je vois la structure. Il me faut exposer la **position du car** (`garecourante`) + un **retard estimé courant**. Le retard se calcule comme dans les bordereaux : `arriveeReelle(gare courante) − heurePassage prévue`. Je regarde `ReservationEcheanceService` et comment le retard est déjà calculé, pour centraliser proprement.
+
+Je comprends le domaine. J'ajoute au suivi public : **position du car**, **voyage démarré**, **retard estimé courant**, et une **heure de passage estimée** (révisée du retard) chez le client. Je vérifie d'abord les getters du Voyage dont j'ai besoin.
+
+Tous les getters existent. J'ajoute `retardCourantMinutes` au service, juste après `heurePassage`.
+
+Maintenant les champs du DTO public :
+
+Et je peuple le mapper :
+
+Je factorise `heurepassage` pour réutiliser `$heurePrevue` déjà calculé :
+
+Je vérifie qu'aucune autre construction de `ReservationPubliqueDto` ne casse avec les nouveaux paramètres requis.
+
+Tout passe par `versDto` — mon changement couvre suivi, historique et création. Avant de tester, je vérifie le contexte de sérialisation du suivi (les `null` sont-ils retirés ? ça détermine l'optionalité côté mobile).
+
+Le suivi n'a pas de `normalizationContext` explicite → défaut API Platform. Je vérifie le défaut `skip_null_values` (il conditionne si les nouveaux champs `null` sont absents du JSON, donc leur optionalité côté mobile).
+
+Pas de `skip_null_values` explicite → défaut API Platform 3 = **les `null` sont retirés du JSON**. Donc côté mobile, `retardMinutes` / `positionActuelle` / `heurepassageEstimee` seront **optionnels** (absents si null), `voyageDemarre` (bool) toujours présent. Je mesure la forme JSON réelle sur une vraie réservation.
+
+Mesuré et correct. Voyage #26 démarré, car à Bouaké :
+- `voyageDemarre: true`, `positionActuelle: "Gare de bouaké"`, `retardMinutes: -198` (le jeu de test a un départ réel très en avance — l'arithmétique est juste : réel − prévu), `heurepassageEstimee` = heure prévue + retard.
+- `billetEmis`/`paiement` absents → confirme que les `null` sont retirés (donc champs optionnels côté mobile).
+- Sérialisé en `+00:00` → le pin UTC fonctionne.
+
+Je supprime le diagnostic et passe aux apps mobiles.
+
+Backend fait et mesuré. Passons au **Flutter (resaflutter)**. Je repère le modèle du suivi et l'écran qui l'affiche.
+
+J'ajoute les champs au modèle Flutter. Voyons d'abord l'UI du suivi pour brancher l'affichage.
+
+`ReservationDetails` est partagé entre suivi et historique. Le bloc « où est mon car » ne doit apparaître qu'en **suivi** (pas sur l'historique). Je regarde `track_page.dart` et le formatter pour brancher proprement.
+
+Je regarde les formatters disponibles pour l'affichage (heure, retard).
+
+`Formatters.dateTime` fait `toLocal()` → sur un appareil à Abidjan (UTC+0) + le back désormais en `+00:00`, l'heure est correcte. Le pin UTC corrige donc aussi le mobile.
+
+J'ajoute les champs + getters au modèle Flutter :
+
+Maintenant le bloc de suivi dans `ReservationDetails`, activé uniquement en mode suivi :
+
+Et j'active le suivi depuis `track_page` :
+
+Je régénère les fichiers freezed/json du modèle Flutter.
+
+Régénéré. Je vérifie que les fichiers générés portent bien les nouveaux champs.
+
+Flutter généré OK. Je lance l'analyse statique sur le feature réservation pour valider (couleurs du thème, types).
+
+Flutter terminé et propre. Passons au **React Native (resanative)**. Son `AGENTS.md` impose de lire la doc Expo v57 avant de coder — je le lis d'abord, puis je repère les types et l'écran de suivi.
+
+Ma modification RN est purement types + UI (aucun module Expo natif nouveau), donc je vais surtout **calquer les patterns existants** de l'app. Je repère les types et l'écran de suivi.
+
+J'ajoute les champs + helpers au type RN :
+
+Maintenant l'UI RN. Je lis `ReservationDetails.tsx` et `TrackScreen.tsx` pour calquer le style existant.
+
+Je regarde le thème (couleurs) et le composant `Text` pour brancher l'accent couleur du retard.
+
+Je vérifie l'API du composant `Text` (comment appliquer une couleur) et `Card`.
+
+`Text` gère `tone` (`danger`, `success`, `muted`…). J'utilise `danger` pour le retard, `success` pour à l'heure/avance. Je mets à jour `ReservationDetails.tsx` :
+
+Maintenant `TrackScreen.tsx` doit passer `showTracking`. Je le lis.
+
+Je typecheck l'app RN.
+
+Aucune erreur de type — RN validé. Les deux apps sont faites. Je documente dans le README backend (source de vérité métier) la façade publique enrichie. Je repère la section.
+
+Je documente aussi le fuseau horaire (fait opérationnel important). Je cherche une section technique/config dans le README.
+
+There's a Production section — j'y ajoute la note fuseau horaire.
+
+Tout est en place et validé :
+- **Backend** : la commande de diagnostic `app:tmp:suivi` avait déjà booté le conteneur complet et exercé le service+DTO+mapper avec succès (position/retard/heure estimée corrects) → backend validé de bout en bout.
+- **Flutter** : `dart analyze` propre + code freezed régénéré.
+- **RN** : `tsc --noEmit` sans erreur.
+
+Je marque la dernière tâche terminée.
+
+Les deux demandes sont traitées et validées.
+
+## 1. Bug fuseau horaire — résolu à la racine
+
+**Pourquoi 15:00 → 13:00 en prod :** aucune des deux apps ne fixait de fuseau, elles héritaient du `date.timezone` de l'hôte (**UTC en local, UTC+2 en prod**). Les dates « prévues » sont stockées en `DATETIME` **naïf** ; à la lecture, l'API leur colle l'offset du serveur. Le même `15:00` stocké ressort `15:00+00:00` en local (affiché 15:00 sur ton navigateur à UTC+0) mais `15:00+02:00` en prod (= instant 13:00 → affiché **13:00**). Prouvé par mesure sur ton voyage réel.
+
+**Où d'autre :** partout où une date prévue est rendue en JS/mobile (toutes les tables React, les formulaires, **et les apps mobiles**). Les rendus Twig et les horodatages temps-réel générés serveur n'étaient pas touchés.
+
+**Correctif :** `date_default_timezone_set('UTC')` épinglé dans les deux [Kernel backend](Backend-Transport/src/Kernel.php) et [Kernel FT](Frontend-Transport/src/Kernel.php) → prod = local partout, une seule cause corrigée. Documenté dans le [README](Backend-Transport/README.md) (section Production).
+
+⚠️ Rappel : les horodatages temps-réel déjà écrits en prod **sous Europe/Paris** s'afficheront +2h après bascule. Sans conséquence sur des données de test ; dis-moi si ta prod a des données réelles à préserver.
+
+## 2. Exposition « où est mon car » — les deux apps
+
+**Backend** ([suivi public](Backend-Transport/src/State/Public/ReservationPubliqueMapper.php)) — 4 champs ajoutés au DTO du suivi :
+- `voyageDemarre`, `positionActuelle` (gare courante), `retardMinutes` (retard courant signé = réel − prévu à la position, nouveau [`retardCourantMinutes`](Backend-Transport/src/Domain/Service/ReservationEcheanceService.php)), `heurepassageEstimee` (heure prévue chez le client + retard).
+
+**Flutter** ([resaflutter](resaflutter/lib/features/reservation/presentation/widgets/reservation_details.dart)) — carte « Suivi du car » (position · état coloré · passage estimé), modèle freezed régénéré, affichée **uniquement en suivi**.
+
+**React Native** ([resanative](resanative/src/features/reservation/components/ReservationDetails.tsx)) — même carte, mêmes règles, types + helpers ajoutés.
+
+Les trois champs optionnels sont **omis quand null** (skip_null_values) → les clients les traitent comme optionnels, le bloc n'apparaît qu'une fois le car parti et jamais sur l'historique.
+
+Le grand chantier exploitation (4 notions) est donc complètement clos, exposition mobile comprise.
+
+
+
+
+Y'a t'il des actions dans l'application qu'on pourrait simplifier pour une meilleur expérience utilisateurs !
+    - Création de voyage : créer puis affecter. On crée le voyage, puis on ouvre sa fiche pour affecter le car (et le commercial). Pour le cas courant où le car est déjà connu, un champ optionnel dès le formulaire éviterait le détour.
+    - Confirmations navigateur (confirm()). Beaucoup d'actions passent par la boîte de dialogue native du navigateur — fonctionnel mais brutal et incohérent avec le reste de l'UI. Une confirmation in-app unifiée serait plus propre (mais c'est cosmétique et plus large).
 
 
 
@@ -1366,6 +1637,153 @@ Je n'ai rien modifié. On reprend sur l'affichage du repère `conflit`, ou tu ve
 
 
 
+Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
+    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
+    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+
+Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+
+Aussi je t'avais dit qu'il y'a quelques informations sur les modules de l'application dans le README.md du Backend-Transport que tu mettais à jour régulièrement
+
+Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour, aussi les applications mobile pour la partie réservation
+
+
+
+
+
+## Vue d'ensemble — 4 projets, architecture séparée
+
+| Projet | Rôle | Stack |
+|---|---|---|
+| **Backend-Transport** | API + métier (source de vérité) | Symfony, ApiPlatform, LexikJWT, RefreshToken |
+| **Frontend-Transport** | Interface interne (agents/admin) | Symfony, Twig, React UX, Shadcn, Tailwind v4 |
+| **resaflutter** | App mobile réservation client | Flutter, Riverpod 3, Dio, freezed, go_router |
+| **resanative** | App mobile réservation client (jumelle) | Expo SDK 57, expo-router, React Query, axios, zustand |
+
+Les `brl.md` (BK + FT) sont bien ignorés. Le **README backend reste la doc métier de référence** — il est complet et couvre les ~15 modules (Exploitation, Billetterie, Réservation, Recette, Fidélité, Courrier, Bagage, etc.).
+
+## Ce que confirme le code réel
+
+**Backend** — très structuré : `src/State/Public/` porte toute la façade réservation publique. La ressource `Entity/Data/ReservationPublique.php` expose **8 endpoints `/api/reservation/*`** en `PUBLIC_ACCESS`, périmètre par `?slug=` :
+
+`compagnie` · `villes` · `gares` · `destinations` · `departs` · `POST reservations` · `suivi` · `historique` · `POST paiement/webhook`
+
+Le `ReservationPubliqueDto` expose bien les champs métier clés du README : `heurepassage` (heure à la gare de montée du client), plus le bloc suivi temps réel « où est mon car » (`voyageDemarre`, `positionActuelle`, `retardMinutes`, `heurepassageEstimee`) — omis quand null.
+
+**Les deux apps mobiles sont symétriques et parfaitement alignées** sur ce contrat :
+- Mêmes 8 appels, mêmes paramètres (`ville`, `gare`, `provenance`/`destination`, `code`+`contact`).
+- Paiement **simulé** : l'app déclenche elle-même le webhook (`confirmPayment`/`confirmPayment`).
+- Champs de suivi mappés à l'identique (RN dans [types.ts](resanative/src/features/reservation/api/types.ts), Flutter via freezed).
+- Repli propre `heurepassage ?? datedepartprevue` côté client — jamais de recalcul local, la réservabilité reste décidée par le serveur (conforme au README).
+- Découpage feature-first en couches identique (data/domain/presentation ↔ api/store/screens), UI jamais couplée à Dio/axios.
+
+**Frontend interne** — auth par `ApiAuthenticator`/`ApiUserProvider`/`ApiUser`, remember-me via cookie refresh-token, filtres serveur (`TableHelper`/`TableQueryBuilder`), controllers React par module (dont un dossier `Public`).
+
+**Git** : côté BK/FT plusieurs commits (dernier commun « feat: Ajout de plusieurs fonctionnalités et correction de bugs ») ; les deux mobiles sont encore à leur commit initial.
+
+Je note aussi, conformément à ce qu'on s'était dit : environnement **local avec données de test jetables**, base = banc d'essai actif (commandes `Tmp*` en transaction annulée), et **je demande avant toute écriture en base**.
+
+Je suis calé. Sur quoi veux-tu qu'on travaille — une évolution/correction sur le backend, le frontend, ou l'une des apps mobiles ?
+
+
+
+
+
+
+
+« Intelligent » = simplement des notifications automatiques (pas de ML/détection d'anomalies)
+
+Le scoping par gare est limpide. Point de conception important : les alertes ont des audiences hétérogènes (une alerte stock ou anti-fraude ne va pas au même destinataire qu'un « voyage sans car à ma gare »), donc un simple GareScope ne suffira pas — il faudra un AlerteProvider dédié branché au pipeline (comme InventaireProvider). Regardons un modèle d'entité à statut et le service-balayeur des réservations pour calquer la génération/résolution.
+
+entité Alerte alimentée par un cron balayeur (réconciliation)
+
+
+
+## Le principe du « cron balayeur » (réconciliation)
+
+Un **cron** est une tâche planifiée qui s'exécute toute seule à intervalle régulier — le planificateur du serveur (cron Linux / Tâches planifiées Windows) lance `php bin/console app:alertes:generer` toutes les 5–10 min, sans intervention.
+
+**« Balayeur »** = à chaque exécution, la commande *balaie* l'état courant de l'app (stocks, voyages, réservations, dépannages…) et le *réconcilie* avec les alertes déjà en base.
+
+**Pourquoi ce modèle plutôt qu'événementiel ?** Les situations qui déclenchent une alerte sont souvent **dérivées et transitoires** : un stock qui passe sous le seuil, un passager évincé, un bon qui va expirer. Ce ne sont pas des « événements » ponctuels (personne ne clique sur « le stock est bas ») — ce sont des **états** qui deviennent vrais puis redeviennent faux tout seuls. Un balayage périodique les capte sans devoir instrumenter chaque recoin du code.
+
+**La réconciliation**, à chaque passage, pour chaque entreprise :
+1. Calculer les situations **actuellement vraies**, chacune avec une clé stable (`STOCK_RUPTURE:45`).
+2. Comparer aux alertes en base :
+   - vraie maintenant **+ pas d'alerte** → on **crée** l'alerte ;
+   - vraie **+ alerte déjà là** → on ne fait rien (au plus on rafraîchit le message) ;
+   - **plus vraie** + alerte encore active → on la **résout** (elle sort de la cloche).
+
+**Idempotent** = relancer 10 fois d'affilée donne le même résultat qu'une fois : la clé de déduplication empêche tout doublon. C'est un peu comme un **thermostat** qui *relit* la température régulièrement et ajuste, au lieu d'attendre qu'on lui *signale* chaque degré. C'est exactement le pattern déjà en place pour `app:reservations:expirer` (`ReservationExpirationService::traiter()`) — on réutilise ce modèle éprouvé.
+
+
+
+
+Pour l'automatiser (Windows, toutes les 10 min) — Planificateur de tâches :
+schtasks /Create /SC MINUTE /MO 10 /TN "iTransport Alertes" /TR "php C:\Users\adamo\Documents\Web\iTransport\Backend-Transport\bin\console app:alertes:generer"
+
+
+
+
+Côté imprimante, règle le pilote sur 80 × 160 mm + découpe après chaque page — les deux corrections visent ce réglage.
+
+
+
+
+Comment veux-tu rafraîchir le plan des sièges pendant la vente (pour refléter les ventes concurrentes) ?
+    Polling auto + indicateur
+
+Parfait : polling auto + indicateur pour le plan de sièges, et stat des alertes en bonus. Deux chantiers. Je commence par le polling — je dois d'abord comprendre comment la page de vente charge le plan de sièges aujourd'hui (AJAX ou rendu serveur). J'explore.
+
+Le plan de sièges est en React (PlanCar.tsx / TicketForm.tsx via Symfony UX React), pas en Twig — donc le polling se fait dans le composant React (idiomatique : useEffect + setInterval). Je lis le formulaire de vente pour voir comment les sièges sont chargés.
+
+Je comprends le composant : loadSieges() recharge le plan (et réinitialise la sélection). Pour le polling, il me faut un rafraîchissement silencieux qui préserve la sélection de l'agent et le prévient si un de ses sièges vient d'être pris. J'implémente ça proprement en React.
+
+
+Candidats « confort » (non bloquants, pas nécessaires) — rien n'y dépend d'une donnée fraîche pour éviter une erreur :
+    Ma gare → Suivi des cars (position/retard des cars en approche) : un rafraîchissement continu donnerait un vrai suivi temps réel.
+    Liste des voyages (colonne « Position du car »).
+
+
+
+
+
+
+
+
+## Architecture d'ensemble
+
+| Projet | Rôle | Stack |
+|---|---|---|
+| **Backend-Transport** | API centrale multi-entreprises / multi-gares | Symfony · ApiPlatform · LexikJWT · RefreshTokenBundle |
+| **Frontend-Transport** | Interface interne (agents, gares, admin) | Symfony · Twig · React UX · Shadcn · Tailwind v4 |
+| **resaflutter** | App mobile réservation client (invité) | Flutter · Riverpod 3 · Dio · freezed · go_router |
+| **resanative** | App mobile réservation client (invité) | Expo SDK 57 · React Query · axios · zustand |
+
+Les deux apps mobiles portent **le même parcours** (Accueil → tunnel *trajet → départ → passager → paiement* → confirmation/bon, + **suivi** « où est mon car » + **historique**) et ne consomment que l'**API publique** `/api/reservation/*` (multi-tenant via `?slug=`). La façade web `WebClientController` est volontairement en commentaire.
+
+## Le métier, en bref (détail dans le README backend)
+
+- **Exploitation** : `Ligne` = suite ordonnée d'`Arret` (avec `dureeTronconMinutes` → heures de passage recalculées, jamais stockées) ; `Voyage` = instance datée ; droits par position de gare (origine prépare · intermédiaire réceptionne · terminus clôture) ; **départs partiels**, commercial à bord, **passages réels** (`Passage`) et **recalage** des tronçons sur la médiane observée.
+- **Billetterie** : émission **par tronçon**, **priorité absolue à l'amont**, on **compte des sièges pas des passagers**, **surbooking assumé**, et son pendant l'**éviction** (dérivée, `CapaciteService::billetsEvinces`, report d'évincé imputable compagnie et persisté) — le chantier « sièges évincés » que ma mémoire note **LIVRÉ**.
+- **Réservation** : place (pas siège) en invité, paiement Mobile Money **simulé**, double délai présentation/paiement, repêchage des no-show à la replanification, réservabilité **décidée par le serveur**.
+- Puis **Personnel/RH, Stock/Appro, Flotte/Maintenance, Courrier, Bagage, Fidélité, Recette (3 canaux), Journal d'activité/anti-fraude, Alertes (dérivées+persistées), Dashboard/Rapports (dont ponctualité & qualité de la donnée)** ; plus **Administration** (RBAC, hiérarchie de gestion) et **Système** (maintenance globale super-admin).
+
+## État actuel du dépôt (important)
+
+Les **4 projets ont des modifications non committées** — visiblement la suite du dernier gros chantier (Passages/horaires réels, éviction, ETA gares aval, ponctualité) :
+
+- **Backend** : dernier commit `d3d27e8`. En cours : `ReservationEcheanceService`, `PonctualiteStatsController`, `GareSuiviController`, entités `Voyage/Ticket/Bagage/Courrier/Depannage`… + **suppression de `Data/Corbeille.php` et `CorbeilleRegistry.php`**.
+- **Frontend** : composants React modifiés (`ReservationTable`, `TicketForm/Table`, `BagageTable`, `LigneForm`, `VoyageTable`, `PieceTable`) ; **`public/build` supprimé → à régénérer (`npm run build`)**.
+- **resaflutter / resanative** : modèles & écrans modifiés (probablement l'ajout de `heurepassage` / suivi / ETA côté client).
+
+Je me suis abstenu de toucher à quoi que ce soit (les modifs en cours et la base de test sont ton banc d'essai — je demande avant d'écrire).
+
+Sur quoi veux-tu qu'on avance ? Quelques pistes selon ton intention :
+
+- **Continuer/finaliser** le chantier en cours (les modifs non committées ont-elles un objectif précis à boucler ?)
+- **Régénérer le build front** et vérifier la cohérence bout-en-bout backend ↔ mobiles
+- **Autre chose** (nouvelle fonctionnalité, bug, revue de code…)
 
 
 
@@ -3044,3 +3462,1492 @@ Dans la partie Frontend.., pour le Dashbord je veux qu'il soit au style réel de
 Tu n'a pas mis de sidebar dans le Dashbord ! Quand je dis que je veux que le tableau de bord soit au style réel de shadcn/ui (→ ui.shadcn.com) je faisais allusion au sidebar-07 de shadcn/ui (→ ui.shadcn.com) !
 
 Deux pièges d'API Platform trouvés en route, documentés en §8.10 et §8.11 : **sans variable d'URI, une opération non sûre ne lit pas** (`/me/motdepasse` levait une 500 sur son chemin nominal — corrigé par un `read: true` explicite), et **`previous_data` est un clone** alors que `read_data` est l'entité gérée — persister le premier aurait tenté d'attacher un détaché portant le même identifiant.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Flutter
+
+Je viens d'installer un projet Flutter (commercialflutter) dans le dossier. Je veux que tu développe l'application mobile pour le commercial et je veux une application propre, évolutive et maintenable, en appliquant les bonnes pratiques du développement Flutter
+
+
+
+
+Excellent, une nouvelle app mobile pour le commercial à bord. C'est un vrai chantier. Je suis en plan mode, donc je vais explorer en profondeur avant de te proposer un plan — sans rien modifier.
+
+Deux références clés existent déjà : l'app **`resaflutter`** (que tu as jugée propre) pour l'architecture Flutter, et tout le **backend commercial** (le commercial est un `User` authentifié, contrairement au client anonyme de `resaflutter`). Je commence par ces trois axes.
+
+`commercialflutter` est un projet Flutter **vierge** (seul `main.dart` par défaut, aucune dépendance) — page blanche, SDK 3.12. Je vais donc tout construire. J'étudie l'architecture de `resaflutter` (ta référence) en détail.
+
+Architecture confirmée : Riverpod 3, dio, go_router, freezed, feature-first (core + features). Je lis la couche réseau/config pour saisir les patterns exacts à réutiliser — et repérer ce qui manque pour l'auth (le commercial est authentifié, `resaflutter` ne l'est pas).
+
+Patterns réseau clairs (dio partagé, `ApiException.fromDio`, config par `--dart-define`). Je lis le routage, la couche providers/repository et un modèle freezed, pour caler l'ossature.
+
+J'ai toute l'ossature Flutter (freezed + repository + providers Riverpod). Le point qui change tout : **l'authentification** (le commercial est un `User` JWT, `resaflutter` est anonyme). J'explore maintenant la surface backend du commercial et l'auth.
+
+`/api/voyages/me/commercial` est le cœur de l'app (voyages actifs, position, recette propre, « peut repartir »). Je cartographie maintenant le workflow web du commercial (à répliquer) + les actions de vente et d'avancement, côté backend et FT.
+
+Le web commercial fait : `mes voyages` + `avancer` (position) + `repartir` + vente de billets. Je creuse les deux volets décisifs pour l'app : **l'auth JWT** (flux login/refresh) et **la vente** (billet + plan de sièges + tarif).
+
+J'ai la liste complète des endpoints de vente (`/api/sieges`, `/api/capacite`, `/api/tarifs`, `/api/fidelite/lookup`, `POST /api/tickets`, `/api/voyages/reservables?usage=vente`). Je finalise avec `/api/me`, le payload de vente et l'input « avancer ».
+
+J'ai la cartographie complète (auth JWT+refresh, `mes voyages`, avancer/repartir, vente via sièges/tarif/fidélité/`POST tickets`, stats). Dernier point à confirmer : le **contrat d'auth exact** (login_check + refresh) et ce que renvoie `/api/me`.
+
+J'ai maintenant la cartographie complète. Le contrat d'auth est limpide (`login_check` → `{token, refresh_token}`, `GET /api/me`, `token/refresh`, `token/invalidate`), et toute la surface de vente est identifiée.
+
+**Synthèse de ce que l'app devra faire** (le commercial est un `User` authentifié, à la différence du client anonyme de `resaflutter`) :
+- **Auth JWT** : connexion, refresh automatique, stockage sécurisé du token, déconnexion.
+- **Mes voyages** (`/api/voyages/me/commercial`) : voyages actifs, position du car, ma recette propre.
+- **Progression** : `avancer` (déclarer la nouvelle position) et `le car repart`.
+- **Vente à bord** : depuis la position du car → tronçon, plan de sièges (`/api/sieges`), tarif, client, remise/fidélité, `POST /api/tickets`.
+- **Ma recette** : `/api/stats/commercial`.
+
+L'architecture reprendra celle de `resaflutter` (Riverpod 3, dio, go_router, freezed, feature-first) que tu as validée. C'est un gros chantier — je cadre 3 décisions structurantes avant d'écrire le plan :
+
+
+L'app est conséquente. Quel périmètre pour le premier livrable ?
+
+Socle d'abord
+
+Quelle profondeur pour la vente à bord ?
+
+Vente essentielle
+
+Comment remettre le billet au passager ?
+
+PDF partageable
+
+
+Parfait, c'est cadré :
+- **v1 = le socle** : auth + mes voyages + progression. La vente (essentielle, reçu **PDF**) et « ma recette » suivront.
+- Architecture calquée sur `resaflutter`, avec en plus la **couche d'authentification** (nouveauté par rapport au client anonyme).
+
+J'écris le plan.
+
+Le plan est prêt. Il couvre l'architecture complète (calquée sur `resaflutter` + couche d'auth JWT) et détaille le **socle v1** (auth + mes voyages + progression), en cadrant les phases suivantes (vente essentielle avec reçu PDF, puis « ma recette »).
+
+
+
+
+J'accepte le plan et sache que le commercial peut gérer les bagages s'il a les permissions
+
+
+
+
+
+Plan accepté. Ta précision sur les bagages est importante — je la note pour la phase vente : un bagage étant toujours rattaché à un billet, le commercial pourra en enregistrer un pour un billet qu'il vend **s'il a la permission** `BAGAGE_CREER`. Je l'inscris au plan et je démarre le socle v1.
+
+D'abord, je lis les patterns exacts de `resaflutter` à réutiliser (thème, formatters, widgets d'état, et le pattern Notifier Riverpod 3) pour rester fidèle à ton app validée.
+
+J'ai tous les patterns (Notifier Riverpod 3, freezed, thème M3, formatters FCFA, `AsyncValueWidget`). Je note le point bagages au plan, puis je crée la liste de tâches et je construis.
+
+Je commence par la configuration du projet. Je vérifie d'abord que `flutter` est disponible et les versions exactes de `resaflutter`.
+
+Flutter 3.44.8 est là. Je récupère les versions verrouillées exactes.
+
+J'ai les versions exactes. J'écris la config du projet.
+
+Config écrite. Je lance `flutter pub get` en arrière-plan (résout aussi `flutter_secure_storage`) pendant que j'écris le code.
+
+Maintenant le README, puis la couche core réseau + auth.
+
+`pub get` a réussi (exit 0) — les dépendances, dont `flutter_secure_storage`, sont résolues. Je vérifie la sortie puis j'écris le README.
+
+Un avertissement Windows apparaît (le mode développeur est requis pour les plugins natifs). Je vérifie la résolution et l'impact.
+
+`flutter_secure_storage` est bien résolu. L'avertissement « Developer Mode » ne concerne que la **compilation sur appareil** (symlinks natifs Windows), pas le codegen ni `flutter analyze` — je le noterai pour toi. Je continue. Je lis le README à écraser et le widget d'état complet à réutiliser.
+
+J'ai tout. J'écris la couche core. Premier lot : README, config, exceptions, stockage jetons, thème, formatters, widgets d'état.
+
+Maintenant les fichiers core (nouveaux fichiers, écriture directe). Je marque la config faite et j'attaque le réseau/auth.
+
+Maintenant l'intercepteur d'auth (Bearer + refresh 401 avec mutualisation) et le client Dio.
+
+Réseau/auth posés. Je marque la tâche 16 faite et j'écris le thème, les formatters et les widgets d'état (repris de `resaflutter`).
+
+Core UI en place (sauf le router, qui dépend de l'auth). J'écris la feature auth. Je vérifie d'abord la forme exacte de `/api/me` (champs `read:User`, rôles/permissions).
+
+`/api/me` : champs plats (`id, email, nom, prenom, roles[], entrepriseid, fileUrl`) + permissions imbriquées `userRoles[].role.permissions[] = {entity, action}`. Je modélise l'utilisateur avec un aplatissement des permissions (forward-ready pour les bagages), puis toute la feature auth.
+
+Maintenant l'`AuthController` (avec bootstrap auto-login) et l'injection de dépendances.
+
+La feature auth : page de connexion + splash.
+
+La feature auth est complète (sauf le router, qui référence aussi les pages voyages). Je marque 18 faite et j'écris la feature voyages — d'abord les modèles.
+
+La couche data des voyages : datasource (avec le bon `Content-Type: merge-patch+json` pour les PATCH), repository, providers.
+
+Les providers voyages (réutilisent le `dioProvider` d'auth) + le contrôleur d'actions (avancer / repartir).
+
+Widgets et pages. La carte voyage et la vue de progression (arrêts + position du car).
+
+Les deux pages : accueil (liste + déconnexion) et détail voyage (progression + actions).
+
+La feature voyages est complète. J'écris le router (le point d'entrée navigation, réactif à l'auth), puis `app.dart` et `main.dart`.
+
+Toutes les sources sont écrites. Je lance la génération de code (freezed/json) puis `flutter analyze`. Je vérifie aussi le test par défaut (qui référence l'ancien `MyApp`).
+
+Le test par défaut référence `MyApp` (supprimé). Je le remplace par des tests unitaires de la logique métier (pure, sans canaux natifs), puis je génère le code.
+
+Génération réussie (10 fichiers `.freezed.dart`/`.g.dart`). Je lance `flutter analyze`.
+
+Analyse quasi propre : 1 erreur + 2 imports inutiles + 3 infos. Je corrige.
+
+Il reste 2 infos `prefer_initializing_formals` sur l'`AuthInterceptor` : ce lint ne peut pas être satisfait pour des champs **privés** injectés via des paramètres **nommés** (les formals privés nommés sont interdits en Dart), alors que garder des noms explicites est la bonne pratique pour l'injection. Je le neutralise localement, avec justification.
+
+**`flutter analyze` : aucun problème.** Je lance les tests unitaires pour valider la logique métier.
+
+Les 6 tests passent. Le socle v1 est complet et validé. Je confirme l'arborescence finale.
+
+Le **socle v1 de `commercialflutter` est livré**, propre et validé.
+
+## Ce qui a été construit
+
+**Architecture feature-first** calquée sur `resaflutter` (que tu as validée), avec en plus la couche d'authentification qui manquait — le commercial étant un `User` JWT et non un client anonyme :
+
+- **Core** : config `--dart-define`, client Dio, `ApiException` normalisée, **`AuthInterceptor`** (Bearer + refresh 401 mutualisé, rejeu via un Dio séparé pour éviter la ré-entrance), **`TokenStore`** (secure storage), thème M3, formatters FCFA/dates, widgets d'état, router go_router **réactif à l'auth**.
+- **Feature auth** : modèle `AuthUser` (avec aplatissement des permissions depuis `/api/me`), login, `AuthController` avec **auto-login** au lancement, écrans connexion + splash.
+- **Feature voyages** : `GET /api/voyages/me/commercial` → liste « mes voyages » (recette propre, position), détail avec **frise de progression** et actions **« le car est arrivé à … »** (`avancer`) / **« le car repart »** (`repartir`), avec le bon `Content-Type: merge-patch+json`.
+
+## Validation
+
+| Contrôle | Résultat |
+|---|---|
+| `flutter pub get` | OK (dépendances résolues) |
+| `dart run build_runner build` | 7 fichiers générés |
+| `flutter analyze` | **Aucun problème** |
+| `flutter test` | **6/6** (logique progression + permissions) |
+
+30 fichiers Dart, découpage `presentation → domain → data` respecté, aucune couleur/URL en dur.
+
+## Ta remarque sur les bagages
+
+Prise en compte pour la phase vente : `AuthUser.can('Bagage', 'CREER')` est déjà en place (permissions extraites de `/api/me`, avec bypass admin comme le `PermissionVoter` backend). Le bouton « ajouter un bagage » s'affichera conditionnellement sur le billet vendu.
+
+## À noter
+
+Je n'ai **pas exécuté l'app sur un appareil** : la validation est statique (analyze + tests + codegen). Pour la lancer :
+
+```bash
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+```
+
+Sous **Windows**, active d'abord le **mode développeur** (`start ms-settings:developers`) — requis pour les plugins natifs (secure storage). L'émulateur Android voit l'hôte via `10.0.2.2`.
+
+## Suite (phases planifiées)
+
+Quand tu veux : **vente à bord** (tronçon depuis la position → plan de sièges → client → `POST /api/tickets` → reçu **PDF**), gestion **bagages** liée au billet, puis écran **« ma recette »** (`/api/stats/commercial`).
+
+Veux-tu qu'on enchaîne sur la vente, ou tu testes d'abord le socle sur ton émulateur ?
+
+
+
+
+
+
+
+Enchaîne sur la vente
+
+On enchaîne sur la vente. Je suis en mode exécution. Avant de coder, j'explore les contrats API exacts de la vente (sièges, tarif, POST tickets, comment le commercial est rattaché, bagages). Le `TicketProcessor` backend est le point clé — comment la gare de montée est déterminée pour un commercial.
+
+Point crucial confirmé : pour le commercial, le backend **force la montée à la position du car** (`garecourante`) et rattache `commercial` automatiquement (il suffit que le vendeur soit le commercial du voyage). Le commercial ne choisit donc que la **descente** + le **siège** + le **client**. Je lis les endpoints sièges/tarif (params exacts) et le POST bagage.
+
+`/api/sieges` a besoin de l'IRI du car (`car=/api/cars/{id}`) + voyage + montée/descente. Or le endpoint `me/commercial` ne renvoie pas le car — je devrai l'enrichir. Je vérifie la sécurité de `/api/sieges`, sa sortie (SiegeStateProvider), et le POST bagage.
+
+`/api/sieges` est en `IS_AUTHENTICATED_FULLY` → accessible au commercial. Je lis la structure exacte d'un siège renvoyé.
+
+`/api/sieges` renvoie des entités `Siege` (champs `id, numero, cote, rangee, colonne, statut, revendu, conflit, occupant*`) et exige l'IRI du car — que `me/commercial` ne fournit pas. Je vais devoir l'enrichir. Je lis les params du provider, le tarif, la sécurité, et le POST bagage.
+
+J'ai les contrats de vente (`/api/tarifs?garedepart.id=&garearrivee.id=`, `/api/capacite`, `POST /api/tickets` en `CREER Ticket`). Il me faut enrichir `me/commercial` avec le `carId` (pour le plan de sièges). Je vérifie le POST bagage et les champs du billet créé.
+
+J'ai tous les contrats. `BagageInput` est simple (`{ticket, nature, type, poids}`, montant calculé serveur). Il me faut une petite **enrichissement backend** : ajouter `carId` à `/api/voyages/me/commercial` (le plan de sièges en a besoin, et c'est la donnée du commercial). Je crée les tâches et je démarre.
+
+Backend d'abord : j'ajoute `carId` et `carMatricule` à chaque voyage du commercial.
+
+Backend OK. Maintenant l'app : j'ajoute `pdf` + `printing` au pubspec, j'enrichis le modèle `VoyageCommercial` avec `carId`, et je regarde le pattern PDF de `resaflutter`.
+
+Pendant la résolution, j'enrichis le modèle voyage avec `carId` et je lis le pattern PDF de `resaflutter`.
+
+pub get OK (pdf + printing résolus). Je lis le pattern PDF de `resaflutter` pour le reçu.
+
+Le pattern PDF est clair (`pdf` + `printing`, `PdfPageFormat.roll80`, polices standard). Je construis la feature vente. Modèles d'abord.
+
+La datasource de vente (sièges, tarif, POST ticket, POST bagage).
+
+La couche métier : repository + implémentation.
+
+Le contrôleur de vente (tunnel : descente → siège → client → confirmation) + injection.
+
+Données + contrôleur faits. Je passe à l'UI (tâche 23) : le plan de sièges d'abord.
+
+Le tunnel (task 23) et le reçu PDF (task 24). D'abord le générateur PDF du reçu.
+
+Maintenant la page de vente (tunnel complet + reçu avec partage PDF et ajout de bagage). C'est le gros morceau.
+
+Tunnel écrit. Je branche la route de vente et le bouton « Vendre » sur le détail voyage.
+
+J'ajoute le bouton « Vendre un billet » sur le détail voyage (quand la vente est possible).
+
+Tout est écrit. Je génère le code (nouveaux modèles freezed) puis j'analyse.
+
+`flutter analyze` : aucun problème. Je lance les tests et je vérifie que le backend démarre toujours (contrôleur commercial modifié).
+
+Tests OK (6/6), backend démarre (277 routes). Je complète les tests avec la logique de vente et je mets à jour le README.
+
+Tests étendus. Je relance la suite.
+
+8/8 tests OK. Je clôture les tâches.
+
+La feature **vente** est complète et validée.
+
+## Ce qui a été livré
+
+**Backend** (changement de code non-destructif, déjà validé)
+- [`CommercialEspaceController.php`](Backend-Transport/src/Controller/Api/CommercialEspaceController.php) : `/api/voyages/me/commercial` renvoie désormais `carId` + `carMatricule` par voyage — nécessaire pour charger le plan de sièges (`/api/sieges?car=…`). Backend démarre (277 routes).
+
+**App `commercialflutter` — tunnel de vente à bord**
+
+Le commercial part de la **position réelle du car** et vend en 4 étapes :
+
+1. **Descente** — choix de l'arrêt d'arrivée parmi les arrêts strictement en aval (`descentesPossibles`). En parallèle : chargement du plan de sièges + du tarif.
+2. **Siège** — [`seat_grid.dart`](commercialflutter/lib/features/vente/presentation/widgets/seat_grid.dart) : grille par rangée (gauche / couloir / droite), sièges colorés par statut, légende, sélection des seuls sièges libres.
+3. **Client** — nom + contact (facultatifs).
+4. **Confirmation** → `POST /api/tickets` (IRIs voyage / siège / gares). La montée = position du car et le contexte commercial sont **posés automatiquement côté serveur** (TicketProcessor), donc l'app ne triche pas dessus.
+
+Puis **reçu PDF** ([`recu_pdf.dart`](commercialflutter/lib/features/vente/presentation/pdf/recu_pdf.dart)) au format ticket 80 mm, partageable via `Printing.sharePdf`, et **ajout d'un bagage** au billet — proposé uniquement si l'utilisateur a la permission `Bagage/CREER` (lue dans `/api/me`).
+
+**Orchestration** : [`vente_controller.dart`](commercialflutter/lib/features/vente/presentation/providers/vente_controller.dart) (état freezed `VenteState`, étapes `descente → siège → client → confirmation → done`), invalide `mesVoyagesProvider` après vente pour rafraîchir recette et places. Bouton **« Vendre un billet »** dans le détail voyage, visible quand `peutVendre` (car connu + position + destination en aval).
+
+## Vérification
+- `dart run build_runner build` : 17 fichiers générés, sans erreur.
+- `flutter analyze` : **No issues found**.
+- `flutter test` : **8/8** (dont 2 nouveaux cas : `descentesPossibles` et `peutVendre`).
+- README de l'app mis à jour (périmètre socle + vente).
+
+## Non fait (volontairement)
+- L'app **n'a pas été lancée sur un appareil/émulateur** (nécessite un émulateur Android ou le Developer Mode Windows) — comme pour le socle, je m'arrête à l'analyse statique + tests.
+- **Aucune écriture en base** : le tunnel de vente écrit réellement (billet, bagage). Un test bout-en-bout créera des tickets sur ta base locale — je te laisse le déclencher quand tu veux, ou me le dire pour qu'on le fasse ensemble.
+
+Prochaine phase prévue au plan mais **non demandée** : écran « ma recette » (`/api/stats/commercial`). Tu veux enchaîner dessus, ou d'abord tester la vente sur émulateur ?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Next
+
+Je viens d'installer un projet **Next.js** qui servira de frontend pour notre application de transport.
+
+Je souhaite que nous développions cette nouvelle version en appliquant les **bonnes pratiques de Next.js** ainsi que celles de l'écosystème React (architecture, organisation du projet, composants réutilisables, gestion des appels API, gestion d'état, performances, sécurité, accessibilité, etc.).
+
+Nous avancerons **progressivement**, module par module, afin que je puisse comprendre les choix techniques et apprendre au fur et à mesure. L'objectif n'est pas seulement d'obtenir un résultat fonctionnel, mais également de construire une application propre, évolutive et maintenable.
+
+L'un des principaux objectifs de cette refonte est d'améliorer significativement l'expérience utilisateur (UX) et l'interface (UI), tout en conservant une architecture robuste et cohérente.
+
+Pour l'interface, j'utilise **shadcn/ui** comme bibliothèque de composants. J'ai déjà installé les composants suivants :
+
+* **Dashboard** : `sidebar-07`
+* **Authentification** : `login-04`
+
+J'ai installer quelques composants et tu peux en rajouter si néccéssaire.
+
+Je souhaite également que nous respections une architecture claire dès le départ (gestion des routes, layouts, composants, hooks, services API, gestion des erreurs, authentification, protection des routes, gestion du cache et des requêtes, etc.), afin d'obtenir un frontend moderne, performant et facile à faire évoluer.
+
+
+
+
+
+
+
+
+
+
+
+Excellent, un gros chantier passionnant. Le nouveau front Next.js sera la version moderne du **back-office interne** (agents / gares / admin), consommant l'API JWT du Backend-Transport — les apps mobiles restant dédiées à la réservation client.
+
+Avant toute proposition d'architecture, je dois voir ce que tu as installé. Je localise et explore le projet Next.js.
+
+Le projet est `nexttransport`. J'explore sa structure, ses dépendances et ce que shadcn a généré (sidebar-07, login-04).
+
+**Stack de pointe** : Next.js **16.2** (App Router, RSC), **React 19.2**, **Tailwind v4**, **shadcn v4** (style `base-nova`, basé sur `@base-ui/react` — la nouvelle fondation, plus Radix), `@tanstack/react-table` + `recharts`. Je lis les instructions du projet et la structure générée.
+
+Instruction projet claire dans `AGENTS.md` : **Next.js 16 a des breaking changes** vs ce que je connais, je dois lire les guides dans `node_modules/next/dist/docs/` avant d'écrire du code. Je respecte ça — c'est essentiel pour appliquer les *vraies* bonnes pratiques de cette version. J'explore la doc embarquée.
+
+Il y a une doc complète embarquée (423 fichiers), avec des nouveautés Next 16 (`proxy`, `cache-components`, `backend-for-frontend`). Je lis en priorité les guides les plus structurants pour notre cas (une API JWT séparée) : **authentification**, **backend-for-frontend**, et **structure de projet**.
+
+La doc BFF confirme des changements Next 16 majeurs : **`middleware.ts` est devenu `proxy.ts`** (un par projet, `config.matcher`), Route Handlers pour le BFF, et surtout — « ne jamais se reposer sur `proxy` seul pour l'auth ». Je lis maintenant le guide d'authentification (le choix le plus structurant pour un front qui parle à une API JWT séparée).
+
+J'ai maintenant le modèle Next 16 en tête : **login via Server Action → cookies httpOnly (`cookies()`) → DAL `verifySession()` mémoïsé → `proxy.ts` pour les checks optimistes**, la sécurité réelle restant près de la donnée. Pour nous, l'auth *réelle* est faite par le backend (JWT + refresh) : Next jouera le rôle de **BFF/gardien de session** (stocke JWT+refresh en cookies httpOnly, jamais exposés au JS client). Je regarde l'état du code généré et la config pour ancrer ma proposition sur l'existant.
+
+J'ai lu les guides déterminants (auth, BFF) et l'état du projet. Voici où on en est et l'architecture que je propose — puis deux arbitrages à trancher ensemble avant d'écrire la première ligne.
+
+## Bilan de l'existant
+Stack excellente et à jour : **Next 16.2 (App Router, RSC)**, **React 19**, **Tailwind v4**, **shadcn v4 / base-ui**, `react-table` + `recharts`. Mais c'est encore le **boilerplate** : `app/layout.tsx` met la sidebar dans le layout **racine** (elle s'afficherait même sur `/login`), `app/page.tsx` est la page de démo, et il n'y a **pas de `.env`** (URL du backend non configurée). Rien de grave — on réorganise proprement.
+
+Point non négociable retenu de la doc : **Next 16 a renommé `middleware.ts` en `proxy.ts`**, `cookies()` est **async**, et « ne jamais se reposer sur le proxy seul » pour l'auth (la vraie barrière est près de la donnée).
+
+## Architecture cible que je recommande
+
+**1. Authentification — patron BFF (Backend For Frontend)**
+La vraie auth reste au backend Symfony (JWT + refresh). Next devient le **gardien de session** :
+- `login` = **Server Action** → appelle `POST /api/login` du backend → stocke le **JWT et le refresh_token dans des cookies `httpOnly`** (invisibles au JS client = pas de vol par XSS). C'est plus sûr que `localStorage`.
+- Un **client API serveur** (`lib/api`) lit le cookie JWT, l'ajoute en `Authorization: Bearer`, appelle le backend, et sur **401 rafraîchit** le token automatiquement (via le refresh_token) puis réémet le cookie.
+- Une **DAL** (`lib/dal`) avec `verifySession()` mémoïsé (`cache()`) centralise « qui est connecté » (`/api/me`) — appelée dans les pages/actions, jamais dans un layout (les layouts ne re-vérifient pas à chaque navigation).
+- `proxy.ts` = **garde optimiste** (présence du cookie → redirige `/login`), pas la sécurité finale.
+
+**2. Organisation des dossiers** (colocation par domaine, route groups)
+```
+app/
+  (auth)/login/          → layout minimal (pas de sidebar)
+  (app)/                 → layout « shell » (sidebar + header) ; tout le back-office
+    dashboard/  billetterie/  exploitation/ ...
+  api/                   → Route Handlers si besoin (BFF ponctuel)
+  proxy.ts               → garde de routes
+lib/        → env, api (client), session, dal, utils, validations (zod)
+components/ → ui/ (shadcn) · layout/ (sidebar, header) · <feature>/ (par module)
+features/   → logique par domaine (types, requêtes, actions) — optionnel selon le module
+hooks/
+```
+
+**3. Données** : en RSC, on **fetch directement le backend** (pas via nos propres Route Handlers = un aller-retour en moins). Les listes se pilotent par l'**URL** (`searchParams` pour filtres/tri/pagination — exactement l'esprit du front actuel). Les mutations = **Server Actions** + `revalidatePath`. Le temps réel (alertes, suivi des cars) = **TanStack Query** (polling/cache client). C'est précisément l'arbitrage ci-dessous.
+
+**4. Transverse** : `error.tsx`/`not-found.tsx`/`loading.tsx` par segment · validation **Zod** partout · **toasts** (shadcn) pour le retour d'action · accessibilité fournie par base-ui (déjà ARIA) qu'on ne casse pas · perfs par défaut de RSC (streaming, prefetch des `<Link>`).
+
+## Progression proposée
+**Module 0 — Fondations** (tout en dépend) : `.env` + réorg dossiers + thème/layout · `lib/api` (client + refresh) · session cookies · DAL · Server Actions login/logout · `proxy.ts` · `/login` recâblé sur le vrai backend · shell `(app)` avec la sidebar. Puis **module par module** : `/api/me` + profil → **Dashboard** → Référentiels (villes/gares/lignes/tarifs) → Billetterie → etc.
+
+On code **une brique à la fois**, je t'explique chaque choix avant, tu valides, on continue.
+
+Deux décisions m'aideraient à démarrer juste :
+
+
+Quelle stratégie de récupération/mutation des données veux-tu adopter ?
+
+Mix, tu recommandes
+
+Par où commence-t-on concrètement ?
+
+Les fondations d'abord
+
+
+
+Parfait : **mix (je recommande au cas par cas)** et **fondations d'abord**. On démarre le **Module 0**.
+
+Avant d'écrire le client API, je dois connaître les **contrats d'authentification exacts du backend** (endpoints login/refresh, format des réponses). Je les récupère depuis le Frontend-Transport actuel (qui les consomme déjà) et la config de sécurité du backend.
+
+J'ai les contrats exacts :
+- **Login** : `POST /api/login_check` — body `{username, password}` → `{token, refresh_token}` (429 = throttling, 401 = identifiants).
+- **Refresh** : `POST /api/token/refresh` — body `{refresh_token}` → `{token, refresh_token}` (**le refresh token est roté** à chaque appel → il faudra réémettre les deux cookies).
+- **Me** : `GET /api/me` avec `Authorization: Bearer` + `Accept: application/ld+json`.
+
+Le Module 0 se découpe en 5 briques : **(0.1)** config + structure, **(0.2)** client API + session, **(0.3)** DAL + Server Actions + login, **(0.4)** protection `proxy.ts`, **(0.5)** shell sidebar. On les fait une par une.
+
+Je commence par **0.1**. Comme l'`AGENTS.md` l'exige, je vérifie d'abord les conventions d'organisation exactes de Next 16 (route groups, layouts, dossiers privés) avant de réorganiser.
+
+Conventions Next 16 confirmées (route groups `(group)` sans impact URL, layouts multiples, dossiers privés `_folder`, alias `@/` depuis la racine). Le grand avantage : comme les imports utilisent l'alias `@/`, **déplacer des pages ne casse aucun import**.
+
+Je démarre la **brique 0.1 — config + structure**. J'installe d'abord deux dépendances de base (`zod` pour valider les entrées/env, `server-only` pour verrouiller le code serveur), pendant que je prépare les fichiers d'environnement.
+
+`zod` et `server-only` installés (le warning ne concerne que des scripts d'install de `sharp`, sans impact), et `.env*` est déjà git-ignoré. 
+
+Je crée la config d'environnement. **Choix expliqué** : l'URL du backend s'appelle `API_BASE_URL` **sans** préfixe `NEXT_PUBLIC_` — ainsi elle reste **côté serveur** et n'est jamais embarquée dans le bundle client (principe BFF). Et je la **valide au démarrage** avec Zod : une variable manquante casse tôt avec un message clair plutôt qu'une erreur réseau obscure plus tard.
+
+Zod v4 — j'utilise sa syntaxe moderne (`z.url()`). Je crée les fichiers de config :
+
+Maintenant la **réorganisation en route groups** — le concept Next central que je veux te faire voir : `(auth)` et `(app)` regroupent des routes qui partagent un layout **sans** apparaître dans l'URL (`/login` et `/dashboard` restent identiques). Ça permet deux « coques » distinctes : une page de connexion plein écran vs le back-office avec sidebar.
+
+Déplacements faits (`/login` et `/dashboard` gardent leurs URLs). Je crée maintenant les **trois layouts** : le layout racine minimal (juste la coque HTML + polices), le shell `(app)` avec sidebar (déplacé depuis le layout racine), et un layout `(auth)` plein écran centré.
+
+**Layout racine** — nettoyé : il ne porte plus que `<html>/<body>`, les polices et les métadonnées. Plus aucune sidebar ici (sinon elle s'afficherait sur `/login`).
+
+Maintenant je réécris le layout racine (nettoyé) :
+
+Le shell du back-office `(app)` — il reçoit la sidebar et le header, déplacés depuis le layout racine :
+
+Le layout `(auth)` — écran centré, sans sidebar :
+
+Enfin, la page racine `/` : une simple redirection vers le tableau de bord (le `proxy.ts` renverra les visiteurs non connectés vers `/login`). Je la lis puis la remplace :
+
+Brique **0.1 terminée**. Je valide que Next accepte la nouvelle structure (types + reconnaissance des routes) :
+
+Ces deux erreurs ne sont pas dans notre code : c'est le **cache de types de Next** (`.next/dev/types`) qui pointe encore vers les anciens chemins d'avant le déplacement. Un build régénère ces types et valide la structure. Je lance le build :
+
+Build **réussi** : `/`, `/dashboard`, `/login` sont reconnues (les groupes `(app)`/`(auth)` n'apparaissent pas dans l'URL, exactement le but), TypeScript OK, `.env.local` détecté.
+
+Je note le contexte de ce nouveau projet en mémoire (pour les prochaines sessions) :
+
+J'ajoute le pointeur dans l'index mémoire :
+
+Brique **0.1 — Fondations config + structure : terminée et validée** (build vert). Voici le point pour que tu suives les choix.
+
+## Ce qu'on a posé et pourquoi
+
+**Structure en route groups** — l'arbo `app/` est maintenant :
+```
+app/
+├─ layout.tsx            → coque HTML seule (polices, <html lang="fr">, metadata)
+├─ page.tsx              → "/" redirige vers /dashboard
+├─ (auth)/               → groupe « écrans de connexion »
+│  ├─ layout.tsx         → plein écran centré, PAS de sidebar
+│  └─ login/page.tsx
+└─ (app)/                → groupe « back-office »
+   ├─ layout.tsx         → shell : sidebar + header (persistant)
+   └─ dashboard/page.tsx
+```
+- Les **parenthèses** `(auth)`/`(app)` organisent sans changer l'URL (`/login`, `/dashboard` inchangés) — le build le confirme.
+- **Pourquoi deux layouts** : le layout racine enveloppe *tout*, y compris le login ; y laisser la sidebar l'aurait affichée sur l'écran de connexion. En isolant le shell dans `(app)`, la connexion a sa propre coque.
+- **À retenir** : un layout est **persistant** — il ne se re-rend pas à chaque navigation interne (d'où la navigation instantanée). C'est *précisément* pourquoi on ne fera **pas** la vérification d'auth dans le layout (il ne re-vérifierait pas à chaque route), mais dans la DAL et le `proxy.ts`.
+
+**Config d'environnement** — `.env.local` (+ `.env.example` versionné) avec `API_BASE_URL`, **sans** `NEXT_PUBLIC_` (reste côté serveur). Validée par [lib/env.ts](nexttransport/lib/env.ts) avec **Zod** et verrouillée `server-only` → échec clair au démarrage si mal configurée, et impossible de l'importer par erreur dans un composant client.
+
+**Dépendances ajoutées** : `zod` (validation entrées/env) et `server-only` (garde-fou serveur).
+
+## Suite : brique 0.2 — le client API + la session
+C'est le cœur du patron BFF. On y construira :
+- `lib/session.ts` — pose/lit/efface les cookies **httpOnly** (JWT + refresh_token) via l'API `cookies()` de Next.
+- `lib/api.ts` — un client `fetch` **serveur** qui ajoute `Authorization: Bearer`, **rafraîchit automatiquement** le token sur 401 (en réémettant les deux cookies puisque le refresh est roté), et renvoie des erreurs typées.
+
+C'est la brique la plus technique et la plus importante ; je l'implémenterai en expliquant chaque décision (où vivent les tokens, comment gérer le 401 concurrent, format d'erreur).
+
+On enchaîne sur **0.2** maintenant, ou tu as des questions sur ce qu'on vient de poser ?
+
+
+
+
+
+
+
+
+Oui. aussi dans la partie dashbord je vois qu'il y'a un dashbord dans un dashbord !
+
+Bien vu — c'est un « shell dans le shell ». Le `dashboard/page.tsx` généré par shadcn contient probablement **son propre** `SidebarProvider + AppSidebar + header` complet, et comme je viens de mettre ce même shell dans `(app)/layout.tsx`, il est rendu **deux fois**. La page ne doit contenir que le *contenu* du tableau de bord. Je regarde :
+
+C'est exactement ça : le `page.tsx` généré **est** une démo complète du shell (sidebar + header + breadcrumb), et je viens de mettre ce shell dans le layout `(app)` → il apparaît deux fois. Je vide la page de son shell : elle ne garde que le **contenu**, le wrapper `p-4` et le header venant désormais du layout.
+
+Corrigé — plus de double shell. Maintenant **0.2**. Comme l'`AGENTS.md` l'impose, je vérifie d'abord la doc Next 16 de `cookies()` (un point subtil : *où* on a le droit d'écrire un cookie détermine où le refresh de token peut vivre).
+
+Doc confirmée : `cookies()` est **async**, la **lecture** marche partout côté serveur, mais **écrire un cookie n'est possible que dans une Server Action, un Route Handler ou le `proxy`** — jamais pendant le rendu d'un Server Component. Conséquence d'architecture importante : **le rafraîchissement du jeton (qui réécrit les cookies) vivra dans `proxy.ts` (0.4)**, pas dans le client API.
+
+J'écris les deux fichiers de la brique 0.2.
+
+**`lib/session.ts`** — les jetons du backend dans des cookies httpOnly :
+
+**`lib/api.ts`** — le client `fetch` serveur, qui injecte le Bearer et normalise les erreurs :
+
+Je valide la brique 0.2 (type-check) :
+
+Type-check **vert**. Briques 0.1 et 0.2 posées et validées.
+
+## Récap de ce tour
+
+**Correctif « tableau de bord dans un tableau de bord »** — le shell (sidebar + header) était rendu à la fois par le layout `(app)` **et** par la page. La page ne garde plus que son contenu. Tu peux le vérifier visuellement :
+```bash
+npm run dev
+```
+puis ouvrir `http://localhost:3000/dashboard` (pas encore de protection, il s'affiche directement — on l'ajoute en 0.4).
+
+**Brique 0.2 — client API + session** (le cœur du BFF) :
+- [lib/session.ts](nexttransport/lib/session.ts) — pose/lit/efface le **JWT** et le **refresh_token** dans des cookies **httpOnly** (`it_at` / `it_rt`). `secure` seulement en prod (sinon le cookie ne se poserait pas sur `http://localhost`).
+- [lib/api.ts](nexttransport/lib/api.ts) — client `fetch` serveur : ajoute `Authorization: Bearer`, sérialise le JSON, `cache: "no-store"` (données par-utilisateur, jamais mises en cache partagé), et normalise les erreurs en **`ApiError`** (avec `status` + corps, utile pour les `violations` de validation). Helpers `api.get/post/patch/delete`.
+
+**La décision d'architecture à retenir** : le **rafraîchissement du token vivra dans `proxy.ts`** (brique 0.4), pas dans le client API. Raison confirmée par la doc : un Server Component peut *lire* un cookie mais **pas en écrire un** — or refresh = réémettre les cookies. Le `proxy` est le seul endroit qui voit chaque requête *et* peut écrire la réponse avant le rendu.
+
+## Suite : brique 0.3 — DAL + connexion réelle
+- `lib/dal.ts` : `verifySession()` (mémoïsé avec `cache()`) + `getCurrentUser()` via `GET /api/me` → centralise « qui est connecté ».
+- `lib/validations/auth.ts` : schéma **Zod** du login.
+- Server Actions `login` / `logout` : `login` appelle `POST /api/login_check`, pose les cookies, redirige ; `logout` efface.
+- Recâblage du **login-04** généré sur la Server Action (avec `useActionState` pour les erreurs).
+
+On enchaîne sur **0.3** ? (Idéalement lance `npm run dev` d'abord pour confirmer de tes yeux que le double tableau de bord a disparu.)
+
+
+
+
+
+
+Oui
+
+On enchaîne sur **0.3 — DAL + connexion réelle**. Je lis d'abord le `login-form` généré (login-04) et sa page, pour le recâbler proprement sur une Server Action plutôt que de le réécrire.
+
+Le `login-form` (login-04) est le format « split » avec image et boutons sociaux. Je regarde sa page pour savoir comment l'adapter (et je retirerai les boutons sociaux / le lien d'inscription, sans objet ici : les comptes sont créés par l'admin).
+
+Je vois deux choses : (1) la page login refait **son propre** centrage plein écran alors que mon layout `(auth)` le fait déjà — même piège de duplication que le dashboard ; (2) login-04 a des **boutons sociaux** et un lien **inscription** sans objet ici. Je vais dédupliquer le centrage et recâbler le formulaire.
+
+Je commence par les fichiers d'auth. **Validation Zod du login** :
+
+**La DAL** — le point unique qui répond « qui est connecté », mémoïsé :
+
+**Les Server Actions `login` / `logout`** — exécutées côté serveur, elles parlent au backend et posent la session :
+
+Maintenant je vérifie les exports du composant `field` (pour utiliser un affichage d'erreur accessible s'il existe), puis je recâble le formulaire.
+
+`FieldError` existe (bien, pour des erreurs accessibles). Mais `placeholder.svg` **n'existe pas** — l'image du split serait cassée. Je remplacerai la colonne image par un panneau décoratif thème-aware (pas d'asset manquant). Je vérifie la signature de `FieldError` :
+
+`FieldError` accepte un message en `children` et porte déjà `role="alert"`. Je recâble le formulaire : client component, `useActionState(login)`, `name` sur les inputs (indispensable pour `FormData`), erreurs globale + par champ, état `pending`, panneau décoratif à droite, et en français.
+
+Maintenant je corrige la **duplication de centrage** entre le layout `(auth)` et la page : le centrage + fond restent dans le layout (coque commune), la page ne définit plus que la largeur.
+
+Je valide la brique 0.3 (types) :
+
+Types OK. Je lance un build complet pour valider le rendu (login client + Server Action liés correctement) :
+
+Build **vert** — le formulaire client et la Server Action sont correctement liés.
+
+## Brique 0.3 — Connexion réelle : posée et validée
+
+**Le flux de connexion, de bout en bout :**
+1. [login-form.tsx](nexttransport/components/login-form.tsx) (client) relie le formulaire à la Server Action via `useActionState` → `pending` (bouton « Connexion… ») et affichage des erreurs, **sans JS manuel**.
+2. [lib/auth/actions.ts](nexttransport/lib/auth/actions.ts) `login` (serveur) : valide avec **Zod** → `POST /api/login_check` (public, sans Bearer) → **pose les cookies httpOnly** → `redirect("/dashboard")`. Les erreurs (401 identifiants, 429 throttling, indispo) reviennent proprement au formulaire.
+3. [lib/dal.ts](nexttransport/lib/dal.ts) : `getCurrentUser()` (via `/api/me`) et `requireUser()` (redirige si non connecté), **mémoïsés** — prêts à protéger les pages en 0.4/0.5.
+
+**Corrections passées au vol** (mêmes réflexes que le double-dashboard) :
+- **login dédupliqué** : le centrage plein écran vit dans le layout `(auth)`, la page ne gère que la largeur.
+- **Boutons sociaux + « Sign up » retirés** (comptes créés par l'admin), tout en français.
+- **Image manquante** (`placeholder.svg`) remplacée par un panneau dégradé thème-aware.
+- **`name` ajouté sur les inputs** — sans ça, `FormData` serait vide côté action (piège classique).
+
+## À toi de tester
+Le backend tourne sur `:8000`. Lance le dev et connecte-toi avec un vrai compte :
+```bash
+npm run dev
+```
+→ `http://localhost:3000/login`. Après connexion tu dois arriver sur `/dashboard`, avec les cookies **`it_at`** et **`it_rt`** visibles dans l'onglet Application des devtools (marqués *HttpOnly*). Un mauvais mot de passe doit afficher « Identifiants invalides. »
+
+> Note : `/dashboard` n'est **pas encore protégé** (accessible sans login) — c'est exactement le rôle de la brique suivante.
+
+## Suite : brique 0.4 — `proxy.ts`
+Le garde de routes + le **rafraîchissement proactif du token** : à chaque requête, si le JWT est expiré, on appelle `/api/token/refresh` et on réémet les deux cookies *avant* le rendu — le seul endroit où c'est possible. Les non-connectés seront renvoyés vers `/login`, et les connectés qui visitent `/login` vers `/dashboard`.
+
+Teste la connexion, dis-moi si elle passe de ton côté, et on enchaîne sur 0.4.
+
+
+Oui ça passe, on enchaîne
+
+Le login passe — parfait. On attaque **0.4 — `proxy.ts`** (garde de routes + refresh proactif). C'est la partie la plus « Next 16 spécifique » (l'ex-middleware renommé) et la plus délicate (propager un cookie rafraîchi au rendu *de la même requête*). Comme l'`AGENTS.md` l'impose, je lis d'abord la doc dédiée.
+
+Doc `proxy.ts` claire. Points structurants pour Next 16 :
+- **Runtime Node.js par défaut** → `fetch` et `Buffer` disponibles (utile pour le refresh et lire l'`exp` du JWT).
+- Cookies : `request.cookies` (entrée) / `response.cookies` (sortie). Pour propager un cookie rafraîchi **au rendu de la même requête**, on met à jour `request.cookies` **et** on renvoie `NextResponse.next({ request: { headers } })`, en plus du `Set-Cookie` pour le navigateur.
+- Avertissement confirmé : « toujours vérifier l'auth dans chaque Server Function, pas seulement dans le proxy » → le proxy reste **optimiste**, la DAL est la vraie garde.
+- La doc conseille d'éviter d'importer des modules lourds dans le proxy.
+
+Je vais donc d'abord **extraire la config des cookies** dans un petit module neutre (partagé par `session.ts` et `proxy.ts`, sans `server-only`/`next/headers`) :
+
+Je réaligne `lib/session.ts` sur ce module partagé :
+
+Maintenant le **`proxy.ts`** à la racine — garde de routes + refresh proactif du token, avec propagation du cookie rafraîchi au rendu de la même requête :
+
+Je valide (types + build, le build reconnaît le `proxy`) :
+
+Build **vert** avec `ƒ Proxy (Middleware)` reconnu — la brique 0.4 est active.
+
+## Brique 0.4 — `proxy.ts` : garde de routes + refresh proactif
+
+[proxy.ts](nexttransport/proxy.ts) fait deux choses avant chaque rendu :
+1. **Refresh proactif** — il lit l'`exp` du JWT (décodé sans vérif de signature). Si le token est expiré (ou le sera dans <30 s) et qu'un refresh token existe, il appelle `POST /api/token/refresh` et réémet **les deux** cookies (le refresh est roté). Subtilité clé résolue : il pose le token frais **côté requête** (`request.cookies.set` + `NextResponse.next({ request })`) pour que le rendu qui suit le voie *immédiatement*, **et** côté réponse (`Set-Cookie`) pour le navigateur.
+2. **Garde optimiste** — pas de session sur une route protégée → `/login` (+ nettoyage des cookies morts) ; déjà connecté sur `/login` → `/dashboard`.
+
+J'ai extrait la config des cookies dans un module neutre [lib/session-config.ts](nexttransport/lib/session-config.ts) — partagé par `session.ts` et le proxy, **sans** `server-only`/`next/headers` (la doc déconseille d'importer des modules serveur lourds dans le proxy, qui peut être déployé à part).
+
+**Rappel d'architecture** : ce proxy est **optimiste** (filtre d'UX). La vraie sécurité reste la DAL (`requireUser()`), qu'on branchera dans les pages — le proxy ne remplace pas ces vérifications.
+
+## À tester
+```bash
+npm run dev
+```
+- `/dashboard` **sans être connecté** → doit rediriger vers `/login`.
+- Se connecter → arrive sur `/dashboard`.
+- Revenir sur `/login` **en étant connecté** → doit rediriger vers `/dashboard`.
+- Déconnexion : pas encore de bouton (brique 0.5), mais supprimer les cookies `it_at`/`it_rt` dans les devtools puis recharger `/dashboard` doit renvoyer vers `/login`.
+
+## Suite : brique 0.5 (dernière du Module 0) — câbler le shell
+- Afficher le **vrai utilisateur** dans la sidebar (`nav-user`) via `getCurrentUser()`.
+- Brancher le **bouton de déconnexion** sur la Server Action `logout`.
+- Nettoyer l'`app-sidebar` (données de démo « teams/projects » générées par sidebar-07) et préparer une navigation adaptée à nos modules.
+- Protéger le dashboard avec `requireUser()`.
+
+Teste la protection des routes, et on termine le Module 0 avec la brique 0.5.
+
+
+
+
+
+On continue
+
+On termine le **Module 0** avec la brique **0.5 — câbler le shell**. Je lis d'abord les composants générés par sidebar-07 pour les recâbler proprement (plutôt que réécrire).
+
+Les composants sont pleins de données de démo (user « shadcn », teams Acme, nav Playground/Models…). Je regarde `nav-main` pour connaître l'API exacte des primitives `Sidebar` en base-ui (`render` vs `asChild`, `tooltip`, `isActive`) avant de réécrire :
+
+API base-ui confirmée : `render={<a/>}` (pas `asChild`), `tooltip`, `Collapsible render={<SidebarMenuItem/>}`. J'ai tout pour recâbler. Je réécris les composants avec de vraies données.
+
+**`nav-user.tsx`** — vrai utilisateur (initiales) + déconnexion branchée sur la Server Action :
+
+**`app-sidebar.tsx`** — nav minimale (Tableau de bord actif selon l'URL), header iTransport, footer utilisateur ; fini les données de démo :
+
+**`app/(app)/layout.tsx`** — devient async : il récupère l'utilisateur (via la DAL, qui redirige si non connecté) et le passe à la sidebar :
+
+Je protège la page dashboard avec la DAL et je supprime les composants de démo devenus inutiles (`team-switcher`, `nav-projects`, `nav-main`) :
+
+Aucune référence orpheline. Je valide (types + build) :
+
+Build **vert** : `/dashboard` est désormais `ƒ (Dynamic)` (rendu par utilisateur, normal puisqu'il lit la session). **Le Module 0 est complet.**
+
+Je mets à jour la mémoire du projet (jalon atteint) :
+
+Mémoire à jour. **Module 0 (fondations) terminé** 🎉
+
+## Brique 0.5 — Shell câblé
+- [nav-user.tsx](nexttransport/components/nav-user.tsx) : affiche le **vrai utilisateur** (nom + e-mail, initiales en avatar), et la déconnexion appelle la Server Action `logout`.
+- [app-sidebar.tsx](nexttransport/components/app-sidebar.tsx) : header **iTransport**, entrée **Tableau de bord** (active selon l'URL) ; données de démo (teams/projects « Acme ») supprimées, ainsi que les 3 composants de démo devenus inutiles.
+- [layout `(app)`](nexttransport/app/(app)/layout.tsx) : async → récupère l'utilisateur via `requireUser()` et le passe à la sidebar.
+- Dashboard protégé par `requireUser()`.
+
+## Récapitulatif du Module 0 (les fondations)
+`env` validé · **session** cookies httpOnly · **client API** (Bearer, erreurs typées) · **DAL** (`requireUser`) · **login** réel (Server Action + Zod) · **proxy** (garde + refresh proactif) · **shell** (sidebar, user, déconnexion, routes protégées). Toute la plomberie « moderne, sécurisée, évolutive » est en place.
+
+## À tester
+```bash
+npm run dev
+```
+Connecte-toi → ton **nom et ton e-mail** doivent apparaître en bas de la sidebar. Clique dessus → **Se déconnecter** te ramène à `/login`.
+> Si le nom n'apparaît pas (seulement l'e-mail), c'est que `/api/me` nomme ses champs autrement que `prenom`/`nom` — dis-le-moi et j'ajuste `SessionUser`. Et confirme que la déconnexion fonctionne (le clic sur l'item base-ui).
+
+## Suite : Module 1 — premier module métier
+Je recommande de commencer par un **référentiel CRUD simple : les Villes**. C'est le plus petit module « complet » (liste, création, édition, suppression) — il va nous servir à **poser les patterns réutilisables** pour tous les autres : liste en RSC pilotée par l'URL (recherche/tri/pagination en `searchParams`), formulaire + Server Action + validation Zod + gestion d'erreurs + toasts, et une `DataTable` (react-table) propre.
+
+Alternatives si tu préfères : **Mon profil** (petit, personnel) ou directement le **vrai tableau de bord** (plus visuel mais plus complexe).
+
+Tu confirmes qu'on part sur les **Villes**, ou tu préfères un autre module pour démarrer ?
+
+
+
+
+
+
+
+
+Quand je clique sur mon nom et email j'obtient l'erreur "Base UI: MenuGroupContext is missing. Menu group parts must be used within <Menu.Group> or <Menu.RadioGroup>." , et oui commence par les villes
+
+C'est un bug base-ui : `DropdownMenuLabel` (un « menu group part ») doit être **enveloppé dans un `DropdownMenuGroup`** — le composant sidebar-07 d'origine le faisait, et je l'ai retiré par erreur en simplifiant. Je corrige.
+
+Corrigé. Maintenant on démarre le **module Villes**. J'explore le contrat backend et le pattern du frontend actuel pour m'en inspirer.
+
+Contrat Villes clair :
+- `GET /api/villes` — recherche `?nom=` (partial), tri `?order[nom]=`, pagination `?page=`.
+- `POST /api/villes` `{nom}` · `PATCH /api/villes/{id}` `{nom}` · `PATCH /api/villes/{id}/remove` (soft-delete → corbeille).
+- Champs : `id`, `nom` (min 2), + dates.
+
+**Choix d'architecture pour les listes** (que je t'explique) : plutôt que `react-table` côté client, je fais la liste en **RSC pilotée par l'URL** — recherche/tri/pagination passent en `searchParams` et sont exécutés par le **backend**. Résultat : moins de JS, données toujours fraîches, liens partageables, et le bouton Précédent/Suivant est un simple `<Link>`. C'est le pattern « RSC-first » qu'on a retenu. Je colocalise tout le module dans `app/(app)/villes/` (dossiers privés `_lib`).
+
+Je commence par les **types** et la **requête de liste** :
+
+Deux composants **réutilisables** par tous les futurs modules — recherche (debounced, met à jour l'URL) et pagination (liens) :
+
+La **page liste** (RSC, pilotée par l'URL) et son **skeleton** de chargement :
+
+J'ajoute **Villes** à la navigation de la sidebar :
+
+Je valide le tout (fix dropdown + module Villes) :
+
+Build **vert** — `/villes` apparaît en `ƒ (Dynamic)`. Le fix du menu et la liste des villes compilent.
+
+## Brique 1.1 — Liste des villes (lecture)
+- [_lib/types.ts](nexttransport/app/(app)/villes/_lib/types.ts) + [_lib/queries.ts](nexttransport/app/(app)/villes/_lib/queries.ts) : `getVilles({ q, page })` appelle `/api/villes` (recherche `nom` partial, tri, pagination) et **normalise** la réponse hydra (`member`/`totalItems`, avec ou sans préfixe `hydra:`).
+- [page.tsx](nexttransport/app/(app)/villes/page.tsx) : liste **RSC** — lit `searchParams` (une **Promise** en Next 16), affiche la table shadcn, gère l'état vide.
+- Deux composants **réutilisables** posés pour tous les modules : [list-search.tsx](nexttransport/components/list-search.tsx) (recherche debouncée qui écrit `?q=` dans l'URL) et [list-pagination.tsx](nexttransport/components/list-pagination.tsx) (liens `?page=`).
+- [loading.tsx](nexttransport/app/(app)/villes/loading.tsx) : skeleton affiché automatiquement pendant le chargement (Suspense).
+- **Villes** ajouté à la sidebar.
+
+**Le pattern est maintenant en place** : recherche/tri/pagination = état dans l'URL, exécutés par le backend, rendus en RSC. On le réutilisera pour chaque module (gares, lignes, tarifs, billets…).
+
+## À tester
+```bash
+npm run dev
+```
+- Le menu **utilisateur** (clic sur ton nom) ne doit plus planter, et **Se déconnecter** doit marcher.
+- Clique **Villes** dans la sidebar → la liste de tes villes s'affiche. Tape dans la recherche → la liste se filtre (côté serveur, après 300 ms). Au-delà de 30 villes, la pagination apparaît.
+
+## Suite : brique 1.2 — Création d'une ville
+- Schéma **Zod** (`nom` min 2) + Server Action `creerVille` (`POST /api/villes`, gestion des `violations` d'unicité renvoyées par le backend).
+- Page `/villes/nouveau` + formulaire (`useActionState`), bouton **« Nouvelle ville »** sur la liste.
+- **Toasts** de feedback (succès/erreur) + `revalidatePath` pour rafraîchir la liste après création.
+
+Teste la liste et le menu, et on enchaîne sur la création (1.2).
+
+
+
+
+
+
+
+
+
+Oui on enchaîne, aussi j'ai cette issue quand je fais une recherche "Base UI: A component is changing the default value state of an uncontrolled FieldControl after being initialized. To suppress this warning opt to use a controlled FieldControl."
+
+Deux choses. D'abord ton warning : mon champ de recherche est **non-contrôlé** (`defaultValue`), or sa valeur par défaut change quand l'URL `?q=` change après une recherche → base-ui s'en plaint. Je le passe en **contrôlé** (state local), ce qui supprime le warning :
+
+Corrigé. Maintenant **1.2 — création**. Je regarde d'abord l'API du composant `toast` installé (pour le feedback) et je vérifie le format des erreurs de validation renvoyées par le backend.
+
+API toast comprise : un `<Toaster />` à monter une fois, puis `toast.add({ title, description, type })` pour émettre. J'implémente 1.2.
+
+**Toaster** monté dans le layout racine (disponible partout) :
+
+Le **schéma Zod** et la **Server Action** de création (avec extraction des `violations` d'unicité du backend) :
+
+Le **formulaire** (client, `useActionState` + toast) et sa **page** :
+
+J'ajoute le bouton **« Nouvelle ville »** sur la liste :
+
+Je valide 1.2 (le point sensible étant l'API `toast.add`) :
+
+Types OK (l'API `toast.add` est bonne). Build complet :
+
+Build **vert** — `/villes/nouveau` en place. Brique **1.2 (création) terminée**.
+
+## Ce qui a été posé
+- **Toaster** monté une fois dans le layout racine → notifications disponibles partout.
+- [_lib/schema.ts](nexttransport/app/(app)/villes/_lib/schema.ts) : validation Zod (miroir du backend).
+- [_lib/actions.ts](nexttransport/app/(app)/villes/_lib/actions.ts) : Server Action `creerVille` → `POST /api/villes`, **traduit les `violations` ApiPlatform en erreurs de champ** (ex. nom déjà utilisé), et `revalidatePath("/villes")` pour rafraîchir la liste.
+- [_components/ville-form.tsx](nexttransport/app/(app)/villes/_components/ville-form.tsx) : formulaire client (`useActionState`) → **toast** de succès + retour à la liste, ou erreur inline / toast.
+- Page `/villes/nouveau` + bouton **« Nouvelle ville »** sur la liste.
+- Champ de recherche corrigé (contrôlé → plus de warning base-ui).
+
+**Le pattern « mutation » est établi** : Server Action (validation Zod → API → `violations` → `revalidatePath`) + formulaire `useActionState` + toast. Réutilisable pour tous les modules.
+
+## À tester
+```bash
+npm run dev
+```
+- **Villes → Nouvelle ville** → saisis un nom → **Créer** : toast « Ville créée » + retour à la liste, la ville y apparaît.
+- Recrée **le même nom** → l'erreur d'unicité du backend s'affiche **sous le champ**.
+- La recherche ne déclenche plus de warning.
+
+> Note : le bouton « Nouvelle ville » est visible pour tous pour l'instant ; si tu n'as pas la permission `VILLE_CREER`, le backend renverra un 403 (toast d'erreur). On câblera l'affichage conditionnel selon les permissions quand on enrichira `SessionUser`.
+
+## Suite : brique 1.3 — Édition & suppression
+- `modifierVille` (`PATCH /api/villes/{id}` — j'ajusterai le `Content-Type` en `application/merge-patch+json` requis par ApiPlatform) et `supprimerVille` (`PATCH /api/villes/{id}/remove` → mise en **corbeille**, avec confirmation).
+- Page `/villes/[id]/modifier` (formulaire réutilisé en mode édition) + menu d'actions par ligne dans la table.
+
+Teste la création, et on termine le CRUD des villes avec l'édition/suppression (1.3).
+
+
+
+
+
+
+
+
+
+Oui continue, et quand je dans mes issues "Base UI: A component that acts as a button expected a native <button> because the `nativeButton` prop is true. Rendering a non-<button> removes native button semantics, which can impact forms and accessibility. Use a real <button> in the `render` prop, or set `nativeButton` to `false`.
+    at Button (about://React/Server/C:%5CUsers%5Cadamo%5CDocuments%5CWeb%5CiTransport%5Cnexttransport%5C.next%5Cdev%5Cserver%5Cchunks%5Cssr%5C%5Broot-of-the-server%5D__20dhujc._.js?60:70:263)
+    at VillesPage (about://React/Server/C:%5CUsers%5Cadamo%5CDocuments%5CWeb%5CiTransport%5Cnexttransport%5C.next%5Cdev%5Cserver%5Cchunks%5Cssr%5C%5Broot-of-the-server%5D__20dhujc._.js?59:369:272)"
+
+
+Bon warning à corriger. Mon `<Button render={<Link/>}>` fait rendre un `<a>` là où base-ui attend un `<button>` natif — ça casse la sémantique. Le pattern shadcn propre pour un **lien stylé en bouton** est `<Link className={buttonVariants(...)}>` (un vrai `<a>`, pas de `Button`). Je vérifie que `buttonVariants` est exporté :
+
+`buttonVariants` est bien exporté. Je corrige les liens-boutons (pattern shadcn : `<Link className={buttonVariants(...)}>`), puis j'enchaîne sur 1.3 (édition + suppression).
+
+D'abord, **le client API** : je prépare le PATCH ApiPlatform (qui exige `application/merge-patch+json`) et j'évite d'écraser un `Content-Type` fourni :
+
+Je corrige la pagination (liens stylés, plus de `Button` non-natif) :
+
+Maintenant **1.3**. J'ajoute `getVille(id)` à la requête :
+
+J'ajoute `ApiError` à l'import de queries.ts (utilisé par `getVille`) :
+
+J'ajoute les actions `modifierVille` et `supprimerVille` (je factorise la gestion d'erreur commune) :
+
+Je généralise le **formulaire** pour servir création *et* édition, en corrigeant au passage le bouton « Annuler » :
+
+Je mets à jour la page de création (nouvelles props du formulaire) :
+
+La **page d'édition** (`[id]/modifier`), avec 404 propre et l'action liée à l'id :
+
+Le menu d'actions par ligne aura une confirmation de suppression. Je regarde l'API de l'`AlertDialog` pour l'utiliser correctement :
+
+`AlertDialog` a une API standard. Je crée le **menu d'actions par ligne** (Modifier + Supprimer avec confirmation → corbeille) :
+
+Enfin, je mets à jour la liste : bouton « Nouvelle ville » en lien stylé, et **colonne Actions** avec le menu :
+
+Je valide tout 1.3 (types + build) :
+
+Build **vert** — `/villes/[id]/modifier` en place. Le **CRUD complet des Villes** fonctionne, et tous les patterns réutilisables sont posés.
+
+Je note le jalon en mémoire (pour la reprise) :
+
+Mémoire à jour. **Module 1 (Villes) terminé** — un référentiel CRUD complet.
+
+## Brique 1.3 + correctifs
+- **Édition** : `getVille(id)`, action `modifierVille` (via `action.bind(null, id)`), page `/villes/[id]/modifier` réutilisant le **même formulaire** (généralisé création/édition).
+- **Suppression** : `supprimerVille` (`PATCH /villes/{id}/remove` → **corbeille**) + menu d'actions par ligne avec **confirmation** (`AlertDialog`) ; l'erreur de garde backend (« ville rattachée à N gares actives ») remonte en toast.
+- Correctifs : **`api.patch`** envoie désormais `application/merge-patch+json` (exigé par ApiPlatform) ; **liens-boutons** passés en `<Link className={buttonVariants()}>` → plus de warning base-ui `nativeButton` (bouton « Nouvelle ville », « Annuler », pagination).
+
+## À tester (le CRUD complet)
+```bash
+npm run dev
+```
+- **Créer** une ville → toast + apparaît dans la liste.
+- Menu **⋯ → Modifier** → change le nom → toast « Ville modifiée ».
+- Menu **⋯ → Supprimer** → confirmation → « mise en corbeille », disparaît de la liste.
+- Essaie de supprimer une ville **rattachée à des gares** → message d'erreur (garde backend) en toast.
+- Vérifie qu'il n'y a plus de warning au chargement de `/villes`.
+
+## Suite : Module 2 — les Gares
+C'est le bon prochain module car il **réutilise tout le patron des Villes** *et* introduit une nouveauté clé : une **relation** (une gare appartient à une ville) → on posera le pattern du **select/combobox de référence** (choisir la ville dans le formulaire de gare), plus quelques champs supplémentaires (chef de gare, contacts). Ce sera plus rapide maintenant que les fondations et le patron CRUD existent.
+
+Teste les villes, et on enchaîne sur les gares.
+
+
+
+
+
+Oui
+
+On enchaîne sur le **Module 2 — les Gares**. J'explore d'abord le contrat backend (champs, format de la relation ville en lecture/écriture, endpoints).
+
+Contrat Gares clair :
+- **Lecture** : `id, libelle, ville` (nom), `villeId`, `chefgare, contact1, contact2, statut, datecreation`.
+- **Écriture** : `{ libelle, ville: "/api/villes/{id}", chefgare, contact1, contact2, description, datecreation }`.
+- Endpoints : GET (collection **sans pagination** → tout, **pas de SearchFilter**), GET item, POST, PATCH, `/suspendre` (admin), `/remove` (corbeille).
+
+**Choix expliqué** : contrairement aux Villes (backend paginé + filtrable → liste RSC/searchParams), le backend renvoie **toutes** les gares sans filtre serveur → la recherche se fera **côté client**. C'est le « mix » en pratique : le bon outil selon ce que l'API offre.
+
+Je fais la brique **2.1 (liste)**. D'abord j'extrais un petit helper hydra réutilisable :
+
+Je refactorise la requête Villes pour l'utiliser (cohérence) :
+
+Maintenant le module Gares — **types** et **requêtes** :
+
+La **page** (RSC) et la **table cliente** (recherche locale + badge de statut) :
+
+J'ajoute **Gares** à la sidebar :
+
+Build **vert** — `/gares` en place. Brique **2.1 (liste des gares) terminée**.
+
+## Ce qui a été posé
+- [lib/hydra.ts](nexttransport/lib/hydra.ts) : helper réutilisable pour lire les collections ApiPlatform (et j'ai refactoré Villes pour l'utiliser).
+- [_lib/types.ts](nexttransport/app/(app)/gares/_lib/types.ts) + [_lib/queries.ts](nexttransport/app/(app)/gares/_lib/queries.ts) : `getGares()` (liste complète) et `getGare(id)`.
+- [_components/gares-table.tsx](nexttransport/app/(app)/gares/_components/gares-table.tsx) : table avec **recherche côté client** (le backend ne pagine/filtre pas les gares) + **badge de statut** (Active/Suspendue).
+- **Gares** ajouté à la sidebar.
+
+**Le contraste pédagogique est posé** : Villes = liste **serveur** (searchParams, `revalidate`) ; Gares = liste **client** (tout chargé, filtre local). On choisit selon ce que l'API expose — c'est le « mix » assumé.
+
+## À tester
+```bash
+npm run dev
+```
+→ **Gares** dans la sidebar : la liste s'affiche (libellé, ville, chef de gare, contact, statut). Tape dans la recherche → filtrage instantané côté client.
+
+## Suite : brique 2.2 — Création d'une gare
+C'est là qu'arrive **la nouveauté du module** : le formulaire de gare a plusieurs champs (libellé, chef de gare, contacts, description, date) **et surtout un choix de ville**. On posera le pattern du **combobox de référence** : charger les villes côté serveur, les passer à un `Combobox` (recherche intégrée) côté client, et envoyer la ville au backend sous forme d'**IRI** (`/api/villes/{id}`). Le reste (Zod, Server Action, toast) réutilise le patron des Villes.
+
+Teste la liste des gares, et on attaque le formulaire avec le combobox ville.
+
+
+
+
+
+
+
+Compris — pour les CRUD simples je fais **tout le module d'un coup**. Je termine donc le CRUD Gares (création + combobox ville, édition, suppression, suspension). D'abord je regarde l'API du `Combobox` (la nouveauté) pour choisir la ville :
+
+Le `Combobox` base-ui est riche mais complexe et incertain à câbler. Pour un select de référence dans un formulaire, le plus robuste et le plus adapté est le **`native-select`** : un `<select>` natif stylé, **accessible**, et surtout qui s'intègre **directement à `FormData`** (via `name`) — pas de state ni de hidden input. Je vérifie son API :
+
+`NativeSelect` est parfait : un `<select>` natif stylé qui marche directement avec `FormData`. Je construis **tout le CRUD Gares d'un coup**.
+
+**Requêtes** — j'ajoute le chargement des villes pour le select :
+
+**Schéma Zod** :
+
+**Server Actions** (création, édition, suppression, suspension) :
+
+**Formulaire** (création/édition, avec le select natif de ville) :
+
+**Menu d'actions par ligne** (Modifier, Suspendre/Réactiver, Supprimer) :
+
+J'ajoute la colonne Actions à la table des gares :
+
+Les **pages** création et édition, et le bouton sur la liste :
+
+Build **vert** — les 3 routes Gares en place. **Module 2 (Gares) complet en un tour.**
+
+Je mets à jour la mémoire :
+
+## Module 2 — Gares : CRUD complet
+
+- **Liste** : recherche **côté client** + badge de statut (Active/Suspendue).
+- **Création / édition** : formulaire réutilisé avec **select natif de ville** (`NativeSelect`) — accessible et compatible `FormData` directement, envoyé au backend en **IRI** `/api/villes/{id}`. En édition, la page charge gare + villes en **parallèle** (`Promise.all`) et pré-remplit tout (ville comprise).
+- **Suppression** (corbeille, `AlertDialog`) et **Suspendre/Réactiver** (toggle du statut) dans le menu d'actions par ligne.
+- Réutilise intégralement le patron des Villes (Zod, Server Actions, `violations`, toast, `revalidatePath`).
+
+> Pour le champ ville j'ai choisi un **select natif** plutôt que le `Combobox` : c'est plus simple, robuste et accessible pour un référentiel. Si un jour il y a beaucoup de villes, on basculera sur un combobox à recherche (voire une recherche serveur).
+
+## À tester
+```bash
+npm run dev
+```
+**Gares** → **Nouvelle gare** : choisis une ville, remplis les champs → **Créer**. Puis **⋯ → Modifier** (tout est pré-rempli, ville incluse), **Suspendre/Réactiver** (le badge change), **Supprimer** (corbeille). Essaie de créer une gare avec un libellé/chef/contact déjà pris → l'erreur d'unicité s'affiche sous le champ.
+
+## Suite
+Le patron est maintenant très rodé — les prochains référentiels iront vite (CRUD complet d'un module par tour). Par quoi veux-tu continuer ?
+- **Référentiels simples** (rapides) : Fournisseurs, Marques, Modèles, Types (personnel / pièce / véhicule / panne)…
+- **Modules plus riches** : **Lignes** (itinéraire ordonné d'arrêts + durées de tronçon — le plus complexe), **Tarifs** (prix par couple de gares), **Cars** (flotte), **Personnel**.
+
+Dis-moi lequel et je le déroule en entier.
+
+
+
+
+
+
+
+Fais les Référentiels simples
+
+On attaque les référentiels simples. Comme il y en a plusieurs et qu'ils se ressemblent, j'explore d'abord leur structure exacte (champs, relations, endpoints) pour décider quoi factoriser.
+
+Le grep a raté les champs (les groupes sont avant la propriété). Je regarde mieux les propriétés et relations de chaque entité :
+
+Découverte clé : **8 référentiels ont une structure identique** (`id` + `libelle` seul, aucune relation) — Marque, Marquepiece, Model, Modelvehicule, Typepersonnel, Typepiece, Typevehicule, Typepanne. Seul **Fournisseur** est un peu plus riche (libellé, contact, email, adresse). Ça appelle une **factorisation**. Je vérifie juste la pagination et la validation avant de concevoir :
+
+Verdict : 8 référentiels **strictement identiques** (`libellé` seul, non paginés). Je **factorise** avec une route dynamique `/referentiels/[type]` + une config centralisée → les 8 CRUD d'un coup, sans dupliquer. (Fournisseur, un peu plus riche, suivra en module dédié.)
+
+Je pose d'abord la **config + le socle serveur** :
+
+Les **Server Actions** génériques (l'endpoint vient de la config serveur, pas du client — sécurisé) :
+
+Les **composants génériques** (formulaire, menu d'actions, table) :
+
+Les **3 pages** de la route dynamique :
+
+La **sidebar** avec un groupe déroulant « Référentiels » (8 entrées) :
+
+Build **vert** — les 3 routes `referentiels/[type]` en place. **Les 8 référentiels « libellé simple » sont livrés d'un coup** grâce à la factorisation.
+
+## Ce qui a été fait — un seul système pour 8 référentiels
+- [lib/ref/config.ts](nexttransport/lib/ref/config.ts) : la config centralise les 8 types (endpoint + libellés). Ajouter un référentiel = **une ligne**.
+- Socle serveur : [queries](nexttransport/lib/ref/queries.ts) + [mutations](nexttransport/lib/ref/mutations.ts) génériques ; Server Actions [_actions.ts](nexttransport/app/(app)/referentiels/[type]/_actions.ts) où **l'endpoint vient de la config serveur** (jamais du client → pas d'endpoint arbitraire).
+- Composants génériques réutilisables : [ref-table](nexttransport/components/ref/ref-table.tsx), [ref-form](nexttransport/components/ref/ref-form.tsx), [ref-actions](nexttransport/components/ref/ref-actions.tsx).
+- **3 fichiers de routes** (`page`, `nouveau`, `[id]/modifier`) desservent les 8 référentiels via `[type]`.
+- Sidebar : groupe déroulant **« Référentiels »** avec les 8 entrées (menu collapsible).
+
+Couverts : **Marques de véhicule/pièce, Modèles de véhicule/pièce, Types de personnel/pièce/véhicule/panne** — chacun avec liste + recherche + création + édition + suppression (corbeille).
+
+## À tester
+```bash
+npm run dev
+```
+Sidebar → **Référentiels** (se déplie) → choisis-en un (ex. **Types de personnel**) → crée « Chauffeur », modifie-le, supprime-le. Vérifie la recherche et le message d'unicité sur un doublon.
+
+## Il reste **Fournisseurs**
+C'est le seul référentiel qui n'entre pas dans le système générique (il a plusieurs champs : libellé, contact, e-mail, adresse). Je le fais en **module dédié** (comme Villes/Gares) — c'est rapide. Je l'enchaîne maintenant ?
+
+
+
+
+
+
+
+
+Oui
+
+On finit avec **Fournisseurs**. Je vérifie les détails de l'entité (validation, champs requis/optionnels) :
+
+Fournisseur : `libelle` (requis), `contact`, `email`, `adresse`, `pays` (tous optionnels). Je déroule le module dédié en réutilisant le patron Villes/Gares.
+
+**Types + requêtes + schéma :**
+
+**Server Actions :**
+
+**Formulaire, menu d'actions, table :**
+
+**Les 3 pages :**
+
+J'ajoute **Fournisseurs** à la sidebar :
+
+Build **vert** — module Fournisseurs complet. **Tous les référentiels simples sont livrés.** Je mets à jour la mémoire :
+
+## Fournisseurs + tous les référentiels : terminés ✅
+
+**Module Fournisseurs** (dédié) : liste (recherche client), création/édition (libellé, contact, e-mail, adresse, pays — seul le nom requis, e-mail validé s'il est rempli), suppression (corbeille). Ajouté à la sidebar.
+
+**Bilan des référentiels simples livrés :**
+- **8 référentiels génériques** via `/referentiels/[type]` (Marques véhicule/pièce, Modèles véhicule/pièce, Types personnel/pièce/véhicule/panne) — une seule base de code.
+- **Fournisseurs** — module dédié.
+
+## À tester
+```bash
+npm run dev
+```
+- Sidebar → groupe **Référentiels** (les 8) + **Fournisseurs** en entrée directe.
+- Sur chacun : liste, recherche, **Nouveau**, **Modifier**, **Supprimer** (corbeille), et le message d'unicité sur un doublon.
+- Pour un fournisseur : e-mail invalide → erreur sous le champ ; champs facultatifs laissés vides → OK.
+
+## Suite — les modules « riches »
+Les CRUD simples sont tous là. Restent les modules avec de la logique métier :
+- **Cars** (flotte) — relations marque/modèle/type + statut ; proche des Gares.
+- **Personnel** — type de personnel + infos ; simple/moyen.
+- **Tarifs** — prix par **couple de gares** (deux relations gare) + création auto du sens inverse.
+- **Lignes** — le plus complexe : **itinéraire ordonné d'arrêts** + durées de tronçon (édition d'une liste dynamique).
+
+Par lequel veux-tu continuer ? Je suggère **Cars** ou **Personnel** pour rester dans une montée en difficulté progressive, mais on peut attaquer **Lignes** ou **Tarifs** si tu préfères le défi.
+
+
+
+
+
+
+
+
+On continue avec  Cars.
+
+Pour les modules riches je veux que tu utilise le composant data-table de **shadcn-ui** histoire d'avoir un tableau riche et moderne avec les filtre, pagination, tri, etc...
+
+Aussi j'ai l'erreur suivante dans mes issues dans la partie referentiels "Base UI: A component is changing the default open state of an uncontrolled Collapsible after being initialized. To suppress this warning opt to use a controlled Collapsible."
+
+
+
+
+
+Deux points. D'abord ton warning **Collapsible** : dans la sidebar, `defaultOpen` change quand tu navigues vers/depuis un référentiel → base-ui exige un Collapsible **contrôlé**. Je le passe en contrôlé (ouvert automatiquement sur une route référentiel, mais tu peux le refermer) :
+
+Collapsible corrigé. Maintenant j'explore le contrat **Car** (champs, relations, endpoints) avant de construire la DataTable + le module :
+
+Car est un module riche : `matricule`, `nbrsiege`, `etat`, **3 relations** (marque, typevehicule, modelvehicule) + champs de plan de sièges. Je regarde le modèle du frontend actuel pour connaître le **format exact des relations en lecture** (nesté vs IRI) :
+
+Format confirmé : **read** = relations nestées `{ id, libelle }` (marque, typevehicule, modelvehicule) ; **write** = IRI. Le plan de sièges (complexe) sera hors du formulaire de base. Je regarde les valeurs d'`etat` puis je construis la DataTable :
+
+`etat` : DISPONIBLE / EN_VOYAGE / EN_PANNE / EN_MAINTENANCE. J'ai tout. Je construis d'abord la **DataTable générique shadcn/react-table** (réutilisable par tous les modules riches) — pagination, en-têtes triables, puis le tableau :
+
+La DataTable générique est prête (tri, filtre, pagination client). Maintenant le module **Cars**. **Types + requêtes** (dont les options des 3 selects) :
+
+**Schéma + Server Actions :**
+
+**Menu d'actions + table (colonnes react-table + DataTable) :**
+
+**Le formulaire** (matricule, sièges, statut, 3 selects de référence) :
+
+**Les 3 pages + la sidebar :**
+
+Build **vert** (tsc OK). Je confirme juste que les routes Cars sont bien générées (le `tail` les avait coupées) :
+
+Les 3 routes Cars sont générées. **Module Cars complet + DataTable générique livrés.** Je mets à jour la mémoire :
+
+## Module Cars + DataTable moderne : terminés ✅
+
+**DataTable générique** (shadcn / TanStack Table) — réutilisable par tous les modules riches : [data-table.tsx](nexttransport/components/data-table/data-table.tsx) (tri + filtre + pagination **côté client**), [en-têtes triables](nexttransport/components/data-table/data-table-column-header.tsx), [pagination](nexttransport/components/data-table/data-table-pagination.tsx).
+
+**Module Cars** (CRUD complet) :
+- **Liste** avec la DataTable : recherche par matricule, **tri sur chaque colonne** (clic sur l'en-tête), pagination — badge de statut coloré.
+- **Création/édition** : matricule, nombre de sièges, statut (Disponible/En voyage/En panne/En maintenance) et **3 relations** (marque, modèle, type) via selects → envoyées en IRI. Colonnes/relations gérées proprement (nestées `{id, libelle}` en lecture).
+- **Suppression** (corbeille).
+- **Collapsible** de la sidebar corrigé (contrôlé → plus de warning).
+
+> **Choix assumé** : le **plan de sièges** (`sieges_gauche/droite/plansieges`) n'est pas dans le formulaire — c'est une UI dédiée (grille de sièges) à faire plus tard ; le nombre de sièges suffit à la capacité pour l'instant.
+
+## À tester
+```bash
+npm run dev
+```
+**Cars** → tri en cliquant les en-têtes, recherche matricule, pagination si > 10 véhicules. **Nouveau car** (choisis marque/modèle/type), **Modifier** (tout pré-rempli), **Supprimer**.
+
+## Suite
+Il reste les modules riches : **Personnel** (simple, type + infos), **Tarifs** (couple de gares + sens inverse auto), **Lignes** (le plus complexe : itinéraire ordonné d'arrêts). Par lequel continue-t-on ?
+
+
+
+
+
+
+
+
+
+
+Termine d'abord le plan de sièges (sieges_gauche/droite/plansieges).
+
+Aussi pour le DataTable je veux le tri, filtre, pagination soient faite côté serveur
+
+
+
+Deux demandes distinctes. Je commence par le **plan de sièges** (comme demandé « d'abord »), puis on fera la DataTable côté serveur ensuite.
+
+Le plan de sièges est spécifique — je dois d'abord comprendre le format exact de `plansieges`/`sieges_gauche`/`sieges_droite` et comment le frontend actuel le saisit.
+
+Format compris : `plansieges` = grille (tableau de rangées, chaque cellule = n° de siège ou `null` pour une allée/trou ; marqueur lettre « B: » = banquette arrière). Le frontend actuel le saisit en **texte** (une ligne par rangée) converti en grille. Je regarde la conversion inverse (grille → texte) pour l'édition :
+
+J'ai les deux conversions. Je reproduis le format en TypeScript (helper neutre, utilisé côté client pour l'aperçu et côté serveur pour l'envoi) :
+
+Maintenant l'**éditeur de plan** — un composant avec les sièges gauche/droite, le plan personnalisé en texte, **et un aperçu visuel en temps réel** :
+
+J'intègre les nouveaux champs. **Type Car** :
+
+**Schéma** — j'ajoute les champs du plan :
+
+**Actions** — `buildPayload` et `parse` prennent en compte le plan :
+
+**Formulaire Car** — j'ajoute l'éditeur de plan et ses valeurs par défaut :
+
+Enfin, la page d'édition passe les valeurs du plan (grille → texte) :
+
+Build **vert** — le plan de sièges est intégré.
+
+## Plan de sièges (Cars) — terminé
+- Champs **sièges à gauche / à droite** (par rangée) + **plan personnalisé** en texte (une ligne = une rangée ; `.` = allée ; `B:` = banquette) — même format que le backend.
+- **Aperçu visuel en temps réel** : le plan se dessine (cases numérotées, allées, banquette) à mesure que tu tapes. [plan-sieges-field.tsx](nexttransport/app/(app)/cars/_components/plan-sieges-field.tsx)
+- Conversion texte ⇄ grille ([plansieges.ts](nexttransport/app/(app)/cars/_lib/plansieges.ts)) ; à l'édition le plan existant est pré-rempli ; vide → le backend génère le plan standard depuis gauche/droite.
+
+**À tester** : `/cars/nouveau` → saisis `3 4 5 . 2 1` puis une 2ᵉ ligne, l'aperçu se met à jour ; laisse vide → « plan standard généré ».
+
+## DataTable côté serveur — un point à trancher avec toi
+Rendre le tri/filtre/pagination **côté serveur** est le bon choix pour les **gros volumes** (billets, réservations, voyages…). Techniquement, la DataTable devient « manuelle » : les contrôles écrivent dans l'URL (`?page=&order[x]=&q=`) et le backend fait le travail.
+
+**Le blocage** : ça exige que le backend **expose** pagination + tri + recherche sur l'endpoint. Or `/api/cars` a `paginationEnabled: false` et **aucun filtre** — les contrôles serveur seraient donc **sans effet**. L'activer côté backend est possible, **mais `/api/cars` est aussi consommé par le frontend Symfony actuel** (qui charge *tous* les cars) → je le casserais.
+
+Comment veux-tu qu'on procède ?
+
+Parfait — **serveur là où ça compte** : je construis la DataTable server-side et je l'applique à **Villes** (le référentiel qui supporte déjà pagination + recherche + tri côté backend), ce qui pose le pattern pour les futurs gros modules (billets, réservations…). Les petits référentiels restent en client, et je ne touche pas au backend Cars → aucun impact sur l'ancien front.
+
+Bonne nouvelle : mes composants `ListSearch` et `ListPagination` (déjà pilotés par l'URL) sont exactement les contrôles serveur. Il me manque juste l'**en-tête de tri serveur** et la coque **ServerDataTable** (react-table pour le rendu, l'état dans l'URL).
+
+Maintenant je migre **Villes** vers ce pattern. J'adapte d'abord la requête pour un tri générique (nom ou date) :
+
+Les **colonnes** (avec en-têtes triables serveur) et la **table** :
+
+Enfin, je réécris la page Villes (extraction du tri depuis l'URL + la nouvelle table) :
+
+Le build échoue **uniquement** sur le téléchargement des polices Geist depuis Google Fonts (hoquet réseau, pas mon code — tsc est vert). Je relance :
+
+Build **vert** (c'était bien le hoquet réseau sur les polices). Les deux demandes sont faites. Je mets à jour la mémoire :
+
+Les deux demandes sont livrées.
+
+## 1. Plan de sièges (Cars) — terminé
+Éditeur complet dans le formulaire de car : sièges gauche/droite, plan personnalisé en texte, et **aperçu visuel qui se dessine en temps réel**. Conversion texte ⇄ grille identique au backend ; à l'édition le plan existant est pré-rempli.
+
+## 2. DataTable côté serveur — construite et appliquée à Villes
+- [server-sort-header.tsx](nexttransport/components/data-table/server-sort-header.tsx) : en-têtes **triables côté serveur** — un clic écrit `?order[champ]=asc|desc` dans l'URL, le backend trie.
+- [server-data-table.tsx](nexttransport/components/data-table/server-data-table.tsx) : react-table ne fait que le **rendu** (`manualSorting/Filtering/Pagination`) ; la recherche (`?q=`) et la pagination (`?page=`) réutilisent `ListSearch`/`ListPagination`. On ne charge **qu'une page** → adapté aux gros volumes.
+- **Villes migré dessus** (son backend expose recherche + tri + pagination) : tri sur **Nom** et **Créée le**, recherche, pagination — **tout côté serveur**. C'est le patron pour les futurs gros modules (billets, réservations).
+
+On a donc **deux DataTable** selon le besoin : **client** (petits référentiels, ex. Cars) et **serveur** (gros volumes, backend filtrable).
+
+## À tester
+```bash
+npm run dev
+```
+- **Cars → Nouveau/Modifier** : l'éditeur de plan avec aperçu.
+- **Villes** : clique les en-têtes **Nom** / **Créée le** → l'URL passe en `?order[...]=` et la liste se retrie (serveur) ; la recherche et la pagination fonctionnent pareil.
+
+## Suite
+Prochains modules riches : **Personnel** (type + infos, simple), **Tarifs** (couple de gares + sens inverse auto), **Lignes** (le plus complexe : itinéraire ordonné d'arrêts). Lequel ?
+
+
+
+
+
+
+
+
+Oui pour le Personnel et fais le show(voir) de car.
+
+Aussi dans la partie création de car j'ai l'erreur suivante dans mes issues "Received NaN for the `children` attribute. If this is expected, cast the value to a string."
+
+
+Trois tâches : corriger le bug NaN, ajouter la fiche (voir) d'un car, et le module Personnel. Je commence par le **bug NaN** puis j'explore Personnel.
+
+Le NaN vient de l'aperçu du plan : si tu tapes un caractère non numérique, `Number(cell)` donne `NaN` qui est rendu comme children. Je corrige à la source (dans `textToGrid`, tout ce qui n'est pas un nombre positif devient une allée) :
+
+Maintenant j'explore le contrat **Personnel** :
+
+Personnel : nom, prénom, contact, code, **typepersonnel** (relation), image (upload — je l'omettrai), date d'embauche ; non paginé + SearchFilter → **DataTable client**. Je confirme le format de la relation et la validation via le frontend actuel :
+
+Bug corrigé à la source. Personnel confirmé (relation `typepersonnel` nestée `{id, libelle}`, image omise). Je traite les 3 demandes.
+
+**Fiche car (voir)** — d'abord un composant d'affichage du plan réutilisable (sans `"use client"` → utilisable en RSC), et je refactore l'aperçu du formulaire pour l'utiliser :
+
+Je refactore l'aperçu du formulaire pour réutiliser `PlanView` :
+
+La **fiche du car** (`/cars/[id]`) avec ses infos et le plan de sièges rendu :
+
+Je rends le matricule cliquable (vers la fiche) et j'ajoute « Voir » au menu d'actions :
+
+Bien. Maintenant le **module Personnel** (CRUD complet, DataTable client, relation type, suspension). Types + requêtes :
+
+Composants Personnel — **formulaire, menu d'actions, table** :
+
+Les **3 pages** + la sidebar :
+
+Build **vert** — `/cars/[id]` (fiche) et les 3 routes Personnel sont là. Les trois demandes sont faites. Je mets à jour la mémoire :
+
+Les trois demandes sont livrées.
+
+## 1. Bug NaN — corrigé
+`textToGrid` transforme désormais toute saisie non numérique (lettre, symbole) en **allée** au lieu de produire `NaN`. Plus d'erreur « Received NaN » dans l'aperçu du plan.
+
+## 2. Fiche du car (voir) — `/cars/[id]`
+- Page de détail : matricule + statut, infos (marque, modèle, type, sièges, disposition, date) et le **plan de sièges rendu visuellement**.
+- Accès : **matricule cliquable** dans la liste + entrée **« Voir »** dans le menu d'actions.
+- J'ai extrait un composant [PlanView](nexttransport/app/(app)/cars/_components/plan-view.tsx) **partagé** entre la fiche (serveur) et l'aperçu du formulaire (client) — une seule source pour le rendu du plan.
+
+## 3. Module Personnel — CRUD complet
+- Liste en **DataTable client** (tri colonnes, recherche par nom, pagination) avec badge de statut.
+- Création/édition : nom, prénom, **type de personnel** (select → IRI), contact, code, date d'embauche. *(L'upload de photo est omis pour l'instant — comme le plan de sièges au début, ça mérite une UI dédiée.)*
+- **Suspendre/Réactiver** + suppression (corbeille).
+- Ajouté à la sidebar.
+
+## À tester
+```bash
+npm run dev
+```
+- **Cars** : clique un matricule → la fiche s'affiche avec le plan ; « Voir » dans le menu. Le bug NaN dans le formulaire a disparu.
+- **Personnel** : liste triable, **Nouveau** (choisis un type), **Modifier**, **Suspendre/Réactiver**, **Supprimer**.
+
+## Suite
+Restent les deux plus riches : **Tarifs** (prix par couple de gares + création auto du sens inverse) et **Lignes** (itinéraire ordonné d'arrêts + durées de tronçon — le plus complexe). On continue avec lequel ?
+
+
+
+
+
+
+
+On continue avec les deux, et fais le image (upload) de la partie personnel que tu as omis
+
+
+
+Je reprends. Trois livrables : **upload photo Personnel**, module **Tarifs**, module **Lignes**. Avant d'écrire, je dois (1) comprendre le modèle de données réel côté backend pour ces trois sujets, et (2) relire la doc Next embarquée sur l'upload de fichiers (règle `AGENTS.md`). Je commence par l'exploration.
+
+Personnel a bien `image` → une relation `ManyToOne MediaObject`. L'upload passe donc par une entité `MediaObject` dédiée. Regardons comment elle fonctionne.
+
+L'upload = 2 étapes : `POST /api/media_objects` (multipart, champ `file`) → renvoie un IRI + `contentUrl`, puis on attache l'IRI au champ `image` du personnel. Maintenant les deux modules riches — Tarif, Ligne, Arret, Voyage :
+
+Tarif : `garedepart`, `garearrivee` (IRI Gare), `montant` (int positif). Pagination **serveur**, filtres `garedepart.id`/`garearrivee.id` exact, tri sur montant. Le README évoque un « sens inverse auto » — vérifions le `TarifProcessor` et lisons Ligne/Arret :
+
+Le backend crée le sens inverse tout seul — le front n'a rien de spécial à faire, juste l'indiquer. Maintenant Ligne / Arret / Voyage :
+
+Ligne utilise un **DTO `LigneInput`** en entrée (pas l'entité directe). C'est le module le plus complexe. Je lis le DTO d'entrée, le processor et l'entité Arret :
+
+Compris. `LigneInput` = `{ libelle, heuredepart "08:00"|null, arrets: [{gare: <id int>, ordre: 0, dureeTronconMinutes: null|int}, …] }` — les gares sont des **id entiers** (pas des IRI), ordres contigus dès 0, durées tout-ou-rien. Le backend dérive codeligne/origine/terminus. Lisons Arret :
+
+J'ai le modèle complet des trois sujets. Maintenant je vérifie (a) la doc Next embarquée sur les formulaires/upload (règle `AGENTS.md`), (b) mon `lib/api.ts` pour l'envoi multipart, et (c) le README backend pour la logique métier Tarif/Ligne.
+
+`apiFetch` ne gère que le JSON — je devrai ajouter un mode multipart pour l'upload. Voyons la doc Next embarquée (obligatoire avant d'écrire), puis le README backend :
+
+Confirmé : `<input type="file">` → la Server Action reçoit un `File` via `formData.get()`. Un point Next important pour l'upload : la limite de taille par défaut des Server Actions (1 Mo) alors que le backend accepte 5 Mo. Vérifions la config et mon `next.config` :
+
+Il faut monter `bodySizeLimit` à ~6 Mo. Regardons la config existante + les fichiers Personnel actuels + comment l'ancien front gère l'upload et les lignes, et le README backend :
+
+Le README confirme tout. Il existe aussi un « recalage » avancé sur les lignes (hors périmètre v1 — je le noterai). Regardons l'UX de référence de l'ancien front pour la ligne (éditeur d'arrêts ordonnés) et l'upload photo :
+
+Excellente référence UX pour la ligne. J'ai tout ce qu'il faut. Je lis maintenant les fichiers Personnel actuels pour les étendre (photo), puis les modèles Tarif/Ligne de l'ancien front pour le typage :
+
+J'ai tout le contexte nécessaire. Le plan d'implémentation est clair. Je commence par l'infrastructure partagée (support multipart + config), puis les trois livrables.
+
+Infra d'abord : support multipart dans `apiFetch`, `bodySizeLimit`, helper média.
+
+Infra prête. Maintenant l'**upload photo Personnel**. Types + queries (mapping du `contentUrl` en URL absolue) :
+
+Maintenant l'action : upload de la photo si un fichier est fourni, suppression optionnelle, sinon on ne touche pas au champ.
+
+Maintenant les deux actions create/modify pour intégrer l'upload, avec gestion des erreurs d'image :
+
+Maintenant le formulaire : champ photo avec aperçu circulaire, sélection de fichier et option « retirer » en édition.
+
+Le `modifier/page.tsx` doit passer `imageUrl` dans les defaults :
+
+Ajoutons un avatar dans la liste Personnel. Lisons la table :
+
+Vérifions que `Input` accepte `ref` et `type="file"` (React 19 / base-ui) :
+
+Photo Personnel terminée. Passons aux **Tarifs** (pagination/tri serveur). Je regarde le patron Villes (server DataTable) et les composants serveur pour m'y conformer :
+
+Le patron serveur est clair. Pour Tarif il me faut des options de gares pour les filtres et le formulaire. Regardons le module Gares :
+
+Il me faut savoir comment le backend sérialise `garedepart`/`garearrivee` dans un Tarif (IRI seul, ou objet avec libellé ?). Vérifions les groupes de l'entité Gare :
+
+Sous `read:Tarif`, une gare imbriquée expose `id`, `libelle`, `villeNom` — je pourrai afficher les libellés. Je lis le patron d'actions (dropdown + AlertDialog) pour le répliquer :
+
+J'ai tous les patrons. Je crée le **module Tarifs** — types, queries, schema :
+
+Vérifions le nom JSON réel exposé par `getVilleNom()` (le module Gares utilise `ville`, pas `villeNom`) :
+
+Le nom JSON est `ville` (via `SerializedName`), pas `villeNom`. Je corrige le type et la query :
+
+Schema + actions Tarif :
+
+Composants Tarif — formulaire (avec note sur le sens inverse auto), actions, filtres, colonnes, table :
+
+Barre de filtres (gares départ/arrivée → URL) + table :
+
+Pages Tarif — liste (avec filtres), nouveau, modifier :
+
+Le module Tarifs est complet. J'ajoute Tarifs et (à venir) Lignes à la sidebar, en respectant le regroupement Exploitation (Gares → Lignes → Tarifs) :
+
+Le module Tarifs est complet et câblé. Maintenant le plus complexe : **Lignes** (arrêts ordonnés + durées de tronçon). Types d'abord :
+
+Actions Lignes (appelées directement avec un payload typé, validées par Zod côté serveur) :
+
+Le module Lignes a besoin d'un éditeur d'arrêts riche. Vérifions les composants UI disponibles (Card, etc.) :
+
+Tout est disponible (Card, Badge, Field…). Je crée le helper de formatage horaire puis l'éditeur de ligne :
+
+Le formulaire de ligne est prêt. Actions, colonnes, table, fiche et pages :
+
+Fiche de ligne : calcul des heures de passage (pur, réutilisable) + timeline présentationnelle + page :
+
+Pages Lignes — liste, nouveau, modifier, fiche :
+
+Regardons la fiche car pour aligner le style de la fiche ligne (cards, boutons retour/modifier) :
+
+Tous les fichiers sont créés. Je corrige un détail de typage dans le formulaire (import de `LignePayload`), puis je lance le typecheck et le build.
+
+TypeScript passe sans erreur. Lançons le build complet :
+
+Le build est vert — les trois livrables compilent, toutes les routes sont présentes (`/lignes`, `/tarifs`, `/personnels` + sous-routes). Je mets à jour la mémoire projet puis je résume.
+
+Tout est livré et le build passe. Voici le récapitulatif.
+
+## 1. Photo Personnel (upload) — la partie omise
+- **Flux Vich/MediaObject en 2 temps** : `POST /api/media_objects` (multipart) → IRI, puis rattachement au champ `image` du personnel.
+- **Infra réutilisable posée** :
+  - [lib/api.ts](nexttransport/lib/api.ts) accepte désormais un corps `formData` (sans fixer le `Content-Type` — `fetch` génère le boundary).
+  - [lib/media.ts](nexttransport/lib/media.ts) : `uploadImage(file)` et `mediaUrl(contentUrl)` (URL absolue pour l'affichage).
+  - [next.config.ts](nexttransport/next.config.ts) : `bodySizeLimit: "6mb"` (le défaut de 1 Mo aurait bloqué les images jusqu'à 5 Mo).
+- **UX** : champ photo avec **aperçu rond en temps réel**, case « retirer la photo » en édition, **avatar dans la liste**. Le payload envoie l'IRI (nouvelle photo), `null` (retirer) ou rien (inchangé).
+
+## 2. Module Tarifs (grille par couple de gares)
+- **DataTable serveur** (pagination + tri `montant` côté backend).
+- Filtres = deux selects de gares (**départ / arrivée**) écrits dans l'URL → filtres exacts backend. Pas de recherche texte (ça n'aurait aucun sens ici).
+- **Le sens inverse est créé automatiquement par le backend** au POST → je l'indique juste par une note dans le formulaire, sans double saisie.
+
+## 3. Module Lignes (le plus complexe)
+- **Éditeur d'arrêts ordonnés** : ajouter/retirer une gare, monter/descendre, **durées de tronçon** (tout-ou-rien) avec **aperçu du cumul et de l'heure de passage estimée** en direct.
+- Le backend dérive seul le **code de ligne**, l'origine et le terminus.
+- Soumission via **Server Action appelée directement** avec un payload typé (pas un FormData — l'itinéraire est trop structuré), validée par Zod côté serveur.
+- **Fiche `/lignes/[id]`** : itinéraire en timeline avec horaires estimés par arrêt.
+- *Le « recalage » des tronçons (médiane réelle observée, réservé admin) est laissé pour une v2 — je l'ai noté.*
+
+Sidebar mise à jour (Villes · Gares · **Lignes · Tarifs** · Cars · Personnel · Fournisseurs). **`tsc` et `npm run build` passent au vert.**
+
+## À tester
+```bash
+npm run dev
+```
+- **Personnel** → Nouveau/Modifier : choisis une image (aperçu immédiat), enregistre ; l'avatar apparaît dans la liste. En édition, teste « Retirer la photo ». Vérifie qu'une image > 5 Mo est bien refusée (message backend).
+- **Tarifs** → crée un tarif A→B : vérifie que **B→A apparaît automatiquement** au même montant. Filtre par gare, trie par montant.
+- **Lignes** → crée une ligne avec 3+ arrêts et des durées de tronçon : observe l'aperçu des heures ; ouvre la fiche pour voir la timeline. Teste la validation (durées partielles → refus).
+
+On enchaîne avec **Voyages** (instances de lignes à une date) ou tu préfères d'abord roder ces trois modules en conditions réelles ?
+
+
+
+
+
+
+
+On enchaîne avec Voyages
+
+On enchaîne. Comme pour les modules précédents, je commence par comprendre le modèle réel côté backend : entité Voyage, ses processors, le README, et l'UX de référence de l'ancien front. Je ne conclus pas sur la lecture seule.
+
+C'est l'entité la plus riche du système : un **cycle de vie complet** (créer, démarrer, réceptionner, repartir, clôturer) + affectations (car, personnel, commercial). Je ne vais pas tout implémenter d'un coup — je dois cadrer un v1 pertinent pour un back-office. Lisons le `VoyageProcessor` (contrat de création exact) et le README voyage :
+
+Contrat de création clair : on envoie `ligne` (IRI) + `datedepartprevue` (+ `datearriveeprevue`, `placesprevues`, `car` optionnels) ; le backend dérive provenance/destination/code/gare de provenance. Le PATCH (merge) permet dates/places/**car** (le changement de car déclenche toute la logique de réaffectation des sièges). 
+
+Vu l'ampleur du cycle de vie (démarrer/réceptionner/clôturer/affecter commercial…), je cadre un **v1 back-office = planification + suivi** et je laisse l'exploitation terrain pour plus tard. Vérifions la frise `horaires` (VoyageProvider) et les champs de Car/User exposés :
+
+La frise `horaires` est propre et parfaite pour une timeline. Vérifions les champs de Car/User exposés sous `read:Voyage`, et l'UX de l'ancien front :
+
+J'ai le schéma complet du voyage. Regardons l'ancien `VoyageTable` pour la dérivation du statut et l'UX de création :
+
+
+J'ai tout le nécessaire. Je cadre le **v1 Voyages = planification + suivi** (liste filtrable, création, fiche avec frise horaires, édition dont changement de car, suppression), en laissant l'exploitation terrain (démarrer/réceptionner/clôturer/commercial) pour une itération dédiée. Je vérifie les helpers cars/lignes existants côté nexttransport :
+
+J'ai le contrat complet (création, PATCH, frise `horaires`, statut dérivé des dates réelles). Je construis le module. Types d'abord :
+
+Helper de statut (dérivé des dates réelles) + formatage :
+
+Queries — liste filtrable (recherche codevoyage, ligne, état via ExistsFilter), fiche, options lignes/cars :
+
+Schema + actions (création/édition/suppression) :
+
+Formulaire (création/édition) — ligne verrouillée en édition, dates, places, affectation car :
+
+Je vérifie que `FieldDescription` est bien exporté par le composant field :
+
+`FieldDescription` est exporté. Filtres (ligne + état), colonnes, table, actions :
+
+Colonnes + table :
+
+Frise des horaires (présentationnel) :
+
+Pages — liste, création, édition, fiche :
+
+Fiche voyage — infos, compteurs, frise horaires :
+
+Sidebar — j'ajoute Voyages après Lignes/Tarifs (module Exploitation) :
+
+Tous les fichiers créés. Typecheck puis build :
+
+Build **vert** — les 4 routes Voyages compilent, TypeScript passe. Je mets à jour la mémoire puis je résume.
+
+Le module **Voyages** est livré et le build passe au vert.
+
+## Ce que j'ai construit (v1 back-office = planification + suivi)
+
+**Liste** (DataTable serveur — pagination/tri backend) : code voyage cliquable, trajet (provenance → destination), départ prévu, car, **badge d'état**, nombre de billets.
+- **Filtres** : recherche par code voyage, select **ligne**, select **état** (À venir / En cours / Clôturés — traduits en `exists[...]` côté backend). Tri sur départ prévu et trajet.
+- **État dérivé** des dates réelles (jamais stocké) : arrivée réelle → *Clôturé*, départ réel → *En cours*, sinon *À venir*.
+
+**Création** : on choisit une **ligne** + le **départ prévu** (+ arrivée prévue, places prévisionnelles, car — tous optionnels). Le backend dérive tout seul provenance, destination, code voyage et le point de départ réel (origine de la ligne pour un compte central, gare de l'agent pour un départ partiel).
+
+**Édition** : dates, places, et **changement de car** — qui déclenche automatiquement la réaffectation des sièges des billets côté backend. La ligne est **verrouillée** (non modifiable après création, comme le veut le métier).
+
+**Fiche `/voyages/[id]`** : infos complètes, **compteurs** (billets / courriers / bagages / personnel) et surtout la **frise des horaires par gare** — heure prévue (somme des tronçons), heures réelles, retard, avec la **position actuelle du car** mise en évidence.
+
+**Suppression** (corbeille, bloquée s'il reste des billets actifs).
+
+## Laissé pour une itération dédiée « exploitation terrain »
+Les actions de cycle de vie liées à la position physique du car : **démarrer / réceptionner / repartir / clôturer**, affecter **personnel** et **commercial à bord**, faire **avancer** la position, et les **bordereaux**. Le backend les expose déjà (routes PATCH + DTO), mais elles sont contextuelles à la gare de l'agent — mieux vaut une UI opérationnelle séparée que de les mélanger au back-office de planification.
+
+## À tester
+```bash
+npm run dev
+```
+- **Créer** un voyage sur une ligne existante → vérifie que provenance/destination/code sont bien remplis automatiquement.
+- **Filtrer** par ligne et par état ; trier par départ prévu.
+- **Fiche** : ouvre un voyage → regarde la frise des horaires (les heures prévues doivent correspondre aux tronçons de la ligne).
+- **Changer le car** en édition → si le car est trop petit ou déjà utilisé, message clair du backend.
+
+## Suite
+Il reste le **cœur du métier** : **Billetterie / Réservations** (vente par tronçon, surbooking assumé, éviction, report — le sujet le plus riche, cf. le chantier « sièges évincés » déjà en prod côté Symfony), puis **Courrier** et **Bagage**. On attaque la Billetterie ?
