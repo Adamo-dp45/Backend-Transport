@@ -28,10 +28,1514 @@
 - 
 
 - 
-- Tirer les choses utile de la conversation `Claude` du desktop du travail
-- La possibilités d'activer ou désactiver des modules dans l'application
+Docker, Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony, backups et backfill
 
-Docker, Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
+php -S 10.0.2.2:8000 -t public
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev
+
+SycaPay, Jèko, GeniusPay, AdjeminPay
+
+
+- Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
+
+
+Salut Claude Code,
+
+Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
+
+## Stack technique
+- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
+- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
+- **Apps Mobile** : Flutter, React Native
+
+## Rappel
+- **Ignore les fichiers `brl.md`** du projet : ce sont juste des brouillons
+
+## Ce que j'attends
+
+Analyse le projet pour :
+- te remettre à jour sur l'architecture générale et les modules existants,
+- retrouver l'état d'avancement du projet,
+- être prêt pour la suite des instructions que je vais te donner.
+
+ 
+
+
+
+
+
+
+
+
+
+## Les deux notes de cap dans `documents/`
+
+- **Feuille de route** — 19 propositions priorisées. Déjà fait depuis : **B3 Vente en mode dégradé**. Restent en tête : **A1 Clôture de caisse quotidienne** (critique — la recette est calculée mais jamais rapprochée de l'espèce remise), **D1 limite de débit sur la réinitialisation de mot de passe**, **B2 contrôle d'embarquement par QR**, **C1 recherche globale**, **A2 report de masse**, **B1 SMS**, **A3 e-mails asynchrones**.
+- **Trouver la demande** — constat : aucune surface publique web, tout est derrière authentification. Six leviers, séquence non négociable : **L1 page publique par compagnie** (fondation) + L2 lien de départ partageable, puis L3 parrainage / L6 groupe-colis, puis L5 réactivation SMS / L4 apporteurs. Avec une contrainte posée d'emblée : le champ **origine** sur chaque réservation.
+
+Deux dépendances externes bloquent toujours : l'agrégateur Mobile Money (paiement simulé) et le canal SMS.
+
+
+## Travail en cours (non commité)
+
+Tout tourne autour du **dernier chantier : la vente hors ligne du commercial**, plus un démarrage de PWA.
+
+**Backend** — garde anti-collision de code dans [SynchronisationHorsLigneService.php:175](Backend-Transport/src/Domain/Service/SynchronisationHorsLigneService.php:175) : un code `B1` déjà pris est refusé *avant* l'écriture (sinon la violation d'index ferme l'EntityManager, annule le lot entier et bloque la file pour toujours). Même garde pour le bagage, par entreprise. Test `unCodeDejaPrisNeBloquePasLaFile` ajouté.
+
+**commercialflutter** — nouveau [vidange_automatique.dart](commercialflutter/lib/core/offline/vidange_automatique.dart) : la file repart seule sur 4 déclencheurs (ouverture SQLite, connectivité, retour au premier plan, retentative 2 min tant que la file n'est pas vide — le cas « antenne connectée sans débit »). Monté à la racine dans `app.dart`. Et `CodesHorsLigne` prend désormais le **max(file locale, instantané serveur)** pour que le compteur « B » ne reparte pas à 1 après réinstallation.
+
+## Points ouverts que j'ai relevés
+
+- Mobile Money réel : toujours simulé, en attente d'un agrégateur souscrit.
+- commercialflutter « à venir » : bilan de recette par période (nécessite un endpoint dédié, `/api/stats/commercial` étant admin) et fidélité à la vente.
+- Alertes : seuils encore en constantes de service, externalisation par entreprise non faite. Pas de notifications côté mobile.
+- Avant déploiement : vérifier l'absence de doublons `codeticket` / `codebagage` (migrations `Version20260912090000` et `...140000`).
+- Piste notée mais non entamée : visite interactive à la première connexion (Driver.js / Shepherd.js).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Prends la garde d'ordre à la réception, avec un rattrapage explicite
+
+
+
+
+
+
+
+
+- La notion de départ sur voyage (un champ sur voyage), ici je me dis qu'on procédera d'une façon auto en faisant l'incrémentation par ligne, par jour.. :: N°départ (01 à 07H, 02 à 10H..)
+    - La notion de départ (chatgpt)
+
+
+
+Sur des tickets de voyage je vois souvent "Départ 1" ou "Départ 2" etc..., ça parle de quoi dans notre cas ?
+
+C'est une très bonne question. En réalité, **"Départ 1", "Départ 2", etc. n'ont pas une signification universelle**. Leur signification dépend de chaque compagnie.
+
+Dans le contexte de ton application, il y a plusieurs interprétations possibles.
+
+## Cas 1 : Le numéro de départ d'une ligne (le plus courant)
+
+Prenons :
+
+```text
+Ligne :
+Abidjan → Korhogo
+```
+
+Le matin :
+
+```text
+08h00
+```
+
+Le car est plein.
+
+La compagnie ouvre un deuxième car à la même heure ou quelques minutes après.
+
+On obtient :
+
+```text
+Départ 1
+08h00
+Car A
+```
+
+```text
+Départ 2
+08h15
+Car B
+```
+
+Ici, **Départ 2** signifie simplement :
+
+> deuxième départ organisé sur cette ligne.
+
+C'est très courant pendant les périodes de forte affluence.
+
+---
+
+## Cas 2 : Plusieurs départs dans une journée
+
+Exemple :
+
+```text
+Abidjan → Bouaké
+```
+
+La compagnie propose :
+
+```text
+06h00
+
+09h00
+
+12h00
+
+15h00
+```
+
+Certaines compagnies les nomment :
+
+```text
+Départ 1
+
+Départ 2
+
+Départ 3
+
+Départ 4
+```
+
+Le numéro sert uniquement à identifier le créneau.
+
+---
+
+## Cas 3 : Plusieurs cars au même horaire
+
+Exemple :
+
+```text
+08h00
+
+Car A
+Départ 1
+
+Car B
+Départ 2
+
+Car C
+Départ 3
+```
+
+Les trois cars partent pratiquement en même temps.
+
+Le numéro permet simplement de savoir dans quel car le passager doit monter.
+
+---
+
+# Dans ton application
+
+Avec la logique que nous avons définie :
+
+* Ligne
+* Voyage
+* Car
+* Voyage de renfort
+
+Je **n'ajouterais pas un champ `depart`** dans la base de données.
+
+Je garderais simplement :
+
+```text
+Voyage
+
+dateDepartPrevue
+
+car
+
+codeVoyage
+```
+
+Et si plusieurs voyages existent pour une même ligne à une même heure :
+
+```text
+L1
+
+08h00
+
+V001
+Car 101
+
+V002
+Car 102
+```
+
+L'interface pourrait afficher :
+
+```text
+Départ 1
+(V001)
+```
+
+```text
+Départ 2
+(V002)
+```
+
+mais **"Départ 1" serait une information d'affichage**, calculée à partir de l'ordre des voyages, et non une donnée métier stockée.
+
+---
+
+## Ce que je te conseille
+
+Dans ton modèle, **`Départ 1`, `Départ 2`, etc. ne devraient pas être des champs persistés**. Ils peuvent être générés automatiquement pour l'affichage si plusieurs voyages correspondent à une même ligne et un même créneau horaire.
+
+Le véritable identifiant métier reste le **voyage** (`codeVoyage`) avec son **car** et sa **date/heure de départ prévue**.
+
+C'est une solution plus souple et plus cohérente avec l'architecture que tu as construite.
+
+
+
+
+
+
+
+
+
+
+Explique moi le principe de clôture de caisse dans une tel application car je veux mettre en place la fonctionnalité de vente hors-ligne via une application mobile
+
+Oui. Et avec une **vente hors-ligne sur mobile**, la clôture de caisse devient encore plus importante, parce qu'il faut distinguer **ce qui a été vendu sur le téléphone** de **ce qui a déjà été synchronisé avec le serveur**.
+
+### 1. Une caisse représente quoi ?
+
+Dans ton application, une caisse peut être rattachée à un :
+
+* guichetier ;
+* commercial ;
+* point de vente ;
+* éventuellement une gare.
+
+Exemple :
+
+```text
+Caisse C001
+Agent : Kouassi
+Gare : Bouaké
+Date : 11/09/2026
+```
+
+L'agent ouvre sa caisse avant de commencer ses ventes.
+
+---
+
+### 2. À l'ouverture
+
+On peut avoir un **fonds de caisse initial**.
+
+Exemple :
+
+```text
+Fonds initial : 50 000 FCFA
+```
+
+Puis l'agent commence à vendre.
+
+```text
+Ticket 1     10 000
+Ticket 2      8 000
+Bagage        2 000
+Ticket 3     10 000
+--------------------
+Ventes       30 000
+```
+
+S'il n'y a aucune autre opération :
+
+```text
+Espèces théoriques = 50 000 + 30 000
+                   = 80 000 FCFA
+```
+
+---
+
+# 3. La clôture
+
+À la fin de sa journée ou de son service, l'agent demande la clôture.
+
+Le système calcule ce qu'il **devrait avoir**.
+
+Par exemple :
+
+```text
+Fonds initial             50 000
+Ventes espèces            30 000
+Ventes Mobile Money       20 000
+--------------------------------
+Total encaissé            50 000
+```
+
+L'agent déclare ensuite ce qu'il possède réellement :
+
+```text
+Espèces physiques : 79 000 FCFA
+Mobile Money      : 20 000 FCFA
+```
+
+Le système compare le théorique et le réel.
+
+Il peut alors avoir :
+
+```text
+Écart : -1 000 FCFA
+```
+
+C'est ce qu'on appelle généralement un **écart de caisse**.
+
+---
+
+# 4. Maintenant, ton problème : le hors-ligne
+
+Imaginons que ton commercial parte avec son téléphone.
+
+Avant de partir, il synchronise :
+
+```text
+Voyages disponibles
+Tickets disponibles
+Tarifs
+Sièges
+etc.
+```
+
+Puis il perd Internet.
+
+Il peut quand même vendre :
+
+```text
+Ticket T001
+Ticket T002
+Ticket T003
+```
+
+Ces ventes sont enregistrées **localement sur le téléphone**.
+
+Par exemple :
+
+```text
+Mobile
+
+Vente T001   SYNC = NON
+Vente T002   SYNC = NON
+Vente T003   SYNC = NON
+```
+
+---
+
+# 5. La synchronisation
+
+Lorsqu'Internet revient :
+
+```text
+Téléphone
+    ↓
+Synchronisation
+    ↓
+Backend
+```
+
+Le serveur reçoit les ventes.
+
+Mais il faut surtout éviter de créer deux fois le même ticket.
+
+C'est pourquoi chaque vente hors-ligne devrait avoir un **identifiant unique généré côté mobile**, par exemple :
+
+```text
+offline_transaction_id
+```
+
+Le serveur peut ainsi dire :
+
+> Cette vente existe déjà, je ne la recrée pas.
+
+---
+
+# 6. Et la clôture ?
+
+C'est ici que je te conseille de séparer **clôture commerciale** et **synchronisation technique**.
+
+Une caisse ne devrait pas être considérée comme correctement clôturée simplement parce que l'application mobile a envoyé une requête.
+
+Je verrais plutôt :
+
+```text
+OUVERTE
+   ↓
+EN_COURS
+   ↓
+CLOTURE_DEMANDEE
+   ↓
+SYNCHRONISATION
+   ↓
+CLOTUREE
+```
+
+Par exemple, le commercial demande la clôture à 18h.
+
+L'application vérifie :
+
+```text
+Ventes locales non synchronisées : 0
+```
+
+Alors :
+
+> ✅ Toutes les ventes ont été synchronisées.
+> Vous pouvez clôturer votre caisse.
+
+---
+
+# 7. Mais que faire si Internet est absent au moment de clôturer ?
+
+C'est un cas très important.
+
+Supposons :
+
+```text
+18h00
+
+Internet ❌
+
+3 ventes non synchronisées
+```
+
+Je **n'autoriserais pas une clôture serveur définitive**.
+
+Le téléphone peut toutefois enregistrer :
+
+> **Clôture demandée hors-ligne**
+
+avec :
+
+```text
+date/heure
+identifiant de caisse
+montant théorique
+montant déclaré
+nombre de ventes
+```
+
+Puis, lorsque la connexion revient :
+
+```text
+Synchronisation
+       ↓
+Serveur
+       ↓
+Contrôle
+       ↓
+Clôture définitive
+```
+
+Cela évite de considérer comme définitivement clôturée une caisse dont le serveur ne connaît pas encore toutes les ventes.
+
+---
+
+# 8. Très important : la caisse et la recette ne sont pas la même chose
+
+C'est particulièrement important dans **ton modèle**.
+
+Tu as :
+
+```text
+Recette gare
+Recette commercial
+Recette voyage
+Recette entreprise
+```
+
+La caisse répond plutôt à :
+
+> **Combien cette caisse devait-elle encaisser et combien a-t-elle réellement encaissé ?**
+
+Alors que la recette répond à :
+
+> **Combien l'activité a-t-elle généré ?**
+
+Par exemple, un commercial rattaché à Bouaké vend :
+
+```text
+Ticket : 10 000 FCFA
+```
+
+La vente appartient à son activité commerciale et doit alimenter les statistiques de la gare selon la règle métier que tu as définie.
+
+Mais la **caisse du commercial** sert à contrôler l'encaissement.
+
+---
+
+# 9. Je structurerais donc ton système ainsi
+
+```text
+                    ENTREPRISE
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+            GARE                COMMERCIAL
+              │                     │
+            CAISSE                CAISSE
+              │                     │
+              └──────────┬──────────┘
+                         │
+                       VENTES
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+            Ticket     Bagage    Courrier
+```
+
+Et chaque vente possède notamment :
+
+```text
+Vente
+-----
+id
+reference
+caisse
+agent
+gare
+commercial (nullable)
+voyage
+montant
+modePaiement
+dateVente
+source
+createdAt
+```
+
+Avec par exemple :
+
+```text
+source = ONLINE
+source = OFFLINE
+```
+
+---
+
+# 10. Pour le mobile hors-ligne, j'ajouterais une notion essentielle
+
+Il faut distinguer :
+
+**créé localement** :
+
+```text
+LOCAL
+```
+
+**envoyé au serveur** :
+
+```text
+SYNC_EN_COURS
+```
+
+**confirmé par le serveur** :
+
+```text
+SYNCHRONISE
+```
+
+**erreur de synchronisation** :
+
+```text
+ERREUR_SYNC
+```
+
+Ainsi le commercial peut voir clairement :
+
+```text
+Aujourd'hui
+
+47 ventes
+
+45 synchronisées
+2 en attente
+
+⚠️ 2 ventes seront synchronisées dès
+que la connexion sera disponible.
+```
+
+---
+
+## Le point le plus important pour ton projet
+
+Je te recommande de ne **pas concevoir la vente hors-ligne comme "le même formulaire mais sans Internet"**.
+
+Il faut la considérer comme un véritable **système de synchronisation** :
+
+```text
+              MOBILE
+                 │
+       ┌─────────┴─────────┐
+       │                   │
+    Base locale          Internet
+       │                   │
+       └───────→ Sync ←────┘
+                    │
+                 BACKEND
+                    │
+                 POSTGRES
+```
+
+Et la **clôture de caisse doit être la photographie comptable d'une session de caisse**, tandis que la synchronisation garantit que cette photographie est connue du serveur.
+
+Pour ton application, je prévoirais donc dès le départ : **session de caisse → opérations de caisse → ventes → journal hors-ligne → synchronisation idempotente → contrôle des écarts → clôture définitive**. C'est beaucoup plus solide que d'ajouter le hors-ligne après coup.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- Enlever matricule du car sur le ticket pour mettre départ..
+- QRCode des tickets à reddirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
+    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
+- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
+- Dépannage, approvisionnement dans la partie recette pour avoir la recette net, du genre tout ce qui rentre et tout ce qui sort
+- Plus de détails sur la recette et centralisé la recette pour que l'admin ne se perde pas
+- Pour les dépenses on a générales et par gare (sur le tableau de bord de la gare on a recette - depenses) gare nullable  sur dépense
+    Dépenses : 2 types (Dépense générale et gare)
+        Objetdepense -> libelle          Objetdepensegare..
+        Depense                          Depensegare..
+            objetdepense -> vers Objetdepense
+            date
+            montant
+            detail
+    Puis après retranchement on a la recette net
+    Les charges qui contient aussi la main d'oeuvre externe de dépannage :: Dans la création de dépannage avoir la possibilité de choisir les mains d'oeuvre :: Frais externe de main d'oeuvre
+    RH (Charges, paie)
+    Type de depense (Prestation, main d'oeuvre, péage)
+    Tout ce qui est charge possible dans une gare (Comptabilité)
+
+
+
+
+
+
+
+
+Le principe de gestion des dépenses dans une compagnie de transport est :
+
+> enregistrer tout l’argent que l’entreprise dépense pour faire fonctionner son activité.
+
+Le but est de :
+
+* connaître les coûts réels,
+* calculer les bénéfices,
+* contrôler les abus,
+* et analyser la rentabilité.
+
+---
+
+# 1. Pourquoi la gestion des dépenses est essentielle
+
+Une compagnie de transport gagne de l’argent avec :
+
+* les tickets,
+* les colis,
+* les services.
+
+Mais elle dépense énormément pour :
+
+* carburant,
+* maintenance,
+* salaires,
+* péages,
+* pneus,
+* imprévus.
+
+Donc :
+
+> sans suivi des dépenses, impossible de savoir si l’entreprise gagne réellement de l’argent.
+
+---
+
+# 2. Les grandes catégories de dépenses
+
+---
+
+# A. Dépenses d’exploitation voyage
+
+Liées directement à un voyage.
+
+Exemples :
+
+* carburant,
+* péage,
+* frais chauffeur,
+* frais de route,
+* repas équipage.
+
+---
+
+# B. Dépenses de maintenance
+
+Exemples :
+
+* pièces détachées,
+* réparations,
+* main d’œuvre mécanique.
+
+Tu en gères déjà une partie avec :
+
+```text id="c5wx15"
+Depannage
+```
+
+---
+
+# C. Dépenses administratives
+
+Exemples :
+
+* électricité,
+* internet,
+* loyers,
+* fournitures.
+
+---
+
+# D. Dépenses RH
+
+Exemples :
+
+* salaires,
+* primes,
+* avances.
+
+---
+
+# 3. Le vrai principe métier
+
+Chaque dépense doit répondre à :
+
+| Question         | Exemple           |
+| ---------------- | ----------------- |
+| Qui a dépensé ?  | chauffeur         |
+| Pourquoi ?       | carburant         |
+| Pour quoi ?      | voyage V001       |
+| Combien ?        | 25 000            |
+| Quand ?          | 12 juin           |
+| Validé par qui ? | chef exploitation |
+
+---
+
+# 4. Ce qu’il te manque actuellement
+
+Tu as :
+
+* approvisionnements,
+* dépannage.
+
+Mais tu n’as pas encore :
+
+> une vraie gestion générale des dépenses.
+
+Et elle devient indispensable.
+
+---
+
+# 5. Ce qu’il faut créer
+
+Je te conseille fortement une entité :
+
+```text id="wnif5y"
+Depense
+```
+
+---
+
+# 6. Structure recommandée
+
+```text id="bf91d6"
+Depense
+- libelle
+- montant
+- date_depense
+- categorie
+- description
+- mode_paiement
+- justificatif
+- voyage NULL
+- car NULL
+- personnel NULL
+- entreprise
+```
+
+---
+
+# 7. Exemple concret
+
+---
+
+## Dépense carburant
+
+```text id="kvyrk4"
+Libellé : Carburant voyage Korhogo
+Montant : 45000
+Voyage : V001
+Car : 2548AB01
+```
+
+---
+
+## Dépense péage
+
+```text id="bx1mfr"
+Libellé : Péage Yamoussoukro
+Montant : 5000
+Voyage : V001
+```
+
+---
+
+## Dépense administrative
+
+```text id="11p0k5"
+Libellé : Internet gare
+Montant : 30000
+```
+
+---
+
+# 8. Pourquoi lier les dépenses au voyage
+
+Très important.
+
+Sinon :
+
+* impossible de calculer la rentabilité réelle.
+
+---
+
+# 9. Exemple de calcul réel
+
+## Voyage
+
+```text id="a0n12u"
+Recettes tickets = 300000
+```
+
+---
+
+## Dépenses
+
+| Type      | Montant |
+| --------- | ------- |
+| Carburant | 70000   |
+| Péage     | 10000   |
+| Chauffeur | 30000   |
+| Dépannage | 15000   |
+
+---
+
+## Résultat
+
+```text id="e1wy04"
+Bénéfice = 175000
+```
+
+---
+
+# 10. Très important : catégories de dépenses
+
+Ajoute une entité ou enum.
+
+---
+
+## Exemple
+
+```php id="0d6mji"
+enum CategorieDepense
+{
+    CARBURANT,
+    PEAGE,
+    MAINTENANCE,
+    SALAIRE,
+    ADMINISTRATIF,
+    AUTRE
+}
+```
+
+---
+
+# 11. Gestion des justificatifs
+
+Très important dans les entreprises.
+
+Tu peux stocker :
+
+* facture,
+* reçu,
+* photo.
+
+Exemple :
+
+```text id="v8w72e"
+Depense
+- justificatif
+```
+
+---
+
+# 12. Workflow réel souvent utilisé
+
+---
+
+## Étape 1
+
+Le chauffeur reçoit une avance.
+
+---
+
+## Étape 2
+
+Il dépense pendant le voyage.
+
+---
+
+## Étape 3
+
+Il revient avec les justificatifs.
+
+---
+
+## Étape 4
+
+Le gestionnaire valide les dépenses.
+
+---
+
+# 13. Tu peux gérer les avances aussi
+
+Très utile plus tard.
+
+---
+
+## Exemple
+
+```text id="g52g4m"
+AvanceVoyage
+- voyage
+- personnel
+- montant
+```
+
+Puis :
+
+* dépenses déduites de l’avance.
+
+---
+
+# 14. Très important : validation
+
+Dans les vraies compagnies :
+
+> une dépense doit souvent être validée.
+
+Tu peux ajouter :
+
+```text id="1n94x0"
+Depense
+- statut
+- valide_par
+- date_validation
+```
+
+---
+
+# 15. Différence avec ton module Approvisionnement
+
+---
+
+## Approvisionnement
+
+Concerne :
+
+* entrée de stock.
+
+Exemple :
+
+* achat de pneus.
+
+---
+
+## Dépense
+
+Concerne :
+
+* sortie d’argent.
+
+Exemple :
+
+* paiement carburant.
+
+---
+
+# 16. Relation entre les deux
+
+Un approvisionnement peut :
+
+* générer automatiquement une dépense.
+
+Exemple :
+
+```text id="xop1dn"
+Approvisionnement :
+Achat pneus = 200000
+```
+
+↓
+
+```text id="n2njd5"
+Depense :
+Paiement fournisseur = 200000
+```
+
+Très professionnel.
+
+---
+
+# 17. Ce que je te conseille maintenant
+
+Vu ton système :
+
+> la prochaine grosse brique logique est clairement :
+
+## Gestion des dépenses + caisse
+
+Parce que tu as déjà :
+
+* recettes,
+* stock,
+* maintenance.
+
+Mais il manque :
+
+* la sortie d’argent globale.
+
+---
+
+# 18. Architecture recommandée
+
+```text id="a0etv5"
+Voyage
+   ├── Tickets (recettes)
+   ├── Dépenses
+   └── Résultat financier
+```
+
+Et :
+
+```text id="q61b8v"
+Approvisionnement
+   └── Dépense
+
+Depannage
+   └── Dépense
+```
+
+---
+
+# 19. Niveau avancé futur
+
+Plus tard tu peux ajouter :
+
+* caisse journalière,
+* comptabilité,
+* budgets,
+* fournisseurs à crédit,
+* échéances,
+* dette fournisseurs,
+* rapprochement bancaire.
+
+Et là ton système deviendra un vrai ERP transport complet.
+
+
+
+
+
+
+
+
+
+
+- Frais de route sur voyage (c'est de l'argent que la compagnie donne au chauffeur et commercial pour le voyage en cas de dépenses, du genre ration équipage) -> Recette voyage = Vente - Frais de route = Recette net
+    - Aussi, peut-on connaître les dépenses éffectué lors d'un voyage
+    - A la fin du voyage les péages nous ont pris combien
+- La somme net reçu sur un car dans les statistiques
+- Revoire le cas de désistement qui se fait que sur un voyage de la même ligne !
+
+
+Vérifié si hors courriers est bien pris en compte dans toutes les stats
+
+rejoint la recette en négatif, comme un remboursement.
+
+
+
+
+
+
+
+
+
+Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel voyage ouvert
+
+Cela dépend de ce que tu appelles "désister", mais dans les compagnies de transport on distingue généralement :
+
+1. **Annulation simple** → remboursement ou avoir.
+2. **Report du billet** → transfert vers un autre voyage.
+
+Dans le cas du report, le nouveau voyage n'est **pas forcément sur le même voyage**, mais il doit normalement rester **compatible avec le trajet acheté**.
+
+---
+
+## Cas 1 : Même ligne (le plus courant)
+
+Le client avait :
+
+```text
+Abidjan → Korhogo
+Voyage V001
+08h
+```
+
+Il ne peut plus voyager.
+
+On le reporte sur :
+
+```text
+Abidjan → Korhogo
+Voyage V002
+14h
+```
+
+C'est le cas le plus fréquent.
+
+---
+
+## Cas 2 : Autre voyage de la même ligne
+
+Par exemple :
+
+```text
+Ligne : Abidjan → Korhogo
+```
+
+Voyages :
+
+```text
+V001 - 08h
+V002 - 14h
+V003 - 18h
+```
+
+Le billet est déplacé vers un autre départ.
+
+Très courant.
+
+---
+
+## Cas 3 : Voyage d'une autre ligne compatible
+
+Supposons :
+
+```text
+L1 : Abidjan → Korhogo
+L2 : Abidjan → Bouaké → Korhogo
+```
+
+Le client avait acheté :
+
+```text
+Abidjan → Korhogo
+```
+
+S'il reste des places sur L2, certaines compagnies acceptent le transfert.
+
+Métierement, ce qui compte n'est pas la ligne mais :
+
+```text
+Départ
+Arrivée
+```
+
+---
+
+## Cas 4 : Voyage totalement différent
+
+Exemple :
+
+```text
+Billet :
+Abidjan → Korhogo
+```
+
+et on veut le transférer vers :
+
+```text
+Abidjan → Man
+```
+
+Là, ce n'est plus un report.
+
+C'est pratiquement :
+
+* une annulation,
+* suivie d'un nouvel achat.
+
+---
+
+## Dans ton système
+
+Comme tu tends vers un modèle segmenté :
+
+```text
+Ticket
+- gare_depart
+- gare_arrivee
+- voyage
+```
+
+Je te conseillerais la règle suivante :
+
+### Un report est autorisé si :
+
+```text
+nouveau voyage passe par
+gare_depart
+et
+gare_arrivee
+```
+
+et qu'il reste des places sur le segment.
+
+Ainsi :
+
+| Ancien billet     | Nouveau voyage                    | Autorisé |
+| ----------------- | --------------------------------- | -------- |
+| Abidjan → Korhogo | Autre voyage Abidjan → Korhogo    | ✅        |
+| Abidjan → Korhogo | Voyage Abidjan → Bouaké → Korhogo | ✅        |
+| Abidjan → Korhogo | Voyage Abidjan → Man              | ❌        |
+
+---
+
+## Comment font les compagnies ?
+
+La plupart ont une logique proche de :
+
+```text
+Annulation
+ou
+Report vers le prochain départ disponible
+```
+
+Le plus souvent :
+
+1. Le siège est libéré sur l'ancien voyage.
+2. Un nouveau ticket est créé sur le nouveau voyage.
+3. Une éventuelle différence tarifaire est calculée.
+
+---
+
+## Modélisation
+
+Je te déconseille de modifier directement le ticket existant.
+
+Il est préférable de conserver l'historique :
+
+```text
+Ticket T001
+    STATUT = REPORTE
+```
+
+et créer :
+
+```text
+Ticket T045
+    STATUT = ACTIF
+    ticket_origine = T001
+```
+
+Ainsi tu gardes une trace complète des reports.
+
+Pour ton application, la règle métier la plus réaliste est :
+
+> Un client peut être reporté sur n'importe quel voyage ouvert qui dessert sa gare de départ et sa gare d'arrivée, même si ce voyage appartient à une autre ligne. Ce qui compte est la possibilité réelle d'effectuer le trajet acheté.
+
+
+
+
+
+
+
+
+
+Au final, la recette total est constituée de quoi, aussi la recette d'une gare est constituée de quoi ?
+
+C'est justement là qu'il faut fixer une définition métier claire. Sinon, tu risques d'avoir des statistiques contradictoires.
+
+Pour ton application, je définirais les recettes ainsi.
+
+# 1. La recette totale de l'entreprise
+
+La recette totale représente **tout ce que l'entreprise a vendu**, quel que soit le canal de vente.
+
+Elle est constituée de :
+
+* ✅ Tickets vendus au guichet
+* ✅ Tickets vendus par les commerciaux
+* ✅ Réservations payées
+* ✅ Bagages payés
+* ✅ Courriers payés (si l'entreprise souhaite les inclure)
+
+Par exemple :
+
+```text
+Tickets guichet        1 500 000
+Tickets commerciaux      400 000
+Réservations payées      300 000
+Bagages                  120 000
+Courriers                 80 000
+-------------------------------
+Recette totale         2 400 000
+```
+
+Comme tu l'as déjà évoqué, certaines entreprises ne souhaitent pas intégrer les courriers dans leur chiffre d'affaires transport de voyageurs. Je prévoirais donc également :
+
+* **Recette totale**
+* **Recette totale hors courriers**
+
+---
+
+# 2. La recette d'une gare
+
+Pour moi, la recette d'une gare est **tout ce qui a été vendu au nom de cette gare**, indépendamment du canal de paiement.
+
+Elle comprend :
+
+* ✅ Tickets vendus au guichet de la gare
+* ✅ Tickets vendus par les commerciaux rattachés à cette gare
+* ✅ Réservations initiées par cette gare (si elles sont payées)
+* ✅ Bagages enregistrés par cette gare
+* ✅ Courriers déposés dans cette gare
+
+Elle **ne dépend pas** de savoir si le paiement a été effectué :
+
+* au guichet ;
+* par un commercial ;
+* en ligne.
+
+La gare est responsable de l'exploitation locale.
+
+---
+
+# 3. La recette du commercial
+
+Elle comprend uniquement :
+
+* les tickets qu'il a vendus ;
+* les bagages qu'il a enregistrés (si tu autorises cela) ;
+* éventuellement les courriers (si le commercial peut en vendre).
+
+Cette recette est un sous-ensemble de la recette de la gare.
+
+Par exemple :
+
+```text
+Gare de Bouaké
+
+Guichet :        600 000
+Commercial A :   250 000
+Commercial B :   150 000
+Bagages :         40 000
+Courriers :       20 000
+
+Recette gare :
+1 060 000
+```
+
+Les 400 000 FCFA des commerciaux sont déjà inclus dans la recette de la gare.
+
+---
+
+# 4. Les encaissements
+
+C'est encore autre chose.
+
+Tu peux avoir :
+
+```text
+Guichet
+600 000
+
+Commercial A
+250 000
+
+Commercial B
+150 000
+
+Paiement en ligne
+300 000
+```
+
+Ce sont les caisses, pas les recettes d'exploitation.
+
+---
+
+# Ce que je te recommande
+
+Je structurerais ton tableau de bord comme ceci :
+
+### Recettes
+
+* Recette totale
+* Recette totale hors courriers
+* Recette par gare
+* Recette par commercial
+* Recette bagages
+* Recette courriers
+
+### Encaissements
+
+* Encaissement guichet
+* Encaissement commerciaux
+* Encaissement paiements en ligne
+
+---
+
+## Un point d'attention concernant les réservations
+
+Il y a un cas qu'il faudra trancher dans ton application.
+
+Tu m'as expliqué que :
+
+1. Le client réserve.
+2. Il paie.
+3. Il reçoit un **bon de réservation**.
+4. Plus tard, la gare émet le ticket.
+
+Pour éviter tout **double comptage**, il faudra choisir une seule règle :
+
+* **Option A (celle que je recommande)** : la recette est reconnue **au moment du paiement de la réservation**. L'émission du ticket ne crée pas une nouvelle recette ; elle ne fait que matérialiser le droit au transport.
+* Option B : la recette est reconnue à l'émission du ticket (mais alors les réservations payées ne doivent pas être comptabilisées avant).
+
+L'option A est la plus proche des principes comptables et t'évitera des incohérences dans les rapports. Ainsi, chaque vente est comptée une seule fois, quel que soit le moment où le ticket est finalement édité.
+
+
+
+
 
 
 
@@ -41,19 +1545,1251 @@ Docker, Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony
 
 
 Moyen de paiement, on vas mettre plusieurs, mais on vas commencer par Stripe
+Le Mobile Money reste hors périmètre en attendant l'agrégateur
+- Mobile money -> Frais payé par le client + un plus pour les timbres du genre au lieu de 100F on ajoute 200F
+
+
+- La modification peut géner plusieurs choses comme les réservations...
+- Prévenir les alertes via une baffe ou aussi ce qui se fait dans les aéroports qui averti le départ..
+- Auth client réservation via numéro de téléphone
+- Retour client et agent vi codeqr et peut envoyer des images, vidéos etc...
+
+
+- - 
+- Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
+- Dépannage auto création typepanne
+
+- 
+Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
+    new GetCollection(
+        security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
+        openapi: new Operation(
+            summary: 'La liste des cars',
+            description: 'Permet de voir la liste des cars',
+            security: [['bearerAuth' => []]]
+        )
+    ), CAR
+Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
+
+Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
+
+- Quand tu regarde l'appli comment je pourrais écrire une explication ou guide pour les endroits éssenciel de l'application
+- La possibilités d'activer ou désactiver des modules dans l'application
 
 
 
 
-php -S 10.0.2.2:8000 -t public
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 
 
-scoop install ngrok
-ngrok config add-authtoken $YOUR_AUTHTOKEN
-ngrok http 80 --url https://proud-gauntlet-elongated.ngrok-free.dev
 
-flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev
+
+
+
+
+
+
+
+
+Vu tout ce que nous avons construit ensemble, si ton objectif est d'avoir un **logiciel professionnel de gestion de compagnies de transport** (multi-entreprises, multi-gares, réservations, exploitation, temps réel, application mobile, etc.), je partirais sur une architecture moderne plutôt que de simplement changer de framework.
+
+## Backend
+
+Je garderais **Symfony**.
+
+Pourquoi ?
+
+* Tu maîtrises déjà Symfony.
+* API Platform est excellent pour construire des API REST.
+* L'écosystème est mature.
+* Facile à faire évoluer vers des microservices plus tard si nécessaire.
+
+J'ajouterais :
+
+* **API Platform**
+* **PostgreSQL** (je le préfère à MySQL pour ce type d'application)
+* **Redis** (cache, files d'attente, sessions, verrous)
+* **Messenger** (traitements asynchrones)
+* **Mercure ou WebSocket** pour le temps réel
+
+---
+
+## Frontend Web
+
+Je passerais sur **Next.js**.
+
+Pourquoi ?
+
+* Très performant.
+* Excellent avec React.
+* Facile pour construire un tableau de bord riche.
+* Très bon pour les SaaS.
+
+Tu avais d'ailleurs demandé si React ou Next.js était préférable pour consommer ton backend Symfony : je resterais sur **Next.js**.
+
+---
+
+## Mobile
+
+Je garderais **Flutter**.
+
+Tu as déjà créé le projet.
+
+Un seul code pour :
+
+* Android
+* iOS
+
+---
+
+## Temps réel
+
+Pour le suivi des voyages, je ne me limiterais pas à Mercure.
+
+Je mettrais :
+
+* WebSocket
+* ou Mercure si tu restes sur Symfony
+
+Pour afficher :
+
+* position du car
+* retards
+* ventes
+* nouveaux tickets
+* nouvelles réservations
+
+sans recharger la page.
+
+---
+
+## Cartographie
+
+Pour le suivi GPS :
+
+* Google Maps
+* ou OpenStreetMap + Leaflet (moins coûteux)
+
+Tu pourras afficher :
+
+* le trajet ;
+* la position du car ;
+* les gares ;
+* les retards.
+
+---
+
+## Notifications
+
+* Firebase Cloud Messaging (Flutter)
+* Emails
+* SMS (si besoin)
+
+---
+
+## Authentification
+
+* JWT
+* Refresh Token
+* Gestion fine des rôles (tu as déjà un bon modèle RBAC)
+
+---
+
+## Déploiement
+
+* Docker
+* Nginx
+* GitHub Actions
+* VPS ou Cloud
+
+---
+
+## Base de données
+
+Je passerais sur **PostgreSQL**.
+
+Avec notamment :
+
+* index performants ;
+* transactions solides ;
+* types avancés ;
+* possibilité d'utiliser des extensions géographiques si tu ajoutes beaucoup de fonctionnalités GPS.
+
+---
+
+# Si tu veux vraiment du temps réel
+
+Je pense que ton application aura besoin de deux types de temps réel.
+
+### 1. Temps réel métier
+
+Exemple :
+
+* un ticket est vendu ;
+* une réservation est créée ;
+* un voyage est annulé.
+
+Tous les écrans concernés se mettent à jour automatiquement.
+
+---
+
+### 2. Temps réel GPS
+
+Le chauffeur possède l'application Flutter.
+
+Toutes les 10 à 30 secondes :
+
+```text
+Latitude
+
+Longitude
+
+Vitesse
+
+Heure
+```
+
+sont envoyées au serveur.
+
+L'application web affiche alors :
+
+* le car sur la carte ;
+* le retard ;
+* le prochain arrêt.
+
+---
+
+# Si je devais repartir de zéro aujourd'hui
+
+Je choisirais :
+
+| Couche          | Technologie                             |
+| --------------- | --------------------------------------- |
+| Backend         | Symfony + API Platform                  |
+| Base de données | PostgreSQL                              |
+| Cache           | Redis                                   |
+| Temps réel      | Mercure + WebSocket (selon les besoins) |
+| Web             | Next.js + React Query + TypeScript      |
+| Mobile          | Flutter                                 |
+| Cartographie    | Google Maps ou Leaflet                  |
+| Auth            | JWT + Refresh Token                     |
+| Déploiement     | Docker + Nginx + GitHub Actions         |
+
+## Mon dernier conseil
+
+Au vu de l'évolution de ton projet, je pense que le plus grand changement ne sera **pas la technologie**, mais **l'architecture métier**.
+
+Tu commences à intégrer des notions d'exploitation en temps réel (passage dans les gares, retards, suivi des cars, bordereaux, statistiques, réservations, multi-gares). À ce stade, je structurerais le projet autour de grands domaines fonctionnels (Administration, Exploitation, Billetterie, Réservations, Flotte, Stock, Comptabilité, etc.) plutôt que d'une simple organisation par entités.
+
+C'est cette organisation qui fera réellement passer ton application d'un CRUD évolué à un logiciel professionnel de gestion de compagnies de transport.
+
+
+
+
+
+
+
+
+
+
+
+Si je fais abstraction de tes préférences et que je me place dans le contexte d'un **éditeur de logiciel (SaaS) pour compagnies de transport** qui vise plusieurs centaines de compagnies et des milliers de voyageurs, voici la stack que je choisirais aujourd'hui.
+
+## Backend
+
+* **Java 21**
+* **Spring Boot 3**
+* Spring Security
+* Spring Data JPA
+* Spring WebFlux (si besoin de traitements réactifs)
+* Hibernate
+
+Pourquoi ?
+
+* C'est le standard des grandes entreprises.
+* Excellentes performances.
+* Très robuste.
+* Énorme écosystème.
+* Très adapté aux applications critiques.
+
+---
+
+## Base de données
+
+* **PostgreSQL**
+
+Pourquoi ?
+
+* Très fiable.
+* Transactions ACID.
+* Excellent pour les fortes charges.
+* Support GIS avec PostGIS.
+* Très utilisé dans le transport.
+
+---
+
+## Cache
+
+* Redis
+
+Pour :
+
+* sessions
+* cache
+* disponibilité des sièges
+* notifications
+
+---
+
+## Messaging
+
+* Apache Kafka
+
+Pour gérer :
+
+* Ticket vendu
+* Réservation créée
+* Paiement reçu
+* Position GPS
+* Notification
+
+Chaque événement est diffusé aux autres services.
+
+---
+
+## Temps réel
+
+* WebSocket
+* Kafka
+
+Le GPS des cars est envoyé en temps réel.
+
+Les tableaux de bord se mettent à jour automatiquement.
+
+---
+
+## GPS
+
+* PostGIS
+* OpenStreetMap
+* Google Maps (si le budget le permet)
+
+---
+
+## Frontend Web
+
+* React
+* Next.js
+* TypeScript
+
+Aujourd'hui, c'est probablement la combinaison la plus utilisée.
+
+---
+
+## Mobile
+
+* Flutter
+
+Pourquoi ?
+
+* Android
+* iOS
+* Web (si besoin)
+
+Une seule base de code.
+
+---
+
+## Authentification
+
+* OAuth2
+* OpenID Connect
+* JWT
+
+---
+
+## Recherche
+
+* Elasticsearch
+
+Pour rechercher rapidement :
+
+* voyageurs
+* tickets
+* voyages
+* bagages
+
+---
+
+## Stockage
+
+* S3 (ou compatible S3 comme MinIO)
+
+Pour :
+
+* tickets PDF
+* pièces jointes
+* images
+
+---
+
+## Monitoring
+
+* Prometheus
+* Grafana
+
+Pour surveiller :
+
+* CPU
+* mémoire
+* temps de réponse
+* nombre de voyages
+* erreurs
+
+---
+
+## Logs
+
+* Loki
+* Grafana
+
+ou
+
+* ELK Stack
+
+---
+
+## Conteneurisation
+
+* Docker
+
+---
+
+## Orchestration
+
+* Kubernetes
+
+---
+
+## CI/CD
+
+* GitHub Actions
+
+ou
+
+* GitLab CI
+
+---
+
+# Si l'application devient très grosse
+
+Je passerais progressivement en microservices.
+
+```text
+API Gateway
+
+├── Auth Service
+├── Billetterie Service
+├── Réservation Service
+├── Exploitation Service
+├── GPS Tracking Service
+├── Paiement Service
+├── Notification Service
+├── Stock Service
+├── Reporting Service
+```
+
+Chaque service possède sa propre base de données.
+
+Ils communiquent via Kafka.
+
+---
+
+# Pourquoi Java plutôt que Node, Go ou .NET ?
+
+Pour un logiciel de transport, les critères sont :
+
+* disponibilité 24h/24 ;
+* transactions fiables ;
+* concurrence importante ;
+* maintenance sur plusieurs années.
+
+Dans ce contexte :
+
+* **Java/Spring Boot** est un choix très répandu chez les grands éditeurs de logiciels métiers.
+* **.NET** serait également un excellent choix, notamment dans les entreprises fortement orientées Microsoft.
+* **Go** est remarquable pour les services très performants (par exemple un service de suivi GPS), mais son écosystème métier est moins riche.
+* **Node.js** est très performant pour les applications temps réel, mais beaucoup d'éditeurs privilégient Java ou .NET pour les traitements métiers complexes.
+
+---
+
+# La stack que j'utiliserais pour un SaaS de niveau entreprise
+
+| Couche           | Technologie                  |
+| ---------------- | ---------------------------- |
+| Backend          | Java 21 + Spring Boot        |
+| Base de données  | PostgreSQL + PostGIS         |
+| Cache            | Redis                        |
+| Temps réel       | WebSocket                    |
+| Bus d'événements | Apache Kafka                 |
+| Frontend         | Next.js + React + TypeScript |
+| Mobile           | Flutter                      |
+| Cartographie     | OpenStreetMap ou Google Maps |
+| Recherche        | Elasticsearch                |
+| Stockage         | S3 / MinIO                   |
+| Monitoring       | Prometheus + Grafana         |
+| Logs             | Loki ou ELK                  |
+| Conteneurisation | Docker                       |
+| Orchestration    | Kubernetes                   |
+| CI/CD            | GitHub Actions ou GitLab CI  |
+
+C'est une architecture que l'on retrouve, avec des variantes, dans de nombreuses plateformes professionnelles de logistique, de transport et de mobilité. Elle est conçue pour être scalable, résiliente et maintenable sur le long terme.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Comment pouvons-nous concevoir le système afin que chaque entreprise puisse activer ou désactiver certaines fonctionnalités selon ses besoins ?
+
+Par exemple, une entreprise peut souhaiter utiliser le module de **réservation**, tandis qu'une autre préfère ne pas l'utiliser. Le même principe pourrait s'appliquer à d'autres modules ou fonctionnalités de l'application (courriers, carte de fidélité, gestion des dépenses, etc.).
+
+Je souhaite mettre en place une architecture flexible permettant à chaque entreprise de configurer les modules qu'elle souhaite utiliser, sans impacter le fonctionnement des autres entreprises.
+
+
+
+
+
+
+C'est exactement le problème que résolvent les **Feature Flags** (ou **Feature Toggles**) dans les applications SaaS professionnelles.
+
+Vu que ton application est **multi-entreprises**, je ne rendrais pas les fonctionnalités optionnelles par du code (`if` partout), mais par de la **configuration**.
+
+---
+
+# Option 1 : Modules par entreprise (celle que je recommande)
+
+Créer une table :
+
+```text
+Entreprise
+------------
+id
+nom
+...
+```
+
+```text
+Module
+------------
+id
+code
+libelle
+
+RESERVATION
+COURRIER
+FIDELITE
+DEPENSE
+BAGAGE
+GPS
+STATISTIQUE_AVANCEE
+...
+```
+
+Puis :
+
+```text
+EntrepriseModule
+----------------
+id
+entreprise_id
+module_id
+active
+dateActivation
+dateDesactivation
+```
+
+Exemple :
+
+| Entreprise | Module      | Actif |
+| ---------- | ----------- | ----- |
+| UTB        | Réservation | ✅     |
+| UTB        | Courrier    | ❌     |
+| STC        | Réservation | ❌     |
+| STC        | Courrier    | ✅     |
+
+---
+
+## Ensuite
+
+Avant d'afficher une fonctionnalité :
+
+```php
+if ($moduleService->isEnabled($entreprise, 'RESERVATION')) {
+    ...
+}
+```
+
+ou
+
+```php
+#[IsModuleEnabled('RESERVATION')]
+```
+
+si tu fais un attribut Symfony personnalisé.
+
+---
+
+# Option 2 : Les packs
+
+Comme le font beaucoup de SaaS.
+
+```text
+Pack Starter
+
+✔ Billetterie
+✔ Voyages
+✔ Personnel
+```
+
+---
+
+```text
+Pack Business
+
+✔ Réservation
+✔ Fidélité
+✔ Courrier
+```
+
+---
+
+```text
+Pack Premium
+
+✔ GPS
+✔ Temps réel
+✔ Reporting avancé
+```
+
+L'entreprise choisit son abonnement.
+
+Le système active automatiquement les modules.
+
+---
+
+# Option 3 : Les paramètres
+
+Pour les petites options.
+
+Exemple :
+
+```text
+EntrepriseSetting
+
+reservation.enabled=true
+
+courrier.enabled=false
+
+fidelite.enabled=true
+
+showCourierInRevenue=false
+
+seatSelection.enabled=true
+```
+
+C'est parfait pour les comportements, mais pas pour des modules complets.
+
+---
+
+# Ce que je ferais
+
+Je mixerais les deux.
+
+## Niveau 1
+
+Des modules.
+
+```text
+Réservation
+
+Fidélité
+
+Courrier
+
+GPS
+
+Dépenses
+
+Stock
+```
+
+---
+
+## Niveau 2
+
+Des paramètres.
+
+Exemple :
+
+```text
+Réservation
+
+Délai expiration
+
+30 min
+
+Autoriser paiement partiel
+
+Oui
+
+Bloquer automatiquement les places
+
+Non
+
+Pénalité
+
+500 FCFA
+```
+
+---
+
+# L'architecture
+
+```text
+Entreprise
+        │
+        │
+        ▼
+EntrepriseModule
+        │
+        ▼
+Reservation
+Courrier
+Fidélité
+GPS
+...
+```
+
+Toutes les couches utilisent ensuite un **ModuleService**.
+
+```
+Controller
+
+↓
+
+ModuleService
+
+↓
+
+EntrepriseModule
+```
+
+Le contrôleur ne connaît pas la base.
+
+Il demande simplement :
+
+```php
+$isReservationEnabled = $moduleService->isEnabled(
+    $entreprise,
+    Module::RESERVATION
+);
+```
+
+---
+
+# Les avantages
+
+* Aucun code spécifique à une entreprise.
+* Tu peux ajouter un nouveau module sans modifier l'architecture.
+* Tu peux créer plusieurs offres commerciales (Starter, Business, Premium).
+* Tu peux activer un module pour une entreprise sans redéployer l'application.
+* Les tests sont plus simples.
+* L'évolution est plus facile.
+
+## Ma recommandation
+
+Je mettrais en place **deux niveaux de configuration** :
+
+1. **Les modules**, qui permettent d'activer ou de désactiver de grandes fonctionnalités (Réservation, Courrier, Fidélité, GPS, Dépenses, etc.).
+2. **Les paramètres de module**, qui permettent de personnaliser le comportement de chaque fonctionnalité (durée d'expiration d'une réservation, inclusion des courriers dans le chiffre d'affaires, blocage automatique des places, etc.).
+
+Cette approche est celle que l'on retrouve dans de nombreux ERP et SaaS professionnels (ERPNext, Odoo, Microsoft Dynamics, SAP, etc.). Elle est évolutive, propre et parfaitement adaptée à ton application multi-entreprises.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Le **temps réel** est une notion qui est souvent mal comprise. Beaucoup pensent que cela signifie "rafraîchir la page toutes les secondes", alors qu'en réalité, le principe est différent.
+
+---
+
+# Le principe du temps réel
+
+Dans une application classique, c'est le **client** qui demande les informations.
+
+```text
+Navigateur
+      │
+      │ "Y a-t-il du nouveau ?"
+      ▼
+Serveur
+      │
+      ▼
+Réponse
+```
+
+Par exemple :
+
+* tu ouvres la liste des tickets ;
+* tu appuies sur F5 ;
+* le navigateur redemande les données.
+
+C'est le modèle **Request / Response**.
+
+---
+
+## En temps réel
+
+C'est l'inverse.
+
+Le navigateur ouvre une connexion qui reste active.
+
+```text
+Navigateur
+      ▲
+      │
+Connexion ouverte
+      │
+      ▼
+Serveur
+```
+
+Lorsque quelque chose se produit :
+
+```text
+Ticket vendu
+
+↓
+
+Serveur
+
+↓
+
+Le serveur pousse l'information
+
+↓
+
+Tous les navigateurs concernés sont mis à jour.
+```
+
+Le client n'a rien demandé.
+
+---
+
+# Exemple dans ton application
+
+Imagine trois postes.
+
+```text
+Guichet Abidjan
+
+Commercial
+
+Administrateur
+```
+
+Le commercial vend un ticket.
+
+Sans temps réel :
+
+* le guichet ne voit rien ;
+* l'administrateur ne voit rien.
+
+Ils doivent actualiser.
+
+---
+
+Avec le temps réel :
+
+```text
+Commercial
+
+↓
+
+Ticket vendu
+
+↓
+
+Serveur
+
+↓
+
+Notification
+
+↓
+
+Guichet
+
+↓
+
+Administrateur
+```
+
+Tout se met à jour automatiquement.
+
+---
+
+# Le GPS
+
+Même principe.
+
+Le téléphone Flutter envoie :
+
+```text
+Latitude
+
+Longitude
+
+Vitesse
+```
+
+Toutes les 15 secondes.
+
+Le serveur reçoit.
+
+Puis :
+
+```text
+Serveur
+
+↓
+
+WebSocket
+
+↓
+
+Toutes les cartes affichent
+la nouvelle position.
+```
+
+---
+
+# Les technologies
+
+Il existe plusieurs solutions.
+
+## Polling
+
+Toutes les 5 secondes :
+
+```text
+Client
+
+↓
+
+As-tu du nouveau ?
+
+↓
+
+Serveur
+
+↓
+
+Non
+```
+
+Puis encore :
+
+```text
+Client
+
+↓
+
+As-tu du nouveau ?
+
+↓
+
+Serveur
+
+↓
+
+Non
+```
+
+Puis :
+
+```text
+Client
+
+↓
+
+As-tu du nouveau ?
+
+↓
+
+Serveur
+
+↓
+
+Oui
+```
+
+Simple.
+
+Mais très gourmand.
+
+---
+
+## Long Polling
+
+Le serveur garde la requête ouverte.
+
+Moins de trafic.
+
+---
+
+## Server Sent Events (SSE)
+
+Le serveur envoie uniquement des messages.
+
+Symfony utilise **Mercure**.
+
+Très pratique.
+
+---
+
+## WebSocket ⭐⭐⭐⭐⭐
+
+Le navigateur ouvre une connexion.
+
+Elle reste ouverte.
+
+Les deux côtés peuvent envoyer des données.
+
+```text
+Navigateur
+⇅
+Serveur
+```
+
+C'est la solution la plus complète.
+
+---
+
+# Est-ce que cela fonctionne sur un hébergement mutualisé ?
+
+La réponse est : **ça dépend de la technologie utilisée.**
+
+## Polling
+
+✅ Oui.
+
+Tous les hébergeurs le permettent.
+
+Mais ce n'est pas du vrai temps réel.
+
+---
+
+## Mercure
+
+En général :
+
+❌ Non sur un mutualisé classique.
+
+Pourquoi ?
+
+Mercure nécessite un serveur dédié (ou un service managé) qui garde des connexions ouvertes en permanence. Les hébergements mutualisés autorisent rarement ce type de processus.
+
+---
+
+## WebSocket
+
+Là encore :
+
+❌ Généralement non.
+
+Les WebSockets demandent un serveur qui reste actif en permanence, ce qui est incompatible avec la plupart des offres mutualisées.
+
+---
+
+# Pourquoi ?
+
+Sur un mutualisé :
+
+```text
+Apache
+
+↓
+
+PHP démarre
+
+↓
+
+Traite la requête
+
+↓
+
+PHP s'arrête
+```
+
+Il n'y a aucun processus qui reste vivant.
+
+---
+
+En WebSocket :
+
+```text
+Serveur
+
+↓
+
+Reste vivant
+
+24h/24
+
+↓
+
+Écoute les connexions
+```
+
+Il faut donc un VPS, un serveur dédié ou un service spécialisé.
+
+---
+
+# Dans ton cas
+
+Tu m'avais indiqué que tu utilises actuellement un **hébergement mutualisé**.
+
+Je procéderais ainsi :
+
+### Phase 1
+
+Application classique.
+
+À chaque action importante :
+
+* vente de ticket ;
+* réservation ;
+* bagage ;
+
+on fait un rafraîchissement intelligent.
+
+Par exemple avec **React Query** ou **TanStack Query** :
+
+* toutes les 10 secondes ;
+* ou au focus de la fenêtre.
+
+Le coût reste faible.
+
+---
+
+### Phase 2
+
+Quand ton SaaS commencera à avoir plusieurs compagnies clientes et un besoin de suivi en direct (GPS, tableau d'exploitation, notifications instantanées), tu migreras vers un **VPS** ou un cloud.
+
+À ce moment-là, tu pourras activer :
+
+* WebSockets ;
+* Mercure ;
+* Redis ;
+* éventuellement Kafka si la plateforme prend beaucoup d'ampleur.
+
+---
+
+## Ma recommandation
+
+Pour ton application actuelle, **je ne chercherais pas à implémenter un véritable temps réel tant que tu restes sur un hébergement mutualisé**. Le coût et les contraintes techniques ne sont pas justifiés.
+
+En revanche, je **concevrais dès maintenant l'architecture** (événements métier, services, séparation des responsabilités) de manière à pouvoir remplacer plus tard un simple polling par du WebSocket ou Mercure sans devoir réécrire toute l'application. Ainsi, tu pourras évoluer vers un véritable temps réel lorsque l'infrastructure le permettra.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Arrange moi ce prompt : Je viens d'installer un projet Next dans le dossier pour le frontend et consommer le backend notre l'application, je veux que tu utilise les meilleurs prtaique Next et on vas aller étape par étape(ou module par module), aussi l'objectif est de rendre l'expérience utilisateur meilleur dans cette nouvelle version, aussi je veux qu'on avance progressivement pour que je comprendre 
+
+J'utilise Shadcn comme librairie de composants et j'ai installer quelques composants et tu peux en rajouter, pour le dashbord j'ai installer "npx shadcn@latest add sidebar-07" et pour le login j'ai installé le "npx shadcn@latest add login-04"
+
+
+
+Je viens d'installer un projet **Next.js** qui servira de frontend pour notre application et consommera les API de notre backend Symfony.
+
+Je souhaite que nous développions cette nouvelle version en appliquant les **bonnes pratiques de Next.js** ainsi que celles de l'écosystème React (architecture, organisation du projet, composants réutilisables, gestion des appels API, gestion d'état, performances, sécurité, accessibilité, etc.).
+
+Nous avancerons **progressivement**, module par module, afin que je puisse comprendre les choix techniques et apprendre au fur et à mesure. L'objectif n'est pas seulement d'obtenir un résultat fonctionnel, mais également de construire une application propre, évolutive et maintenable.
+
+L'un des principaux objectifs de cette refonte est d'améliorer significativement l'expérience utilisateur (UX) et l'interface (UI) par rapport à la version actuelle, tout en conservant une architecture robuste et cohérente.
+
+Pour l'interface, j'utilise **shadcn/ui** comme bibliothèque de composants. J'ai déjà installé les composants suivants :
+
+* **Dashboard** : `sidebar-07`
+* **Authentification** : `login-04`
+
+Tu peux bien entendu installer et utiliser d'autres composants **shadcn/ui** si cela est pertinent, à condition que leur utilisation reste cohérente avec l'architecture de l'application et contribue à améliorer l'expérience utilisateur.
+
+Je souhaite également que nous respections une architecture claire dès le départ (gestion des routes, layouts, composants, hooks, services API, gestion des erreurs, authentification, protection des routes, gestion du cache et des requêtes, etc.), afin d'obtenir un frontend moderne, performant et facile à faire évoluer.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Documents
+
+## Le constat qui domine tout le reste
+
+**Il n'existe aucune clôture de caisse.** L'application calcule la recette au franc près — `RecetteGareService` croise gare et agent, le bordereau l'imprime — mais rien ne rapproche ce chiffre de l'argent réellement remis. Aucune table, aucune entité, aucun écran. Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus coûteux : un écart ne se détecte qu'a posteriori, sans preuve opposable. C'est la seule proposition que je classe **critique**.
+
+Quatre autres manques vérifiés en base ou dans les sources :
+
+- **Aucun envoi asynchrone** — `MailerService::send()` appelle le mailer dans la requête. Même défaut de conception que celui qu'on vient de corriger sur le journal : un service accessoire qui décide du sort du geste principal.
+- **Aucun SMS**, alors que le téléphone est déjà la clé d'identité client dans `ClientResolver`.
+- **`/forgot` et `/reset` sans limite de débit**, quand la connexion, elle, est protégée. C'est cette asymétrie qui signale l'oubli — et c'est le meilleur rapport valeur/effort de la liste.
+- **La recherche globale ne cherche rien** : 13 lignes qui placent le curseur. Le champ et le raccourci `Ctrl+K` existent, la promesse n'est pas tenue.
+
+## Deux dépendances qui structurent l'ordre
+
+**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+
+**La tarification dynamique (E1) suppose le contrôle d'embarquement (B2).** Le surbooking est déjà assumé par le modèle, mais personne ne connaît le taux de présentation réel : le QR est généré côté frontend pour l'impression seulement, sans point de lecture ni état d'embarquement sur le billet. Sans cette donnée, toute politique de remplissage se pilote à l'aveugle.
+
+Une réserve sur B2 : le QR encode aujourd'hui le code du billet **en clair**. Il faudra le signer, sinon le contrôle validera n'importe quel code fabriqué.
+- 
 
 
 
@@ -64,19 +2800,19 @@ flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-el
 
 
 Le prix ne vient jamais de l'appareil. Le téléphone calcule pour encaisser, le serveur recalcule depuis la grille. L'écart est consigné, pas appliqué : le contrôle anti-fraude reste entier. --- Faire attention à la remise
-Billet vendu 9 500 à bord  admin change tarif 	enregistré à 8 000 (grille), écart de 1 500 tracé au journal
-
-
-Je comble le trou que l'essai a révélé : sans réseau après un redémarrage, la liste des voyages ne chargeait pas — le vendeur ne pouvait même plus atteindre l'écran de vente.
+Billet vendu 9 500 à bord  admin change tarif 	enregistré à 8 000 (grille), écart de 1 500 tracé au journal :: !!
 
 Trouvé au passage : le lot dispensait des permissions. Être le commercial du voyage est un bornage, pas un droit — un vendeur privé de CREER/Ticket l'obtenait en passant hors ligne. VENTE et BAGAGE sont désormais contrôlés opération par opération.
 
-Deux réserves : la correction du séparateur orphelin (« Siège 10 · 8000 FCFA · ») est dans la dernière build mais je ne l'ai pas re-jouée à l'écran, la file ayant été vidée ; et android/app/src/debug/AndroidManifest.xml autorise le trafic en clair — variant debug uniquement, la production reste en HTTPS.
+- Faut t'il borner la vente hors ligne, pour limiter la casse si un appareil reste déconnecté longtemps ?
+    - Borné au voyage en cours (r) : Le mode hors ligne n'est armé que pour un voyage dont l'instantanéa été téléchargé, et se ferme à sa cloture. Bornage naturel, aligné sur le métier : un commercial est à bord d'un car, pas dans l'absolu => Oui
+    - Borner aussi en nombre de billets : En plus du voyage, un plafond de billets non syncronisés au délà du quel l'application refuse de vendre. Protection plus forte, mais elle peut bloquer un vendeur légitime en pleine brousse - exactement au moment ou il en a besoin
+    - Aucune borne : L'application vend hors ligne tant que l'utilisateur est connecté à son compte, sans limite de durée ni de volume
 
-
-
-
-
+- Deux vendeurs peuvent visé le même siège pendant que le commercial est hors ligne (lui à bord, une gare en aval qui ignore sa vente). Comment veux tu traiter ce conflit ?
+    - Optimiste + éviction existante (r) : Le commercial vend librement hors ligne, à la syncronisation , un siège contesté est arbitré par la doctrine déjà en place - priorité au passager monté en amont, l'autre passe << evincé >> avec son alerte. Aucun siège gélé, rien de neuf à inventer, mais un client peut évincé après coup => Oui
+    - Quota de siège réservé au bord : Avant le départ, N sièges sont réservés à la vente à bord et deviennent invendables par les gares. Collision impossible par construction. Coût : des sièges gelés qui partent parfois vides, et une décision de quota à prendre à chaque départ
+    - Les deux : quota, et évincion en dernier recours : Le quota couvre le cas normal, l'éviction rattrape les débordements si le commercial vend au-dlelà. Le plus robuste, le plus long à construire
 
 
 
@@ -140,154 +2876,734 @@ Je ne lance pas d'implémentation et je ne te propose pas de plan à approuver, 
 Pour info, on est encore en **mode plan** — tu peux en sortir quand tu veux. Le socle + la vente en ligne + « ma recette » sont livrés et verts (`flutter analyze` propre, tests OK). Dis-moi vers quoi tu veux aller ensuite.
 
 
+CommercialInstantaneController
+CommercialSyncController
+AvanceePositionService
+DepartGareService
+SynchronisationHorsLigneService
+VenteHorsLigneTest
 
 
 
+## Plan
 
+# Vente hors ligne pour le commercial à bord
 
+## Contexte
 
+Le commercial vend depuis le car, souvent hors couverture réseau. Aujourd'hui l'application
+`commercialflutter` est un client d'API pur : **sans réseau, il ne vend plus**. Aucune persistance
+locale n'existe (seuls les jetons JWT sont stockés), aucune détection de connectivité, aucune file
+d'attente. Le `README.md:91` de l'app le note comme reporté : « vente hors-ligne (file d'attente +
+resync) ».
 
+L'objectif : que le commercial vende, imprime, enregistre un bagage, fasse avancer la position du car
+et consulte son manifeste **sans réseau**, puis que tout remonte à la reconnexion.
 
+### Décisions arrêtées
 
+| Sujet | Décision |
+|---|---|
+| Conflit de siège | **Optimiste** — la vente est acceptée, la doctrine d'éviction existante (`CapaciteService::billetsEvinces`, priorité amont) arbitre qui monte |
+| Périmètre hors ligne | Vente + impression, avance de position, bagage, manifeste (lecture) |
+| Prix | **Le serveur recalcule** depuis la grille ; un écart avec le montant encaissé est tracé au journal |
+| Bornage | Armé **pour un voyage** dont l'instantané a été téléchargé ; se ferme à sa clôture |
 
+---
 
+## Le verrou principal : le `codeticket`
 
+`TicketProcessor::generateCode()` (`src/State/TicketProcessor.php:350`) produit
+`{codevoyage}-TCK-{YYYY}-{COUNT(*)+1}`, et **il n'existe aucun index unique sur `codeticket`**
+(vérifié : seule la clé primaire sur `id`). Deux appareils émettraient le même code **sans aucune
+erreur** — duplication silencieuse, pas rejet. Or le reçu PDF imprimé hors ligne encode ce code en QR
+(`lib/core/pdf/recu_pdf.dart:178`) : il doit être définitif dès l'impression.
 
-Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
-    new GetCollection(
-        security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
-        openapi: new Operation(
-            summary: 'La liste des cars',
-            description: 'Permet de voir la liste des cars',
-            security: [['bearerAuth' => []]]
-        )
-    ), CAR
-Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
+**Solution — une série dédiée au bord.** Un voyage n'a **qu'un seul commercial** (`Voyage::commercial`
+est un `ManyToOne`). Sa série ne peut donc entrer en collision ni avec le guichet, ni avec un autre
+appareil :
 
-Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
+```
+guichet   : LI-ABI-KOR-0004-V37-TCK-2026-8
+hors ligne: LI-ABI-KOR-0004-V37-TCK-2026-B3      ← compteur local du commercial, préfixe « B »
+```
 
-Le Mobile Money reste hors périmètre en attendant l'agrégateur
-- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
-- La possibilités de coché tous les sièges pour vendre
-- Quand tu regarde l'appli comment je pourrais écrire une explication ou guide pour les endroits éssenciel de l'application
+Le téléphone génère le code **définitif**, le serveur l'accepte tel quel à la synchronisation.
 
-- 
-## Le constat qui domine tout le reste
+Au passage, **l'index unique manquant est un défaut latent qui existe déjà** : `generateCode` compte
+les billets non supprimés, donc un `/tickets/{id}/remove` fait réutiliser un code déjà émis. Base
+actuelle saine (261 billets, 261 codes distincts) — la migration passera. **Vérifier le même point sur
+la base de production avant de l'appliquer.**
 
-**Il n'existe aucune clôture de caisse.** L'application calcule la recette au franc près — `RecetteGareService` croise gare et agent, le bordereau l'imprime — mais rien ne rapproche ce chiffre de l'argent réellement remis. Aucune table, aucune entité, aucun écran. Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus coûteux : un écart ne se détecte qu'a posteriori, sans preuve opposable. C'est la seule proposition que je classe **critique**.
+---
 
-Quatre autres manques vérifiés en base ou dans les sources :
+## Backend
 
-- **Aucun envoi asynchrone** — `MailerService::send()` appelle le mailer dans la requête. Même défaut de conception que celui qu'on vient de corriger sur le journal : un service accessoire qui décide du sort du geste principal.
-- **Aucun SMS**, alors que le téléphone est déjà la clé d'identité client dans `ClientResolver`.
-- **`/forgot` et `/reset` sans limite de débit**, quand la connexion, elle, est protégée. C'est cette asymétrie qui signale l'oubli — et c'est le meilleur rapport valeur/effort de la liste.
-- **La recherche globale ne cherche rien** : 13 lignes qui placent le curseur. Le champ et le raccourci `Ctrl+K` existent, la promesse n'est pas tenue.
+### 1 · Modèle et migration
 
-## Deux dépendances qui structurent l'ordre
+`src/Entity/Ticket.php` :
+- `$referenceOffline` (`string|null`, unique) — UUID généré par le téléphone, **clé d'idempotence**.
+  Même rôle que `Alerte::$cle` (`src/Entity/Alerte.php:101`, « garantit l'idempotence du balayeur »).
+  Rejouer un lot ne duplique rien.
+- `$montantEncaisse` (`int|null`) — ce que le commercial a réellement perçu hors ligne. Sert
+  uniquement à détecter l'écart ; le `prix` reste celui de la grille.
 
-**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+Migration : index unique sur `codeticket`, index unique sur `reference_offline`. Les deux colonnes
+sont nullables — une vente en ligne ne porte pas de référence.
 
-**La tarification dynamique (E1) suppose le contrôle d'embarquement (B2).** Le surbooking est déjà assumé par le modèle, mais personne ne connaît le taux de présentation réel : le QR est généré côté frontend pour l'impression seulement, sans point de lecture ni état d'embarquement sur le billet. Sans cette donnée, toute politique de remplissage se pilote à l'aveugle.
+### 2 · Mode « vente différée » dans `TicketProcessor`
 
-Une réserve sur B2 : le QR encode aujourd'hui le code du billet **en clair**. Il faudra le signer, sinon le contrôle validera n'importe quel code fabriqué.
-- 
+Ne **pas** dupliquer la logique de vente : c'est le chemin le plus chargé en règles (huit gardes) et
+le mieux testé. Extraire le cœur transactionnel (`src/State/TicketProcessor.php:195-233`) en une
+méthode publique acceptant un indicateur `differee`, qui relâche **exactement trois** contrôles :
 
+| Contrôle | En ligne | Différé | Pourquoi |
+|---|---|---|---|
+| `assertSiegeLibre` (`:202`) | bloque | **ignoré** | Décision optimiste : l'éviction arbitre |
+| `assertPlaceDisponible` (`:205`) | bloque | **ignoré** | Surbooking déjà assumé par le modèle |
+| `generateCode` (`:208`) | génère | **reprend le code du téléphone** | Le QR est déjà imprimé |
+| Position du car (`:105`, `:124`) | bloque | **ignoré** | Le commercial EST le car ; il pilote `garecourante` lui-même |
 
+Tout le reste — cohérence du tronçon, provenance effective, grille tarifaire, plafond de remise,
+rattachement client, canal commercial — reste **identique**. Le verrou `PESSIMISTIC_WRITE` sur le
+voyage est **conservé** : il sérialise le rejeu du lot.
 
+### 3 · Service de synchronisation
 
+`src/Domain/Service/VenteHorsLigneService.php` (nouveau) — pour chaque opération du lot :
 
+1. `referenceOffline` déjà en base → renvoie le billet existant, statut `DEJA_SYNCHRONISE`.
+2. Voyage clôturé, sans car, tronçon incohérent → `REFUSE` avec motif (ce sont des erreurs de
+   données, pas des conflits).
+3. Sinon → émet le billet en mode différé, statut `ACCEPTE`.
+4. Si `montantEncaisse !== prix` → `ActiviteLogger::TICKET_ECART_TARIF` (nouveau type), avec les deux
+   montants. La gare régularise.
 
+Le contrat de retour suit `VoyageDepartService::marquerDepart(): bool`
+(`src/Domain/Service/VoyageDepartService.php:34`, « true si le départ vient d'être enregistré ») :
+chaque élément dit ce qui s'est réellement passé.
 
+### 4 · Point d'entrée
 
+`src/Controller/Api/CommercialSyncController.php` (nouveau), `POST /api/voyages/{id}/me/sync`.
 
+Calqué sur `CommercialVentesController` (`src/Controller/Api/CommercialVentesController.php:16-24`),
+qui documente déjà pourquoi le commercial sort du pipeline API Platform : « le vendeur À BORD opère
+depuis des gares qui ne sont pas sa gare d'attache — les collections filtrées par la gare de l'agent
+masqueraient ses ventes en route ».
 
+**Ce sera le premier endpoint de l'API acceptant un tableau d'éléments indépendants** — il n'en existe
+aucun aujourd'hui (ni Messenger, ni import, ni lot). Le patron transactionnel à imiter est
+`src/State/Corbeille/CorbeilleViderLotProcessor.php`.
 
-Salut Claude Code,
+Corps : `{ operations: [ {reference, type, instant, payload} ] }`, types `VENTE`, `BAGAGE`,
+`POSITION`. Réponse : un résultat par référence. Traitement **en ordre d'émission**, dans une seule
+transaction.
 
-Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
+### 5 · Avance de position rejouable
 
-## Stack technique
-- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
-- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
-- **Apps Mobile** : Flutter, React Native
+`src/State/AvancerCommercialProcessor.php` : accepter un `instant` client optionnel (aujourd'hui
+`new \DateTimeImmutable()` en dur, `:96`). `PassageService` est déjà idempotent — « le PREMIER
+passage fait foi » (`src/Domain/Service/PassageService.php:11-20`) — et son cache par requête
+(`:23`) existe précisément pour le cas « plusieurs écritures avant le flush », qu'on rencontrera en
+rejouant un lot.
 
-## Rappel
-- **Ignore les fichiers `brl.md`** du projet : ce sont juste des brouillons
+Le contrôle de monotonie (`:89`) rend un 400 sur un rejeu : dans le lot, le traiter comme
+`DEJA_SYNCHRONISE`, pas comme une erreur.
 
-## Ce que j'attends
+**Cet endpoint n'a aucun test aujourd'hui** — à couvrir au passage.
 
-Analyse le projet pour :
-- te remettre à jour sur l'architecture générale et les modules existants,
-- retrouver l'état d'avancement du projet,
-- être prêt pour la suite des instructions que je vais te donner.
+### 6 · Instantané
 
- 
+`GET /api/voyages/{id}/me/instantane` sur `CommercialEspaceController` : tout ce dont le téléphone a
+besoin pour vendre seul — voyage, ligne et arrêts ordonnés, car et sièges, position courante,
+billets existants (pour le plan de sièges), grille tarifaire des couples utiles,
+`ConfigRemise.maxpourcentage`, en-tête entreprise pour les reçus.
 
+---
 
+## Flutter (`commercialflutter`)
 
+### 7 · Persistance locale — la première du projet
 
-Salut Claude, j'ai développé une application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+`pubspec.yaml` : ajouter `sqflite`, `path_provider` (déjà transitif via `printing`),
+`connectivity_plus`, `uuid`.
 
-Aussi j'ai listé quelques informations sur les modules de l'application dans le README.md du Backend-Transport
+`lib/core/offline/` (nouveau) :
+- `offline_database.dart` — deux tables : `instantanes(voyage_id PK, payload, telecharge_le)` et
+  `operations(id PK, reference UNIQUE, voyage_id, type, payload, statut, tentatives, cree_le)`.
+  L'`id` entier donne la file FIFO naturelle.
+- `file_operations.dart` — mise en file, relecture des opérations en attente, marquage.
+- `connectivite.dart` — état réseau observable.
+- `synchronisateur.dart` — vidange de la file au retour du réseau ; rejeu sûr grâce à la référence.
 
-Ignore les fichiers brl.md des 2 projets, ce sont juste des brouillons
+### 8 · Sources de données locales
 
-Analyse les 2 projets pour bien pour comprendre
+Les repositories sont aujourd'hui de purs passe-plats
+(`lib/features/vente/data/repositories/vente_repository_impl.dart`) : c'est **le point d'injection
+naturel**. Ajouter un `*_local_datasource.dart` par feature concernée, et faire choisir au repository
+entre distant et local selon la connectivité.
 
+`lib/core/network/api_exception.dart` : exposer un booléen `estHorsLigne` — les deux branches
+`connectionError` / timeout existent déjà mais ne sont distinguables que par comparaison de chaînes.
 
+### 9 · Vente hors ligne
 
+`lib/features/vente/presentation/providers/vente_controller.dart` : à la confirmation, si hors ligne,
+écrire dans la file au lieu d'appeler l'API, générer localement le `codeticket` série `B` et le
+`reference` (UUID), puis produire le reçu PDF — la génération est déjà 100 % locale
+(`lib/core/pdf/recu_pdf.dart`).
 
+Supprimer la dépendance réseau du reçu : `monEntrepriseProvider` doit lire l'instantané.
 
+Le plan de sièges hors ligne se calcule depuis l'instantané avec **la même règle que le serveur** —
+`tm <= ordreMontee && td > ordreMontee` (`src/State/SiegeStateProvider.php:146`). Le sondage 30 s
+(`_syncSeatPolling`) se désactive hors ligne.
 
-Salut Claude, dans la session précédente on a travailler sur l'application de compagnie de transport multi-entreprises et multi-gares en architecture séparé
-    > Backend : Symfony, ApiPlatform, LexikJwtBundle, refreshTokenBundle
-    > Frontend : Symfony, Twig, React UX, Shadcn, tailwind v4..
+### 10 · Visibilité
 
-Je t'avais dit d'ignorer les fichiers brl.md des 2 projets vu que ce sont juste des brouillons
+Un bandeau d'état (hors ligne / N opérations en attente / synchronisé) et un écran listant les
+opérations en attente avec leur sort après synchronisation. Un billet dont le siège a été évincé doit
+se **voir** : c'est la contrepartie assumée du choix optimiste.
 
-Aussi je t'avais dit qu'il y'a quelques informations sur les modules de l'application dans le README.md du Backend-Transport que tu mettais à jour régulièrement
+---
 
-Aussi analyse les 2 projets pour bien pour comprendre et te mettre à jour, aussi les applications mobile pour la partie réservation
+## Ce qui reste interdit hors ligne
 
+Désistement (remboursement — caisse de gare), modification d'un billet, réservation, récompense
+fidélité (`FideliteService` dérive l'état de tout l'historique : deux appareils brûleraient la même
+récompense).
 
+---
 
+## Vérification
 
+**Backend** — `tests/Api/VenteHorsLigneTest.php` (nouveau), avec `ScenarioBuilder` :
+- rejouer deux fois le même lot ne crée qu'un billet (idempotence par `referenceOffline`) ;
+- une vente hors ligne sur un siège déjà pris est **acceptée**, et `billetsEvinces` désigne ensuite
+  le perdant selon la priorité amont ;
+- un écart entre `montantEncaisse` et la grille produit la trace au journal ;
+- voyage clôturé → `REFUSE`, rien n'est écrit ;
+- rejeu d'une avance de position déjà enregistrée → `DEJA_SYNCHRONISE`, pas 400.
 
+Plus le **premier test de `PATCH /voyages/{id}/avancer`**, aujourd'hui non couvert.
 
+Lancer : `php vendor/bin/phpunit` (165 tests au vert avant travaux).
 
+**Migration** — avant d'appliquer, vérifier l'absence de doublons :
+`SELECT codeticket, COUNT(*) FROM ticket GROUP BY codeticket HAVING COUNT(*) > 1`.
 
+**Flutter** — tests unitaires de la file (mise en file, ordre, idempotence). Pour éprouver le mode
+hors ligne sans couper le Wi-Fi : lancer l'app avec `--dart-define=API_BASE_URL=http://127.0.0.1:9`
+(port mort) → `connectionError`, puis rebasculer sur le vrai port et vérifier la vidange.
 
+**Bout en bout** — démarrer les deux serveurs, armer un voyage, couper l'API, vendre trois billets et
+imprimer, faire avancer la position, rallumer l'API, synchroniser, puis vérifier en base : trois
+billets série `B`, la position avancée, et le manifeste cohérent.
 
+---
 
+## Limites assumées
 
-Aussi je t'avais dit qu'il y'a quelques informations sur les modules de l'application dans le README.md du Backend-Transport que tu mettais à jour régulièrement
+- **Un client peut être évincé après coup.** C'est le prix du choix optimiste ; le mécanisme et son
+  alerte existent déjà, mais le passager, lui, est physiquement à bord.
+- **La trace d'activité n'est pas rétroactive.** Les remises hors ligne seront journalisées à la
+  synchronisation, pas au moment de la vente.
+- **L'écart de tarif se régularise à la main.** Aucun mouvement de caisse automatique.
+- **La capacité peut être dépassée.** Déjà le cas aujourd'hui (« surbooking assumé »), mais le hors
+  ligne en augmente la fréquence.
 
+---
 
+# Ce qui a été livré
 
+Journal de réalisation tenu à jour au fil du travail. Il note surtout **ce qui a divergé du plan**,
+parce que c'est là que le plan s'est trompé.
 
-Salut Claude Code,
+## Backend — `Backend-Transport`
 
-Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée (backend/frontend) :
+| Fichier | Rôle |
+|---|---|
+| `src/Entity/Ticket.php` | `$referenceOffline`, `$montantEncaisse`, + 2 index uniques |
+| `src/Entity/Bagage.php` | idem, + unicité `(identreprise, codebagage)` |
+| `migrations/Version20260912090000.php` | billet : colonnes + unicité de `codeticket` |
+| `migrations/Version20260912140000.php` | bagage : colonnes + unicité de `codebagage` |
+| `src/State/TicketProcessor.php` | pipeline unique, stratégie d'écriture injectée, `emettreHorsLigne()` |
+| `src/State/BagageProcessor.php` | même refonte, `enregistrerHorsLigne()` |
+| `src/Domain/Service/SynchronisationHorsLigneService.php` | rejeu du lot : `VENTE`, `BAGAGE`, `POSITION`, `DEPART` |
+| `src/Domain/Service/AvanceePositionService.php` | avance de position, partagée en ligne / rejeu |
+| `src/Domain/Service/DepartGareService.php` | départ de gare, partagé en ligne / rejeu *(2ᵉ passe)* |
+| `src/Domain/Service/PassageService.php` | `connu()` : lecture par le cache de requête *(2ᵉ passe)* |
+| `src/State/AvancerCommercialProcessor.php` | délègue au service |
+| `src/State/RepartirVoyageProcessor.php` | délègue au service *(2ᵉ passe)* |
+| `src/Controller/Api/CommercialSyncController.php` | `POST /api/voyages/{id}/me/sync` |
+| `src/Controller/Api/CommercialInstantaneController.php` | `GET /api/voyages/{id}/me/instantane` |
+| `src/Domain/Service/ActiviteLogger.php` | 4 types : `TICKET_HORS_LIGNE`, `TICKET_ECART_TARIF`, `BAGAGE_HORS_LIGNE`, `BAGAGE_ECART_TARIF` |
+| `tests/Api/VenteHorsLigneTest.php` | 24 tests |
+| `tests/Support/ScenarioBuilder.php` | `tarifbagage()` |
 
-## Stack technique
-- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
-- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
+## Flutter — `commercialflutter`
 
-## Rappel
-- **Ignore les fichiers `brl.md`** dans les deux projets : ce sont de simples brouillons, sans valeur pour l'analyse (comme indiqué précédemment).
+| Fichier | Rôle |
+|---|---|
+| `lib/core/offline/base_locale.dart` | SQLite : `instantanes`, `operations` |
+| `lib/core/offline/operation_hors_ligne.dart` | l'unité de file — `VENTE`, `BAGAGE`, `POSITION`, `DEPART` |
+| `lib/core/offline/file_operations.dart` | file, instantanés, cache des départs, signal de changement |
+| `lib/core/offline/codes_hors_ligne.dart` | séries « B » du bord : billets et étiquettes |
+| `lib/core/offline/synchronisateur.dart` | vidange, rejeu sûr, bilan |
+| `lib/core/offline/connectivite.dart`, `armement.dart`, `offline_providers.dart` | câblage |
+| `lib/core/widgets/bandeau_hors_ligne.dart` | ce qui n'est pas remonté, en permanence |
+| `lib/features/vente/data/**` | repli sur l'instantané : sièges, tarif, vente, bagage |
+| `lib/features/manifeste/data/**` | manifeste servi depuis l'instantané |
+| `lib/features/gestion/data/**` | « Mes ventes » servi depuis l'instantané, corrections désactivées *(2ᵉ passe)* |
+| `lib/features/voyages/data/repositories/voyage_repository_impl.dart` | cache des départs, avance et départ en file, correction locale *(2ᵉ passe)* |
+| `lib/features/auth/**`, `lib/core/auth/token_store.dart` | session conservée hors ligne, profil en coffre |
+| `lib/features/entreprise/**` | en-tête du reçu pris dans l'instantané |
+| `lib/features/horsligne/**` | l'écran du sort des opérations |
+| `android/app/src/main/AndroidManifest.xml` | permission `INTERNET` — sans elle, aucun APK release ne parle *(2ᵉ passe)* |
+| `test/file_operations_test.dart`, `instantane_test.dart`, `progression_hors_ligne_test.dart`, `regles_rejouees_test.dart` | 44 tests dédiés au hors ligne |
+| `lib/core/offline/vidange_automatique.dart` | la file repart seule : 4 déclencheurs *(3ᵉ passe)* |
 
-## Ce que j'attends
-Comme le contexte de la session précédente n'est plus disponible, analyse à nouveau les deux projets (backend et frontend) afin de :
-- te remettre à jour sur l'architecture générale et les modules existants,
-- retrouver l'état d'avancement du projet,
-- être prêt pour la suite des instructions que je vais te donner.
+---
 
-**Remarques :**
-- J'ai ajouté "comme le contexte de la session précédente n'est plus disponible" pour que Claude Code comprenne bien *pourquoi* il doit refaire cette analyse (sinon il pourrait supposer à tort qu'il a un souvenir persistant).
-- Si vous avez un fichier de notes/résumé de la session précédente (changelog, `NOTES.md`, etc.), c'est le bon moment pour le mentionner explicitement — ça évite de tout ré-analyser depuis zéro.
-- Voulez-vous que j'ajoute une section pour préciser sur quoi portera la suite du travail (nouvelle fonctionnalité, bugfix, etc.), ou gardez-vous ça pour un prompt séparé ?
+## Là où le plan s'est trompé
+
+**1 · Le bagage ne pouvait pas désigner son billet par un identifiant.**
+
+Le plan listait `BAGAGE` parmi les types du lot sans regarder ce que `BagageProcessor` exige : un
+`ticket` par son **id**. Or hors ligne, le billet auquel on rattache un bagage vient le plus souvent
+d'être vendu par le même téléphone — il attend deux lignes plus haut dans la même file et n'a
+strictement aucun identifiant serveur. Le seul lien qui existe à ce moment-là est le **code imprimé
+sur le reçu du client**.
+
+D'où : le payload `BAGAGE` porte `codeticket`, et le serveur résout le billet par son code. L'ordre
+d'émission fait le reste — la vente est rejouée avant, donc le billet est en base quand le bagage le
+cherche. Un bagage dont la vente a été refusée est refusé à son tour, **en disant pourquoi** :
+« Billet … introuvable — sa vente a-t-elle été refusée ? ». Sans cette formulation, le vendeur
+chercherait deux problèmes là où il n'y en a qu'un.
+
+**2 · `codebagage` souffrait du même défaut latent que `codeticket`.**
+
+Le plan avait identifié l'index unique manquant sur `codeticket`. Le même générateur
+(`COUNT(*) + 1` sur les non-supprimés) sert les bagages, sans index non plus. Une mise en corbeille
+faisait donc déjà réutiliser un code imprimé sur une étiquette remise au client.
+
+Différence qui compte : l'unicité d'un `codebagage` est portée **par entreprise** — « BAG-2026-7 »
+existe légitimement chez chaque compagnie. L'index est donc composite, et la série du bord porte le
+code voyage (`LI-…-V37-BAG-2026-B2`) pour que deux commerciaux de la même compagnie roulant le même
+jour n'entrent pas en collision.
+
+**3 · Le lot dispensait des permissions.**
+
+Le contrôleur vérifiait que l'appelant est le commercial **du voyage**. C'est un bornage, pas un
+droit. Les opérations en ligne passent par `is_granted` sur l'opération API Platform ; ce lot en
+sort. Un vendeur privé du droit de créer un billet l'aurait donc obtenu en passant hors ligne.
+Corrigé : `VENTE` exige `CREER/Ticket`, `BAGAGE` exige `CREER/Bagage`, et le refus est rapporté
+opération par opération. `POSITION` n'en demande aucune — en ligne comme ici, elle n'est gardée que
+par la qualité de commercial du voyage.
+
+**4 · Le reçu hors ligne s'imprimait anonyme.**
+
+`monEntrepriseProvider` appelait l'API. Sans réseau, l'écran de vente retombait sur ses valeurs par
+défaut et imprimait « BILLET / Compagnie de transport » : un reçu que le client ne peut rattacher à
+personne, et qui ne vaut rien en cas de litige. L'instantané portait déjà l'en-tête — il suffisait de
+le lire.
+
+**5 · Le manifeste a demandé plus que « lecture ».**
+
+Le plan le rangeait dans le périmètre sans dire ce qu'il fallait embarquer. Deux ajouts à
+l'instantané : l'identité et le siège affiché de chaque billet, et surtout un booléen `evince`
+**calculé par le serveur**. Un téléphone ne peut pas refaire ce calcul — l'éviction se déduit de la
+capacité du car et de la priorité amont sur l'ensemble des billets. Le manifeste hors ligne écarte
+donc les évincés comme le fait le serveur, et ajoute les ventes de ce téléphone encore en file : ces
+passagers-là sont assis dans le car et n'existent nulle part ailleurs.
+
+**6 · Deux extractions non prévues, pour ne pas dupliquer une règle.**
+
+`AvanceePositionService` (partagé entre l'endpoint en ligne et le rejeu) et la refonte des deux
+processors autour d'une **stratégie d'écriture injectée**. Le principe tenu partout : une règle, un
+seul endroit. Le mode différé ne relâche que ce qui est énuméré dans le tableau du plan, et chaque
+relâchement porte son commentaire.
+
+---
+
+**7 · L'essai sur appareil a trouvé ce que les tests ne pouvaient pas voir.**
+
+Quatre défauts, tous invisibles en test unitaire parce qu'ils tiennent au CYCLE DE VIE de
+l'application — pas à ses calculs. Ils sont listés ici parce qu'ils disent quelque chose du mode hors
+ligne : **il ne suffit pas que les données soient sur le téléphone, il faut que l'application sache
+encore s'en servir.**
+
+- *Le plan de sièges se dessinait sur une seule ligne.* L'instantané n'embarquait que
+  `id` et `numero` ; `SeatGrid` groupe par `rangee` et sépare par `cote`. Cinquante cases en file
+  indienne, débordant de l'écran. `rangee`, `colonne` et `cote` sont désormais dans l'instantané.
+
+- *Le redémarrage en route déconnectait le vendeur.* `AuthController._bootstrap()` purgeait les
+  jetons sur **toute** `ApiException`, panne réseau comprise, et renvoyait à l'écran de connexion —
+  où il n'y a rien à faire sans serveur. Les ventes encaissées devenaient inaccessibles. On ne purge
+  plus que lorsque le SERVEUR a répondu que la session ne vaut plus rien, et le profil (permissions
+  comprises) est gardé dans le coffre chiffré.
+
+- *Le redémarrage vidait aussi la liste des départs.* `mesVoyagesProvider` était purement distant :
+  écran d'accueil vide, aucun voyage ouvrable, donc pas d'écran de vente — alors que l'instantané
+  était là. La dernière liste reçue est maintenant gardée en base locale.
+
+- *Les compteurs restaient figés.* Le bandeau annonçait « rien en attente » et le journal des
+  opérations s'affichait vide alors que deux ventes attendaient : les providers avaient lu la file à
+  leur première construction et rien ne les réveillait. La file émet désormais un signal à chaque
+  écriture.
+
+Un cinquième, cosmétique : le journal affichait « Siège 225 » — l'identifiant, que le vendeur ne
+connaît pas. Le numéro se lit maintenant dans l'instantané.
+
+---
+
+## Vérifications passées
+
+- **Backend** : `php vendor/bin/phpunit` → **184 tests, 451 assertions, OK** (165 avant travaux).
+- **Flutter** : `flutter test` → **40 tests OK** ; `flutter analyze` → **0 issue**.
+- **Migrations** : appliquées sur la base de développement après vérification des doublons
+  (261 billets / 261 codes ; 66 bagages / 66 codes, 1 compagnie). `doctrine:schema:validate` en
+  phase.
+- **API** : instantané (4 arrêts, 50 sièges, 6 couples tarifaires, 3 tranches de poids, plafond de
+  remise, en-tête compagnie) ; lot vente + bagage + bagage orphelin → 2 acceptées, 1 refusée avec le
+  bon motif ; rejeu → 0 acceptée / 2 déjà synchronisées ; écart de grille consigné.
+
+### Bout en bout, sur émulateur Android
+
+Parcours complet joué sur `emulator-5554`, backend sur `10.0.2.2:8000` :
+
+| Étape | Résultat |
+|---|---|
+| Ouverture du voyage V34 (réseau présent) | instantané téléchargé, base locale créée |
+| **API coupée** | — |
+| Plan de sièges | 50 sièges, disposition du car, servis par l'instantané |
+| Tarif Bouaké → Korhogo | 8 000 FCFA, grille embarquée |
+| Vente siège 5 | `LI-ABI-KOR-0001-V34-TCK-2026-B1`, reçu imprimable, mention « Vendu hors ligne » |
+| Bagage 18 kg | `LI-ABI-KOR-0001-V34-BAG-2026-B1`, 2 500 FCFA (tranche 11–25 kg embarquée) |
+| Redémarrage de l'application | session conservée, départs servis par le cache |
+| Journal des opérations | 0 remontées · **2 en attente** · 0 refusées |
+| **API rétablie**, bouton de synchronisation | **2 remontées** · 0 en attente · 0 refusées |
+
+En base après remontée : billet `…TCK-2026-B1` au siège 5, prix 8 000 (grille), commercial = le
+vendeur ; bagage `…BAG-2026-B1` à 2 500 rattaché à ce billet, statut `EMBARQUE` (le voyage est
+parti), `montantforce = 0` ; deux traces `TICKET_HORS_LIGNE` / `BAGAGE_HORS_LIGNE`. Aucun écart de
+tarif — la grille du téléphone et celle du serveur concordaient.
+
+Données d'essai supprimées ensuite (base revenue à 261 billets / 261 codes distincts).
+
+---
+
+## Reste à faire
+
+- **Vérifier l'absence de doublons sur la base de PRODUCTION** avant d'appliquer les deux migrations
+  (les deux requêtes sont dans les en-têtes de migration).
+
+---
+
+# Deuxième passe — ce que l'usage réel a révélé
+
+Trois signalements après la première livraison, tous fondés. Ils partagent un trait : **le mode hors
+ligne avait été construit par le milieu.** Le serveur savait recevoir, le téléphone savait stocker,
+mais entre les deux il manquait tantôt l'émetteur, tantôt l'écran qui s'en sert.
+
+## 1 · L'APK release ne pouvait joindre aucun serveur
+
+Symptôme : « Impossible de joindre le serveur » à la connexion, quelle que soit l'adresse — ngrok
+comme hébergement réel.
+
+La permission `INTERNET` n'était déclarée que dans les manifestes `debug` et `profile` — les fichiers
+du gabarit Flutter, où l'outil la pose pour **son** usage (hot reload, points d'arrêt). Le variant
+`release` ne les inclut pas. L'APK publié ne pouvait donc ouvrir **aucune connexion**, et chaque
+appel échouait en `connectionError`, c'est-à-dire exactement le message affiché.
+
+Détail révélateur : `connectivity_plus` apportait `ACCESS_NETWORK_STATE` au manifeste principal.
+L'application pouvait **observer** le réseau sans jamais s'en **servir** — d'où le bandeau hors ligne
+qui ne se déclenchait pas davantage.
+
+Déclarée dans `main/AndroidManifest.xml` des DEUX applications (`commercialflutter` et `resaflutter`,
+qui avait le même manque). Vérifié dans l'APK produit : `INTERNET` présent, trafic en clair absent.
+
+**Au passage, `resaflutter` ne se construisait plus du tout** : `intl` figé à `0.20.2` quand le SDK
+exige `^0.20.3`, et wrapper Gradle resté en 8.9 quand l'AGP installé réclame 9.1.0. Les deux alignés
+sur `commercialflutter` ; l'application se construit de nouveau.
+
+## 2 · L'avance de position demandait la connexion
+
+Le côté RÉCEPTION était entièrement là — type `POSITION`, service de rejeu, horodatage du téléphone,
+affichage au journal. L'ÉMETTEUR ne l'était pas : `VoyageRepositoryImpl.avancer()` était resté un
+passe-plat vers l'API. Le geste n'avait jamais eu la moindre chance de partir en file.
+
+**Mettre en file ne suffisait pas.** Tout ce que le vendeur peut faire ensuite — destinations
+proposées, droit de vendre, prochain arrêt — se déduit de `garecouranteId`. Sans correction locale,
+il déclarerait l'arrivée à Korhogo et l'application le croirait encore à Bouaké, lui refusant les
+trajets qu'il doit justement vendre à partir de là. Le voyage en cache est donc corrigé sur place
+(`FileOperations::modifierVoyageEnCache`), et la prochaine lecture réussie du serveur l'écrase — le
+serveur reste la référence dès qu'il est joignable.
+
+### Le geste jumeau : « le car repart »
+
+Ajouté dans la foulée, parce que le laisser en ligne aurait été incohérent : le vendeur aurait pu
+déclarer l'arrivée à Bouaké mais pas le départ de Yamoussoukro qui la précède. Les deux horodatages
+donnent le **temps d'arrêt en gare**, et c'est tout l'objet du geste.
+
+Nouveau type d'opération `DEPART`, et `DepartGareService` extrait de `RepartirVoyageProcessor` sur le
+modèle d'`AvanceePositionService` : le service porte les règles métier, l'appelant garde
+l'autorisation — elle diffère selon la voie (en ligne : commercial, agent de la gare courante ou
+admin ; hors ligne : le commercial du voyage, que le contrôleur a déjà établi).
+
+### Le défaut que seul l'appareil pouvait montrer
+
+À la synchronisation, le départ était **refusé** — « L'arrivée du car à Gare de Bouaké n'a pas encore
+été enregistrée » — alors que l'arrivée venait d'être ACCEPTÉE deux lignes plus haut dans le même lot.
+
+`PassageService` persiste **sans flusher** : sa propre docstring l'annonce (« findOneBy ne verrait pas
+l'entité non encore flushée »), et c'est pour ça qu'il tient un cache de requête. Mon
+`DepartGareService` interrogeait le repository en direct et passait donc à côté de ce que l'opération
+précédente venait de poser. Corrigé par une lecture publique `PassageService::connu()` qui consulte le
+cache avant la base.
+
+Invisible en test isolé — le test que j'avais écrit créait le passage à la main. Un test rejoue
+désormais le cas réel : arrivée puis départ dans un même lot.
+
+## 3 · « Mes ventes » n'était pas couvert
+
+Non, la page n'avait aucun repli. Corrigée avec une **asymétrie volontaire** :
+
+| | Hors ligne |
+|---|---|
+| Lire la liste, **réimprimer** | ✔ servi par l'instantané |
+| Modifier le client, descendre un passager, annuler/modifier un bagage | ✘ désactivé, avec le motif affiché |
+
+Réimprimer est le cas qui justifie l'écran : un passager perd son reçu en route, exactement là où il
+n'y a pas de couverture. Corriger, à l'inverse, touche des données que le serveur arbitre — le faire
+à l'aveugle sur une copie vieillissante créerait des divergences qu'aucune synchronisation ne saurait
+départager.
+
+L'instantané embarque donc aussi `prix`, `remise`, `statut`, `dateEmission` sur chaque billet, et un
+bloc `bagages` restreint au canal du commercial — le même périmètre que l'endpoint en ligne.
+
+Un billet vendu hors ligne n'a pas d'identifiant serveur : il n'est corrigeable par personne tant que
+la file n'a pas été vidée, **même réseau revenu**. La page le lit à `id == 0` et le marque « En
+attente ».
+
+---
+
+## Vérifications de cette passe
+
+- **Backend** : `php vendor/bin/phpunit` → **187 tests, 468 assertions, OK**.
+- **Flutter** : `flutter test` → **45 tests OK** ; `flutter analyze` → 0 issue.
+- **APK release** : construit et inspecté (`aapt2 dump permissions`) pour les deux applications.
+
+### Bout en bout, sur émulateur
+
+| Étape | Résultat |
+|---|---|
+| Ouverture du voyage V35 (réseau présent) | instantané armé |
+| **API coupée** | — |
+| « Le car est arrivé à Gare de Bouaké » | position corrigée localement, itinéraire à jour, **1 en attente** |
+| « Le car repart de Gare de Bouaké » | « Départ enregistré », **2 en attente**, bouton retiré |
+| `Mes ventes` | 4 billets servis par l'instantané, bandeau affiché, corrections retirées, « Réimprimer » seul offert |
+| **API rétablie**, synchronisation | tout remonte |
+
+En base : arrivée à Bouaké 23:34:27, départ 23:35:07 — les heures du téléphone, donc le temps d'arrêt
+réel.
+
+**Réserve** : lors de la reprise, un processus PHP avait survécu à l'arrêt du serveur et l'arrivée est
+passée EN LIGNE. Le parcours « arrivée + départ dans le même lot » — celui qui a révélé le défaut de
+cache — n'a donc pas été rejoué sur appareil ; il est couvert par le test backend écrit pour lui.
+
+---
+
+## Ce qui reste hors ligne interdit
+
+Inchangé, et délibéré : désistement (remboursement — caisse de gare), modification d'un billet ou
+d'un bagage, réservation, récompense de fidélité.
+
+---
+
+# Audit des règles rejouées
+
+Chaque fois que le téléphone corrige son cache ou calcule hors ligne, il **rejoue une règle du
+serveur**. Une règle rejouée peut diverger de son original, et la divergence ne se voit pas : les deux
+codes marchent, simplement pas pareil. Le défaut du terminus était de cette famille — d'où cette
+relecture systématique.
+
+Neuf règles sont rejouées. **Cinq s'étaient écartées**, toutes dans le même sens : le téléphone était
+plus PERMISSIF que le serveur. Et cette direction-là est la mauvaise, parce que l'écart se découvre
+après l'encaissement.
+
+> **Le principe qui les gouverne toutes : on refuse AVANT d'encaisser, jamais après.** Un refus avant
+> la vente est un message au vendeur. Le même refus à la synchronisation, c'est un passager parti avec
+> un billet qui n'existera jamais.
+
+## Le plus grave : le plafond de remise n'était pas appliqué
+
+`plafondRemisePourcentage` était embarqué dans l'instantané depuis le premier jour. **Personne ne le
+lisait.** Pire, un commentaire du code justifiait son absence :
+
+> « Le PLAFOND, lui, n'est pas appliqué ici : il est déjà appliqué par l'écran de vente, qui le lit
+> dans l'instantané. »
+
+C'était faux. L'écran de vente ne plafonne rien — il affiche « Le montant final est calculé au serveur
+(plafond de la compagnie) » et s'en remet à lui. J'avais écrit un commentaire qui justifiait une
+omission en désignant un contrôle inexistant.
+
+Conséquence : **en ligne**, sans gravité — le serveur refuse avant qu'un billet n'existe. **Hors
+ligne**, le téléphone calculait la remise sans plafond, imprimait, encaissait — et le serveur refusait
+la vente à la synchronisation.
+
+Le plafond est désormais lu et appliqué avant la mise en file, avec la même arithmétique que
+`TicketProcessor` — tolérance `+ 0.001` comprise, sans laquelle un arrondi ferait refuser une remise
+exactement au plafond.
+
+## Les quatre autres
+
+| # | Règle | Serveur | Téléphone (avant) |
+|---|---|---|---|
+| 2 | Remise supérieure au prix | refuse | **bornait au tarif** → le client payait 0, la vente était refusée à la synchronisation |
+| 3 | Type de remise inconnu | refuse | **remise 0** → vendait, puis refus à la synchronisation |
+| 4 | Bornes de tronçon illisibles | **bloque le siège** (« sécurité : ticket hors ligne → on bloque ») | ignorait le billet → **siège affiché libre** alors qu'il est occupé |
+| 5 | Périmètre de « Mes ventes » | `commercial = moi` | déduit de `aBord` (= « vendu par un commercial ») |
+
+Le n° 5 n'était pas un bug : les deux coïncident tant qu'un voyage n'a qu'un commercial. Mais un
+périmètre ne doit pas reposer sur une coïncidence — l'instantané porte maintenant `aMoi`, dit par le
+serveur, distinct de `aBord` qui désigne le canal et sert le manifeste.
+
+Au passage, les refus MÉTIER du repli hors ligne portaient `estHorsLigne: true`, alors que la
+docstring du drapeau dit l'inverse (« PAS un refus métier »). C'est lui qui décide si une vente part
+en file : sa signification doit rester exacte.
+
+## Les quatre règles conformes
+
+- **Prix** — grille plate `(départ, arrivée) → montant`, identique.
+- **Grille de poids des bagages** — première tranche couvrante, dernière illimitée : identique, bornes
+  comprises.
+- **Montant forcé d'un bagage** — les quatre cas de `BagageProcessor::resoudreMontant` se
+  correspondent un à un.
+- **Éviction au manifeste** — pas rejouée du tout : calculée par le serveur et embarquée (`evince`).
+  Un téléphone ne peut pas la refaire, elle se déduit de la capacité du car sur l'ensemble des billets.
+
+## Verrouillage
+
+`test/regles_rejouees_test.dart` — 8 tests. Éprouvés en rétablissant l'ancien comportement : **4 des 5
+écarts font échouer un test**, chacun le sien. Le cinquième (périmètre) est couvert par
+`instantane_test.dart`.
+
+Compteurs après cette passe : `phpunit` → **188 tests, 473 assertions** ; `flutter test` → **58
+tests** ; `flutter analyze` → 0 issue.
+
+## Ce qu'il faut retenir pour la suite
+
+Toute nouvelle règle rejouée doit venir avec **son refus**, pas seulement son calcul. Et si un
+commentaire affirme qu'un contrôle est fait ailleurs, il faut aller vérifier qu'il l'est vraiment —
+c'est exactement ce qui a masqué le défaut du plafond.
+
+---
+
+# Troisième passe — la file vivait, mais seule
+
+Quatre questions de l'utilisateur. Deux ont confirmé des manques, une a confirmé que tout allait
+bien, et la vérification sur appareil en a déterré un cinquième — le plus grave de toute la
+fonctionnalité.
+
+## 1 · La remontée ne se faisait pas toute seule
+
+La file ne partait qu'à trois moments : juste après avoir mis une opération en file, à l'ouverture
+d'un voyage, ou sur le bouton de synchronisation. Un vendeur qui retrouve du réseau en restant sur
+son écran de vente ne voyait rien remonter.
+
+Le plus gênant : `Connectivite` annonce dans **sa propre docstring** qu'elle sert à « savoir QUAND
+retenter une vidange »… et personne ne l'écoutait.
+
+`VidangeAutomatique`, monté à la racine de l'application, avec **quatre déclencheurs** — aucun ne
+suffit seul :
+
+| Déclencheur | Ce qu'il couvre |
+|---|---|
+| Ouverture de la base locale | au démarrage, la première tentative part avant que SQLite soit prêt |
+| Changement de connectivité | le tunnel, la zone blanche, le mode avion |
+| Retour au premier plan | le vendeur rouvre son téléphone |
+| Retentative toutes les 2 min tant que la file n'est pas vide | **l'antenne reste « connectée » sans débit, puis le débit revient** — aucun changement d'interface, donc aucun événement de connectivité |
+
+Le quatrième est celui qui couvre le cas le plus fréquent en brousse, et c'est celui auquel on pense
+le moins. Le sondage est borné : file vide, la tentative se solde par une lecture SQLite, aucun appel
+réseau.
+
+Le premier a été trouvé par une sonde : au démarrage, `synchronisateurProvider` est encore nul et la
+tentative échouait en silence. Le notifier **surveille** désormais ce provider au lieu de le lire.
+
+## 2 · « Ma performance » ne bougeait pas
+
+Recette, billets, bagages, places libres : tout vient du serveur, et le serveur ignore encore la
+vente. Le vendeur encaissait trois billets et voyait sa recette immobile — un compteur qui ment sur
+son propre travail, et le seul retour chiffré qu'il ait de sa journée.
+
+Corrigé par le même mécanisme que la position du car : `modifierVoyageEnCache` à l'encaissement,
+`maRecette` / `mesTickets` / `placesoccupees` pour un billet, `maRecette` / `mesBagages` pour un
+bagage. La recette suit le **net encaissé**, pas le tarif plein.
+
+Les mêmes chiffres alimentent l'accueil et « Ma recette » : les trois écrans sont corrigés d'un coup.
+
+Et après une remontée, `mesVoyagesProvider` est invalidé — par la vidange automatique comme par le
+bouton manuel : les chiffres du serveur remplacent les corrections locales.
+
+## 3 · L'état des sièges hors ligne — conforme
+
+Vérifié sur appareil avec six billets réels. Le car à Bouaké, vente vers Korhogo :
+
+- sièges **5, 11, 15, 28, 44** barrés — montés avant ou à Bouaké, descendent après ;
+- siège **35** libre — Yamoussoukro → Bouaké, il descend *à* Bouaké.
+
+C'est mot pour mot la priorité amont de `SiegeStateProvider`.
+
+## 4 · L'accueil après le retour en ligne — conforme
+
+`mesVoyages()` écrase le cache à chaque chargement réussi. Vérifié : après la vidange, l'accueil est
+revenu de 65 150 (corrigé localement) à 57 150 (vérité du serveur) sans intervention.
+
+## 5 · Ce que l'appareil a trouvé : une file bloquée pour toujours
+
+En vérifiant le point 1, la vidange s'est déclenchée correctement… et a rendu `remontees=0`. Le
+serveur répondait **409 « Un enregistrement avec ces informations existe déjà »**.
+
+La série « B » du téléphone se déduisait de la **seule** file locale. J'avais effacé cette file entre
+deux essais ; le compteur est reparti à B1 alors que le serveur détenait déjà B1 et B2. Mais le vrai
+problème n'est pas là :
+
+> **Une violation de contrainte d'unicité ferme l'EntityManager, annule la transaction du LOT ENTIER
+> et remonte en 409 opaque. Le téléphone ne marque rien. L'opération fautive bloque la file POUR
+> TOUJOURS — toutes les ventes suivantes s'empilent derrière sans jamais partir.**
+
+C'est le pire comportement possible pour une file d'attente, et il était atteignable par une simple
+réinstallation de l'application.
+
+**Deux corrections :**
+
+- *Serveur* — le doublon est détecté **avant** l'écriture (`findOneBy` sur `codeticket`, et sur
+  `(identreprise, codebagage)`). On ne touche jamais la contrainte : le refus reste local à
+  l'opération, le reste du lot passe, et le motif dit quoi faire — « Le code … est déjà porté par un
+  autre billet : celui-ci doit être ressaisi à la gare ».
+- *Téléphone* — le compteur prend le **plus haut** de deux sources : la file locale ET les codes « B »
+  déjà présents dans l'instantané. Une réinstallation ne le ramène plus à zéro.
+
+Vérifié sur appareil : la file bloquée s'est débloquée **seule au démarrage suivant**, l'opération
+fautive passant de « en attente » à « refusée » avec son motif lisible.
+
+---
+
+## Vérifications de cette passe
+
+- `php vendor/bin/phpunit` → **189 tests, 480 assertions, OK**
+- `flutter test` → **65 tests OK** · `flutter analyze` → 0 issue
+- Parcours appareil complet : vente hors ligne → « Ma performance » corrigée (57 150 → 65 150,
+  5 → 6 billets, 54/60 → 53/60) → vidange automatique au démarrage → accueil revenu à la vérité du
+  serveur.
+
+Les tests des deux corrections du point 5 ont été éprouvés en rétablissant l'ancien comportement.
+
+
+
 
 
 
@@ -517,16 +3833,6 @@ aussi sache que je privilégie les provider aux controllers comme tu l'a fais av
 
 Tous les compteurs ajoutés (ici et sur `Voyage`) utilisent `matching(Criteria)` : sur une collection non chargée, Doctrine traduit en SQL et `count()` devient un `COUNT`. C'est ce qui distingue une vraie optimisation d'un simple déplacement de code — `filter()` aurait continué à tout hydrater en silence.
 - - 
-
-- - 
-- Dépenses : 2 types (Dépense générale et gare)
-    Objetdepense -> libelle          Objetdepensegare..
-    Depense                          Depensegare..
-        objetdepense -> vers Objetdepense
-        date
-        montant
-        detail
-
 
 
 
@@ -3044,3 +6350,1614 @@ Dans la partie Frontend.., pour le Dashbord je veux qu'il soit au style réel de
 Tu n'a pas mis de sidebar dans le Dashbord ! Quand je dis que je veux que le tableau de bord soit au style réel de shadcn/ui (→ ui.shadcn.com) je faisais allusion au sidebar-07 de shadcn/ui (→ ui.shadcn.com) !
 
 Deux pièges d'API Platform trouvés en route, documentés en §8.10 et §8.11 : **sans variable d'URI, une opération non sûre ne lit pas** (`/me/motdepasse` levait une 500 sur son chemin nominal — corrigé par un `read: true` explicite), et **`previous_data` est un clone** alors que `read_data` est l'entité gérée — persister le premier aurait tenté d'attacher un détaché portant le même identifiant.
+
+
+
+
+
+
+
+
+
+
+
+## New
+
+Salut Claude Code,
+
+J'ai développé une application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée (backend/frontend) :
+
+## Stack technique
+- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle (lexik/jwt-authentication-bundle), RefreshTokenBundle (gesdinet/jwt-refresh-token-bundle)
+- **Frontend** : Symfony, Twig, React, Ux Symfony (symfony/ux-react, symfony/ux-toolkit, etc...), Shadcn/ui, Tailwind v4
+
+## Contexte
+- Le backend dispose d'un `README.md` (dans `Backend-Transport`) dans lequel j'ai listé quelques informations sur les modules de l'application — à consulter en priorité pour comprendre la structure.
+- Il existe aussi des applications mobiles (réservation client + commercial) à prendre en compte dans l'analyse globale.
+- **Ignore tous les fichiers `brl.md`** : ce sont juste des brouillons.
+
+## Ce que j'attends
+Analyse les projets (backend et frontend) afin de bien comprendre :
+- l'architecture générale et les modules existants,
+- les liens/flux entre backend, frontend et applications mobiles,
+- les points clés à connaître avant que je te donne la suite des instructions,
+- etc...
+
+
+
+
+
+
+I'll start by exploring the project structure to understand what we're working with.
+
+Four projects. Let me read the backend README first, as you suggested.
+
+Dense README — that's a great map. Now let me explore the actual code structure.
+
+J'ai parcouru les quatre projets. Voici ma lecture.
+
+## Cartographie
+
+| Projet | Rôle | Stack |
+|---|---|---|
+| `Backend-Transport` | API REST, **seule** source de vérité (métier + données) | Symfony, API Platform, LexikJWT + Gesdinet refresh, MySQL |
+| `Frontend-Transport` | Back-office web interne — **BFF sans base de données** | Symfony/Twig + UX React, Shadcn, Tailwind v4 |
+| `commercialflutter` | Vendeur à bord (authentifié JWT) | Flutter, Riverpod 3, Dio, freezed, go_router |
+| `resaflutter` | Client invité, réservation + suivi (anonyme) | idem |
+
+---
+
+## Backend — le pipeline API Platform comme colonne vertébrale
+
+Tout passe par API Platform, jamais à côté. Le découpage est constant :
+
+- **`src/Entity/`** (~48 entités) porte les `#[ApiResource]`, la `security:` par opération et les groupes de sérialisation. [User.php](Backend-Transport/src/Entity/User.php) et `Typepiece` servent de documentation vivante des options.
+- **`src/State/`** (~115 providers/processors) = toute l'écriture et les lectures composées. Un endpoint métier = un `uriTemplate` + un processor (`/voyages/{id}/receptionner` → `ReceptionnerVoyageProcessor`).
+- **`src/Doctrine/`** = 5 extensions qui s'appliquent **automatiquement** à toutes les collections/items.
+- **`src/Domain/Service/`** = le métier réutilisable (`CapaciteService`, `ReservationEcheanceService`, `RecetteGareService`…), appelé par plusieurs processors.
+- **`src/Entity/Data/`** = ressources **virtuelles non persistées** (`Corbeille`, `ReservationPublique`, `Statistique`) : elles donnent une URL propre à des choses qui ne sont pas des tables.
+
+Le principe que je retiens le plus : **se brancher au pipeline plutôt que le remplacer** (`InventaireProvider`, `TicketProvider` décorent le provider natif pour garder pagination/filtres/tri).
+
+## Les trois couches de sécurité, superposées
+
+Elles se cumulent, et il faut penser aux trois à chaque nouvel endpoint :
+
+1. **Périmètre entreprise** — [EntrepriseScopeExtension](Backend-Transport/src/Doctrine/EntrepriseScopeExtension.php) ajoute `identreprise = X AND deletedAt IS NULL` dès que la ressource implémente `EntrepriseOwnedInterface`. Le super admin y échappe entièrement — d'où le piège documenté : **un service ne doit jamais dépendre de l'entreprise de l'acteur** (le super admin n'en a pas), `CorbeilleService` en tire les conséquences.
+2. **Périmètre gare** — [GareScopeExtension](Backend-Transport/src/Doctrine/GareScopeExtension.php) avec 3 régimes selon l'interface : `GareOwnedInterface` (1 champ), `MultiGareScopedInterface` (départ **ou** arrivée), `LigneGareScopedInterface` (la ligne dessert ma gare, via `EXISTS` — et non un `JOIN`, sinon l'eager-loading tronque la collection `arrets`). Inactif pour les admins et les centraux sans gare.
+3. **Permissions RBAC** — [PermissionVoter](Backend-Transport/src/Security/Voter/PermissionVoter.php), attributs `VOIR/CREER/MODIFIER/SUPPRIMER/IMPRIMER/IMPORTER/EXPORTER` résolus en une requête. `ROLE_ADMIN` bypasse tout ; `ROLE_ADMIN_GARE` bypasse **uniquement** les entités de `GareScopedEntities::ENTITIES`.
+
+À quoi s'ajoutent des gardes métier explicites : `VoyageGuard` (origine prépare / intermédiaire réceptionne / terminus clôture), `UserManagementGuard` (hiérarchie de gestion des comptes), `UserChecker` + `JWTSubscriber` (le checker ne suffit pas — un suspendu avec un JWT encore valide continuerait à passer), `MaintenanceSubscriber` (503 avec whitelist, **fail-open**).
+
+## Frontend — un BFF, pas une SPA
+
+Point structurant : **le FT n'a pas de base de données**. `ApiUser` n'est pas une entité Doctrine, il est hydraté depuis `/api/me` et injecté dans le token Symfony via `ApiUserProvider`.
+
+Le flux d'auth est astucieux et vaut la peine d'être gardé en tête :
+
+```
+ApiAuthenticator → login_check → {token, refresh_token} en session
+                 → RememberMeBadge + refresh_token dans un cookie persistant
+RefreshTokenCookieSubscriber → met à jour le cookie à chaque refresh réussi
+AuthenticationExceptionListener → toute 401 API redirige vers /login
+```
+
+Sans le subscriber le cookie ne serait jamais renouvelé (`ApiClientService` n'a pas accès à la `Response`) — le « remember me » mourrait silencieusement à l'expiration du premier refresh token.
+
+Côté rendu : Twig fait le layout et les permissions (`is_granted('TICKET_CREER')` → [PermissionVoter FT](Frontend-Transport/src/Security/Voter/PermissionVoter.php) qui découpe `ENTITÉ_ACTION`), puis délègue les tableaux/formulaires à React via `react_component(...)` en passant **les données déjà chargées et les droits déjà résolus** en props. Le filtrage/tri/pagination est serveur (`TableHelper` + `TableQueryBuilder` + `useServerTable`). Les selects lourds passent par `SearchController` + `RemoteCombobox`.
+
+## Flux entre les quatre applications
+
+```
+                    ┌──────────────────────────────────────┐
+                    │   Backend-Transport (API Platform)    │
+                    └───┬──────────────┬───────────────┬────┘
+      JWT en session    │              │ JWT Bearer    │  PUBLIC_ACCESS + ?slug=
+      + cookie remember │              │ + refresh 401 │  (anonyme)
+                        │              │               │
+              Frontend-Transport   commercialflutter   resaflutter
+              (back-office web)    (vendeur à bord)    (client invité)
+```
+
+Trois surfaces d'API bien distinctes, à ne pas confondre :
+
+- **Interne authentifiée** — `/api/*` (ressources + endpoints métier), consommée par le FT et le commercial.
+- **Espace commercial** — endpoints dédiés `/api/voyages/me/commercial`, `/api/voyages/{id}/me/ventes`, `/api/voyages/{id}/me/manifeste`. Ils existent **précisément parce que** les collections standard sont filtrées par `GareScopeExtension`, ce qui masquerait les ventes faites en route hors de la gare d'attache.
+- **Publique** — [ReservationPublique.php](Backend-Transport/src/Entity/Data/ReservationPublique.php), 9 opérations `/api/reservation/*` en `PUBLIC_ACCESS`, multi-tenant par `?slug=`. C'est la seule surface de `resaflutter`. La façade web équivalente (`WebClientController`) est commentée.
+
+Règle transverse claire : **le serveur décide, le client ne recalcule rien**. Les DTO publics exposent `heurepassage`, `retardMinutes`, `heurepassageEstimee` déjà calculés ; la réservabilité vient de `/api/voyages/reservables`, jamais reconstituée côté client.
+
+## Concepts métier qui gouvernent tout le reste
+
+- **Ligne = suite ordonnée d'`Arret`**, chacun portant `dureeTronconMinutes`. L'heure de passage est la **somme des tronçons depuis l'origine effective** — recalculée, jamais stockée. C'est la base des échéances de réservation, des retards et de la ponctualité. `RecalageService` propose (sans appliquer) une correction par médiane observée.
+- **Priorité absolue à la gare amont** : la disponibilité se juge **au point de montée**, on compte des **sièges** et non des passagers. Le surbooking est assumé, l'**éviction** en est le pendant — dérivée par `CapaciteService::billetsEvinces()`, jamais stockée, sauf `desistementImputableCompagnie` (non re-dérivable une fois le billet passé `REPORTE`).
+- **Départ partiel** : tout se calcule par rapport à l'origine **effective** du voyage, pas à celle de la ligne.
+- **Dérivé plutôt que stocké**, partout : fidélité (aucun compteur), retards, éviction, corbeille (27 types découverts automatiquement), alertes (balayeur idempotent qui réconcilie via une clé de dédup). Conséquence pratique : **relancer un traitement n'a jamais d'effet de bord**, et il n'y a pas de compteur à re-synchroniser.
+
+## Points d'attention avant d'attaquer la suite
+
+1. **Le build FT est actuellement cassé pour la prod.** `git status` montre les fichiers hashés supprimés (`app.9d72e751.js`…) et remplacés par des fichiers non hashés (`app.js`, `app.css`) — c'est une sortie `npm run dev`. Le `public/build/` étant versionné et le README prévoyant `npm run build` avant `git pull` en prod, un commit en l'état déploierait un build de développement.
+2. Le `.env` du FT garde un `DATABASE_URL` PostgreSQL par défaut et un dossier `migrations/` vide, alors que Doctrine n'y sert à rien. Résidu du squelette Symfony, sans conséquence, mais trompeur.
+3. Le README backend mentionne des apps mobiles « Flutter + React Native » ; je ne trouve que les deux projets Flutter dans l'espace de travail. L'app React Native est ailleurs, ou la mention est obsolète ?
+4. Le paiement Mobile Money est **simulé** (`PaiementSimuleProvider`, webhook déclenché par l'app elle-même). Toute évolution de la réservation devra composer avec ce point d'extension.
+5. Le fuseau est épinglé à **UTC** dans les deux `Kernel.php` — à ne pas toucher, c'est une correction de bug de production documentée.
+
+Deux différences de nommage à garder en tête : `Trajet` → remplacé par `Ligne`/`Arret`, et `TarifLigne` → remplacé par la grille `Tarif` globale par entreprise.
+
+J'ai le modèle en tête. Dis-moi la suite.
+
+
+
+
+
+
+
+
+
+## 1. Docblock de `heurePassage()`
+
+Il illustrait le calcul avec des durées **cumulées** (`Bouaké(240) → Korhogo(420)`), vestige du champ `dureeDepuisOrigineMinutes` renommé par la migration `Version20260722100000`. Il décrit maintenant le modèle réel — un tronçon par arrêt — et met les deux cas côte à côte, ce qui rend le décalage du départ partiel évident :
+
+```
+Ligne Abidjan(—) → Bouaké(+240) → Korhogo(+180)
+
+Départ NORMAL d'Abidjan à 08:00        Départ PARTIEL de Bouaké à 08:00
+  Bouaké  : 08:00 + 240      = 12:00     Bouaké  : 08:00 + 0   = 08:00
+  Korhogo : 08:00 + 240 + 180 = 15:00    Korhogo : 08:00 + 180 = 11:00
+```
+
+
+
+
+
+
+
+
+
+
+Je remets le correctif dans les composants et je retire les règles CSS, pour ne pas laisser deux mécanismes concurrents.
+
+C'est revenu à l'approche par les composants. **162 tests verts**, build et types propres.
+
+Concrètement :
+
+- `dropdown-menu.tsx` (contenu et sous-menu), `select.tsx`, `popover.tsx` → `z-[200]`
+- `dialog.tsx`, `alert-dialog.tsx` (voile et contenu) → `z-[300]`, au-dessus des menus puisqu'on ouvre un dialogue *depuis* un menu
+
+J'ai retiré les règles CSS que j'avais mises entre-temps (`[data-radix-popper-content-wrapper]` et les `data-slot` des dialogues) : garder les deux mécanismes en parallèle aurait fait deux endroits à corriger le jour où l'échelle bouge, avec un `!important` qui aurait masqué toute valeur posée dans un composant.
+
+Il reste dans `header.css` la **note** documentant l'échelle — topbar 100 · sidebar 149/150 · menus 200 · dialogues 300 · notifications 3000 — avec une précision utile maintenant que le rang vit dans les composants : en reprenant un composant depuis shadcn/ui, il faudra penser à remonter son `z-index`, sinon il repassera sous la barre.
+
+Le correctif du point 10 n'a pas bougé : le menu TomSelect reste ancré à son champ, et c'est le conteneur qui cesse de rogner pendant l'ouverture. :: Pour le datable pour ne pas la bulle s'affiche en dessous du header
+
+
+
+
+
+
+
+
+
+
+Le serveur applique deux bornes différentes selon qui agit, et l'écran n'en connaissait qu'une :
+
+gare émettrice — le car ne doit pas avoir quitté la gare de montée (monteedepassee)
+commercial embarqué — le car doit être encore positionné sur cette gare
+
+Ce n'est pas un détail : garecourante n'avance qu'à la réception. Entre le départ de Bouaké et l'arrivée à l'escale suivante, la gare est fermée mais le commercial, lui, est toujours à bord. Et comme il encaisse après le départ, ses propres billets naissent déjà monteedepassee — je lui masquais « Modifier » sur ce qu'il venait d'émettre, alors que l'API l'acceptait.
+
+
+
+
+
+
+
+
+## Un blocage trouvé en route
+
+La nouvelle permission était **inassignable** : le formulaire des rôles n'offrait que `['VOIR','CREER','MODIFIER','SUPPRIMER']` en liste plate. Au passage, cela veut dire que **`IMPRIMER` et `EXPORTER` ne sont pas assignables non plus** aujourd'hui, alors que le backend les gère et que tes fixtures s'en servent — un rôle créé dans l'application ne peut pas donner le droit d'imprimer.
+
+J'ai introduit des **actions spécifiques par entité** (`ACTIONS_SPECIFIQUES`), rendues comme une colonne qui n'a de case que sur sa propre ligne. Vérifié dans le navigateur sur les trois écrans :
+
+| Écran | Constat |
+|---|---|
+| Nouveau rôle | Colonne `DESISTER` présente ; **1 seule case** sur 30 entités, celle de Ticket |
+| Modifier (Commercial à bord) | Case présente et **cochée** — la reprise de migration, visible pour décochage |
+| Fiche du rôle | Colonne rendue (une liste figée dans le gabarit la masquait) |
+
+Un `{% set %}` dans une boucle Twig ne survivant pas à la boucle, les colonnes sont calculées côté PHP.
+
+**Il te reste une action** : décocher `DESISTER` sur le rôle « Commercial à bord » dans `/admin/roles/79/modifier`. Sans effet sur la sécurité — le processor le refuse — mais la configuration doit dire la vérité. Je peux le faire si tu veux.
+
+## L'inventaire des cas du même genre
+
+J'ai extrait les 90 opérations personnalisées avec leur garde. Trois groupes.
+
+### Confusions réelles — `MODIFIER` gouverne un mouvement de stock
+
+Ce sont les jumeaux exacts du cas Ticket : la même permission sert à corriger un libellé et à écrire en stock. Vérifié dans les processors.
+
+| Opération | Ce que `MODIFIER` autorise en plus |
+|---|---|
+| `/pieces/{id}/ajuster` | **Ajustement d'inventaire** — écriture de stock arbitraire |
+| `/approvisionnements/{id}/annuler` | Mouvements **SORTIE** : retire du stock déjà entré |
+| `/depannages/{id}/annuler` | Mouvements **ENTREE** : restaure les pièces consommées |
+
+C'est le groupe que je traiterais en premier, sur le modèle de `DESISTER`.
+
+### Confusions réelles — `MODIFIER` gouverne la caisse ou un engagement
+
+| Opération | Effet |
+|---|---|
+| `/reservations/{id}/confirmer` | **Encaissement du paiement** |
+| `/reservations/{id}/regulariser` | Régularisation financière |
+| `/reservations/{id}/annuler` | Annulation d'une réservation payée |
+| `/courriers/{id}/perdu`, `/bagages/{id}/perdu`, `/detailcourriers/{id}/perdu` | Déclaration de perte |
+| `/courriers/{id}/livrer` | Remise au destinataire (décharge) |
+| `/voyages/{id}/demarrer`, `/cloturer` · `/depannages/{id}/cloturer` | Bascules de cycle irréversibles |
+| `/personnels/{id}/suspendre` | Suspension d'un agent |
+
+Précision honnête : les trois opérations « perdu » et l'annulation de courrier ne déplacent **aucun montant** dans le code actuel — elles posent un statut. L'enjeu est l'engagement commercial, pas la caisse. Je ne les mets pas au même rang que le stock.
+
+Un point à part sur les réservations : la garde est `is_granted('MODIFIER', object) **or** is_granted('CREER', 'Ticket')`. Le `or` fait qu'un profil n'ayant que le droit de vendre des billets peut encaisser et annuler des réservations, sans aucune permission sur `Reservation`. C'est peut-être voulu — le vendeur prend le paiement — mais ça mérite d'être tranché explicitement.
+
+### Ce qui n'est *pas* un problème, contrairement aux apparences
+
+`/voyages/{id}/receptionner` et `/repartir` sont en `ROLE_USER`, `/avancer` en `IS_AUTHENTICATED_FULLY`. J'ai lu les processors avant de conclure : chacun porte sa propre garde d'identité — position du car, gare où il se trouve, identité du commercial. Ce ne sont pas des trous, mais des droits **positionnels** volontairement hors du RBAC. La conséquence à connaître : un super admin ne peut ni les accorder ni les retirer par rôle.
+
+Enfin, une incohérence mineure : la plupart des `/remove` utilisent `SUPPRIMER`, mais `Bagage`, `Courrier`, `Approvisionnement`, `Depannage` et `Ticket` exigent `ROLE_ADMIN`. Pour `Ticket` c'est commenté et assumé (document comptable) ; pour les quatre autres, rien ne l'explique.
+
+Dis-moi par quel groupe tu veux continuer — je partirais du stock, c'est le plus proche de ce qu'on vient de faire et le plus quantifiable.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Analyse l’application dans son ensemble et propose des fonctionnalités pertinentes en tenant compte :
+
+* des fonctionnalités déjà existantes ;
+* des besoins métier d’une entreprise de transport ;
+* de l’expérience utilisateur (UX/UI) ;
+* de la sécurité ;
+* des performances ;
+* de la maintenance et de l’évolutivité ;
+* de l’automatisation des tâches ;
+* des besoins d’administration et de reporting.
+
+Pour chaque fonctionnalité proposée, explique :
+
+1. **Le problème ou besoin auquel elle répond** ;
+2. **Son fonctionnement général** ;
+3. **Sa valeur ajoutée pour l’application** ;
+4. **Sa priorité** : faible, moyenne, haute ou critique ;
+5. **Les modules concernés** ;
+6. **Les éventuelles dépendances ou impacts techniques**.
+
+Évite de proposer des fonctionnalités génériques ou inutiles. Concentre-toi sur des améliorations réellement pertinentes pour cette application et son contexte métier.
+
+Enfin, classe les propositions par ordre de priorité et distingue :
+
+* les améliorations des fonctionnalités existantes ;
+* les nouvelles fonctionnalités ;
+* les améliorations UX/UI ;
+* les améliorations techniques et de sécurité ;
+* les fonctionnalités avancées pouvant être ajoutées à long terme.
+
+
+
+
+
+
+
+
+
+
+On vas mettre en place la vente hors-ligne pour le commercial
+
+
+Vente hors-ligne pour le commercial — c'est le levier B3 de la feuille de route, mais cadré sur le vendeur à bord, ce qui change beaucoup de choses. J'explore avant de proposer quoi que ce soit.
+
+Pendant que l'exploration tourne, deux décisions de fond qui orienteront toute la conception — et qui t'appartiennent.
+
+
+Deux vendeurs peuvent viser le même siège pendant que le commercial est hors ligne (lui à bord, une gare en aval qui ignore sa vente). Comment veux-tu traiter ce conflit ?
+
+Optimiste + éviction existante (Recommandé)
+
+Que doit pouvoir faire le commercial sans réseau ?
+
+Vendre un billet et l'imprimer, Faire avancer la position du car, Enregistrer un bagage, Consulter le manifeste des passagers
+
+
+Les trois explorations sont revenues, et elles changent la conception sur un point majeur.
+
+**Le bloqueur principal n'est pas le siège, c'est le `codeticket`.** Il est généré serveur par `COUNT(*) + 1` sur le voyage — et il n'existe **aucun index unique dessus**. Deux appareils émettraient le même code sans que rien ne proteste : duplication silencieuse, pas rejet. Le reçu PDF est pourtant imprimé hors ligne avec ce code en QR.
+
+Deux bonnes nouvelles en revanche : le prix est **entièrement calculable hors ligne** (grille plate `gare→gare` + un plafond de remise en entier), et il n'y a **qu'un seul commercial par voyage** — sa série de codes ne peut donc pas entrer en collision avec celle du guichet.
+
+Une dernière décision avant de rédiger.
+
+Le téléphone calcule le prix depuis sa grille téléchargée et le commercial encaisse en espèces. À la synchronisation, si la grille a changé entre-temps, qui fait foi ?
+
+Quand tu dis "si la grille a changé entre-temps", est ce que tu fais allusion à la modification de tarif par l'admin ou à l'avancement du car qui change la grille et le tarif ?
+
+Faut-il borner la vente hors ligne, pour limiter la casse si un appareil reste déconnecté longtemps ?
+
+Borner au voyage en cours (Recommandé)
+
+
+
+Bonne question, et la réponse réduit beaucoup l'enjeu.
+
+**L'avancement du car ne change pas la grille.** Elle est indexée par *couple de gares*, indépendamment de la ligne, du voyage et de la date — `TarifRepository::findMontant` ne regarde que `(garedepart, garearrivee, entreprise)`. Quand le car avance, c'est le *couple applicable* qui change, pas le tarif ; et comme le commercial pilote lui-même la position, il connaît le couple hors ligne. Aucun écart de ce côté.
+
+Je parlais donc du seul autre cas : **un admin modifie un tarif pendant que le car roule.** C'est rare.
+
+La question n'est donc pas de fréquence mais de principe — le prix peut-il, une fois, venir de l'appareil ?
+
+
+Seule cause d'écart possible : un admin modifie un tarif pendant le trajet. Rare — mais qui tranche le prix d'un billet vendu hors ligne ?
+
+Le serveur recalcule, l'écart est signalé (Recommandé)
+
+
+
+Toutes les décisions sont prises. Je vérifie deux points avant de rédiger — l'état réel des codes en base, et la structure exacte du processor à factoriser.
+
+Aucun doublon aujourd'hui (261/261) — l'index unique passera. Je regarde la structure du processor à factoriser.
+
+Tout est clair. Je rédige le plan.
+
+Plan approuvé. Je commence par le backend — le contrat d'API conditionne tout le reste côté Flutter.
+
+Je commence par l'entité. Regardons où poser les deux champs.
+
+Maintenant la migration, avec l'index unique manquant sur `codeticket`.
+
+Migration passée, index en place. Maintenant le mode « vente différée » — un seul pipeline, un indicateur, et une stratégie d'écriture injectée.
+
+La base de **test** n'a pas la migration. Je regarde comment son schéma est créé.
+
+La base de test a été créée par `schema:create`, pas par les migrations. Je la synchronise sur le mapping.
+
+Le schéma de test diverge du mien : l'index sur `codeticket` n'existe que dans la migration, pas dans le mapping. Je déclare les deux dans l'entité pour qu'ils s'accordent.
+
+Le schéma de test correspond maintenant exactement à la migration. Je relance.
+
+Le refactor ne casse rien. Maintenant le service de synchronisation — je regarde les patrons à suivre.
+
+J'ajoute le type d'événement pour l'écart de tarif.
+
+Maintenant le service de synchronisation.
+
+Maintenant le point d'entrée — le premier endpoint de l'API à accepter un lot.
+
+Route en place. J'écris maintenant les tests qui verrouillent le comportement.
+
+Les huit passent du premier coup. Je poursuis avec l'avance de position, qui doit pouvoir être rejouée.
+
+La règle est auto-portante. Je l'extrais pour que le rejeu et la voie en ligne partagent exactement le même code.
+
+L'avance est factorisée. J'ajoute maintenant le rejeu de position au lot de synchronisation.
+
+Je complète les tests avec le rejeu de position.
+
+Neuf tests au vert. Reste l'instantané — ce que le téléphone emporte pour vendre seul.
+
+Deux corrections : `findMontant` rend un `Tarif`, pas un entier, et le nom de la raison sociale diffère.
+
+Je couvre l'instantané par un test, puis je vérifie l'ensemble du backend.
+
+Backend terminé — 176 tests au vert. Je passe au Flutter. D'abord, vérifions l'outillage disponible.
+
+Flutter 3.47 disponible — je pourrai analyser et tester. Je lis les fichiers clés pour coller au style.
+
+Maintenant les dépendances, puis la couche de persistance locale — la première du projet.
+
+`intl` est épinglé à 0.20.2 alors que le SDK en réclame 0.20.3. C'est un montée de patch exigée par `flutter_localizations`, pas un choix que je contourne.
+
+Les paquets sont résolus — l'avertissement porte sur la *compilation* d'une plateforme, pas sur la résolution, et `printing` était déjà un plugin. Je vérifie que l'analyse tourne.
+
+L'analyse tourne et le projet est propre. Je crée la couche hors-ligne.
+
+La couche est propre. Je la branche maintenant dans l'application — d'abord les providers.
+
+Maintenant la génération locale du code de billet — la pièce qui rend le reçu imprimable hors ligne.
+
+La couche est en place. Maintenant le cœur : brancher la vente hors ligne dans le tunnel existant.
+
+Il faut aussi que le plan de sièges et le tarif viennent de l'instantané. Je regarde le repository, qui est le point d'injection.
+
+`TicketVendu.id` est déjà nullable — une vente hors ligne peut donc produire un billet complet sans identifiant serveur. Je regarde le modèle de siège.
+
+Je crée la source locale qui rejoue, depuis l'instantané, exactement les mêmes règles que le serveur.
+
+Je fais maintenant basculer le repository — c'est lui qui décide, à l'échec réel, entre distant et local.
+
+L'application analyse proprement. Il manque l'armement — sans instantané, rien de tout cela ne sert.
+
+Il reste la visibilité — le vendeur doit savoir ce qui attend. Puis les tests.
+
+Maintenant les tests Dart — la file est la pièce qui doit être irréprochable.
+
+Les sept passent. Vérification complète des deux côtés.
+
+Je fais maintenant la vérification bout en bout prévue au plan, sur l'API réelle.
+
+L'instantané est complet. Je simule maintenant la remontée d'une file, comme le ferait le téléphone.
+
+La vente hors ligne du commercial est en place, vérifiée de bout en bout sur l'API réelle.
+
+## Le verrou, et comment il est levé
+
+Le blocage n'était pas le siège, c'était le **`codeticket`**. Il est généré serveur par `COUNT(*) + 1`, sans aucun index unique : deux appareils auraient émis le même code **sans la moindre erreur**. Or le reçu part de l'imprimante avec ce code en QR.
+
+Deux réponses. Le téléphone génère désormais une **série dédiée au bord** — `…-TCK-2026-B3` — sûre parce qu'un voyage n'a qu'un seul commercial ; et l'**index unique manquant** est posé. Ce défaut existait déjà : une mise en corbeille faisait réutiliser un code émis, en silence. Base saine avant migration (261 billets, 261 codes distincts) — à revérifier en production, c'est écrit dans la migration.
+
+## Ce qui a guidé le reste
+
+**On ne défait pas une vente encaissée.** Le passager est assis, l'argent est dans la sacoche : refuser un billet à la synchronisation ne l'annulerait pas, cela le ferait disparaître du système. Les conflits de siège sont donc **acceptés** et l'éviction tranche — c'est exactement le rôle pour lequel elle existe.
+
+**Le prix ne vient jamais de l'appareil.** Le téléphone calcule pour encaisser, le serveur recalcule depuis la grille. L'écart est consigné, pas appliqué : le contrôle anti-fraude reste entier.
+
+J'ai évité de dupliquer la logique de vente — c'est le chemin le plus chargé en gardes de l'application. `TicketProcessor` a gagné un mode différé qui relâche **exactement trois** contrôles, chacun documenté à son point de relâchement. Même chose pour l'avance de position, extraite en service partagé entre la voie en ligne et le rejeu.
+
+## Vérification bout en bout
+
+Sur l'API lancée, avec un vrai commercial : instantané complet (4 arrêts, 70 sièges, 6 couples tarifaires, plafond 20 %), puis remontée d'une file de trois opérations.
+
+| | |
+|---|---|
+| Premier envoi | 3 acceptés |
+| **Rejeu du même lot** | **0 accepté, 3 déjà synchronisés** |
+| Billet vendu 9 500 à bord | enregistré à **8 000** (grille), écart de 1 500 tracé au journal |
+| Position | avancée à Korhogo, horodatée **07:55** — l'heure du téléphone, pas celle de l'envoi |
+
+Données de vérification supprimées ensuite.
+
+**176 tests backend** (dont 11 nouveaux sur le hors ligne) et **28 tests Flutter** (dont 7 sur la file), analyse Dart sans avertissement.
+
+## Deux choses à savoir
+
+**Une montée de `intl` en 0.20.3** a été nécessaire : la version épinglée 0.20.2 était incompatible avec le `flutter_localizations` du SDK courant, et bloquait toute résolution de dépendance.
+
+**Le mode développeur Windows n'est pas activé** sur cette machine, donc `flutter build`/`run` échoue sur les liens symboliques. C'est préexistant — `printing` était déjà un plugin — et sans effet sur l'analyse et les tests. Je n'ai donc **pas pu lancer l'application sur un appareil** : le tunnel de vente hors ligne est vérifié par ses tests et par l'API, pas par un essai à l'écran.
+
+Il reste deux éléments du plan que je n'ai pas faits : le **bagage hors ligne** et l'écran listant les opérations en attente avec leur sort. Le bandeau d'état signale déjà ce qui reste à remonter. Dis-moi si tu veux que j'enchaîne.
+
+
+
+
+
+
+
+
+
+
+Quand je build l'application commercial et que je l'install sur mon `Android` via la commande `flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev` (`https://proud-gauntlet-elongated.ngrok-free.dev` vient de ngrok ou même quand c'est en ligne) et que j'essai de me connecté en que `commercial@ira-transport.ci` je tombe sur l'erreur `Impossible de joindre le serveur. Vérifiez votre connexion` !
+
+
+
+
+
+
+La permission Internet n'est déclarée que pour le **debug**. Je vérifie.
+
+Voilà la cause. Je corrige les deux applications.
+
+Je reconstruis l'APK release et je vérifie la permission dans le paquet produit.
+
+Le tunnel ngrok est éteint en ce moment (`ERR_NGROK_3200`), mais c'est justement ce qu'il me faut pour prouver la correction : je pose l'APK release sur l'émulateur.
+
+La preuve est nette. Je vérifie aussi `resaflutter`, qui avait le même manque.
+
+Trouvé, et ce n'est ni ngrok ni l'URL.
+
+## La cause
+
+La permission Internet n'était déclarée que dans les manifestes `debug` et `profile` — les fichiers du gabarit Flutter, où l'outil la pose pour **son** usage (hot reload, points d'arrêt). Le variant `release` ne les inclut pas :
+
+```
+debug/AndroidManifest.xml     → INTERNET ✓
+profile/AndroidManifest.xml   → INTERNET ✓
+main/AndroidManifest.xml      → rien
+```
+
+L'APK release ne pouvait donc **ouvrir aucune connexion**. Chaque appel échouait en `connectionError`, ce que l'application traduit exactement par « Impossible de joindre le serveur. Vérifiez votre connexion ». D'où le fait que ça se produise aussi bien avec ngrok qu'en ligne : l'adresse visée n'entrait jamais en jeu.
+
+Détail révélateur : `connectivity_plus` apportait `ACCESS_NETWORK_STATE` au manifeste principal. L'application pouvait donc **observer** le réseau sans jamais s'en **servir** — c'est pour ça que le bandeau hors ligne ne se déclenchait pas non plus.
+
+## La correction
+
+`<uses-permission android:name="android.permission.INTERNET"/>` déclaré dans `main/AndroidManifest.xml`, là où tous les variants le voient.
+
+## Vérifié
+
+APK release reconstruit avec votre commande, puis inspecté et installé sur l'émulateur :
+
+```
+uses-permission: name='android.permission.INTERNET'          ← présent
+cleartext                                                     ← absent (le release refuse le HTTP simple, comme voulu)
+```
+
+À la connexion, l'écran n'affiche plus « Impossible de joindre le serveur » mais **le message de ngrok lui-même** : « The endpoint proud-gauntlet-elongated.ngrok-free.dev is offline — ERR_NGROK_3200 ». La requête part donc du téléphone, traverse, atteint l'edge de ngrok et reçoit une réponse. Votre tunnel est simplement éteint en ce moment ; rallumez-le et la connexion aboutira.
+
+```bash
+cd commercialflutter && flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev
+```
+
+## Un point à part, pour vous
+
+**`resaflutter` a exactement le même manque** — j'y ai appliqué la même ligne, mais je n'ai pas pu le construire pour le vérifier, à cause de deux blocages qui lui préexistent :
+
+- `intl` était figé à `0.20.2` alors que le `flutter_localizations` du SDK exige `^0.20.3` — `pub get` échouait. Je l'ai aligné sur ce que `commercialflutter` utilise déjà.
+- Son wrapper Gradle est resté en **8.9** quand l'AGP installé réclame **9.1.0** (`commercialflutter` y est déjà). Je n'y ai pas touché : c'est une mise à jour de chaîne d'outils avec son propre risque, et vous ne me l'avez pas demandée. Dites-moi si vous voulez que je m'en occupe.
+
+
+Oui
+
+
+Seule la version du wrapper diverge. Je l'aligne sur celle de `commercialflutter`.
+
+`resaflutter` se construit. Je vérifie la permission dans l'APK produit.
+
+C'est fait. Le wrapper était le seul écart : `AGP 9.0.1`, Kotlin `2.3.20` et `gradle.properties` étaient déjà identiques entre les deux applications — seul `resaflutter` était resté sur Gradle **8.9** quand `commercialflutter` était passé à **9.1.0**.
+
+```
+resaflutter/android/gradle/wrapper/gradle-wrapper.properties
+  gradle-8.9-bin.zip  →  gradle-9.1.0-all.zip
+```
+
+**Vérifié :**
+
+| | |
+|---|---|
+| `flutter build apk --release` | ✓ 53,0 MB |
+| Permission dans l'APK | `android.permission.INTERNET` ✓ |
+| Trafic en clair | non déclaré — HTTPS exigé en release |
+| `flutter analyze` | 0 issue |
+| `flutter test` | 4 tests OK |
+
+## Récapitulatif des trois corrections
+
+1. **`main/AndroidManifest.xml`** des deux applications : `INTERNET` déclaré. C'était la cause de votre erreur — l'APK release n'avait aucun accès réseau.
+2. **`resaflutter/pubspec.yaml`** : `intl` passé de `0.20.2` figé à `^0.20.3`, exigé par le `flutter_localizations` du SDK. Sans ça `pub get` échouait.
+3. **`resaflutter` Gradle wrapper** : 8.9 → 9.1.0.
+
+Les deux applications se construisent en release et portent la permission. Une fois votre tunnel ngrok rallumé — ou l'API réellement hébergée — la connexion aboutira.
+
+Petit avertissement pour votre environnement : l'émulateur porte en ce moment l'**APK release** de `commercialflutter` (j'ai dû désinstaller la version debug pour l'installer, les signatures diffèrent). Un `flutter run` le remplacera par la version debug.
+
+
+
+
+
+
+
+
+
+
+
+Le fichier de plan est à jour. Il compte maintenant trois parties :
+
+| | |
+|---|---|
+| **Le plan d'origine** | inchangé — c'est la trace de ce qui était prévu |
+| **Ce qui a été livré** | les tableaux de fichiers (mis à jour), les six points où le plan s'est trompé, l'essai sur appareil |
+| **Deuxième passe** *(nouveau)* | les trois signalements de cet usage réel |
+
+La nouvelle section s'ouvre sur ce qu'ils ont en commun : **le mode hors ligne avait été construit par le milieu.** Le serveur savait recevoir, le téléphone savait stocker, mais entre les deux il manquait tantôt l'émetteur (la position), tantôt l'écran qui s'en sert (Mes ventes) — et, pour l'APK release, la permission qui rend toute connexion possible.
+
+Trois choses y sont écrites sans ménagement, parce qu'elles se reproduiront si on les oublie :
+
+- **La permission `INTERNET`** n'était que dans les manifestes `debug`/`profile` du gabarit Flutter. Détail qui reste : `connectivity_plus` apportait `ACCESS_NETWORK_STATE`, donc l'application pouvait *observer* le réseau sans jamais s'en *servir*.
+- **Mettre en file ne suffit pas.** Sans la correction locale de `garecouranteId`, le vendeur déclare son arrivée et l'application le croit toujours à la gare d'avant — lui refusant les trajets qu'il doit justement vendre.
+- **Le défaut de cache du départ** : `PassageService` persiste sans flusher, sa propre docstring l'annonce, et mon service l'a quand même contourné par une requête directe. Le test que j'avais écrit créait le passage à la main et ne pouvait pas le voir ; celui qui l'a remplacé rejoue le cas réel.
+
+Les compteurs du document ont été vérifiés plutôt que recopiés de mémoire : **22 tests** dans `VenteHorsLigneTest`, **24 tests** Flutter dédiés au hors ligne (187 et 45 au total). La réserve sur l'essai appareil — le processus PHP survivant qui a fait passer l'arrivée en ligne — y figure aussi.
+
+Le point ouvert restant est le même qu'avant : vérifier l'absence de doublons de `codeticket` et `codebagage` sur la base de **production** avant d'appliquer les deux migrations. Les requêtes sont dans les en-têtes des fichiers de migration.
+
+
+
+
+
+
+
+
+## Le plus grave : le plafond de remise n'était pas appliqué
+
+`plafondRemisePourcentage` est dans l'instantané depuis le premier jour. **Personne ne le lisait.** Et un commentaire que j'avais écrit justifiait l'omission :
+
+> « Le PLAFOND, lui, n'est pas appliqué ici : il est déjà appliqué par l'écran de vente, qui le lit dans l'instantané. »
+
+C'était faux. L'écran de vente ne plafonne rien — il affiche « Le montant final est calculé au serveur » et s'en remet à lui. J'avais donc écrit un commentaire qui justifiait une absence de contrôle en désignant un contrôle inexistant.
+
+En ligne, sans gravité : le serveur refuse avant qu'un billet n'existe. **Hors ligne**, le téléphone calculait la remise sans plafond, imprimait le reçu, encaissait — et la vente était refusée à la synchronisation. Le passager repartait avec un billet qui n'existerait jamais.
+
+## Les quatre autres
+
+| Règle | Serveur | Téléphone (avant) |
+|---|---|---|
+| Remise > prix | refuse | **bornait au tarif** → client à 0 F, puis refus |
+| Type de remise inconnu | refuse | **remise 0** → vendait, puis refus |
+| Bornes de tronçon illisibles | **bloque le siège** | ignorait → **siège affiché libre** |
+| Périmètre « Mes ventes » | `commercial = moi` | déduit de `aBord` (le canal) |
+
+Le dernier n'était pas un bug — les deux coïncident tant qu'un voyage n'a qu'un commercial. Mais un périmètre ne doit pas reposer sur une coïncidence : l'instantané porte maintenant `aMoi`, dit par le serveur.
+
+Un détail au passage : les refus **métier** du repli portaient `estHorsLigne: true`, alors que la docstring du drapeau dit « PAS un refus métier ». C'est lui qui décide si une vente part en file — sa signification doit rester exacte.
+
+## Les quatre règles conformes
+
+Prix, grille de poids des bagages (bornes comprises), montant forcé d'un bagage, et l'éviction au manifeste — celle-ci n'étant pas rejouée du tout : le serveur la calcule et l'embarque, un téléphone ne peut pas la refaire.
+
+## Verrouillé
+
+`test/regles_rejouees_test.dart`, 8 tests. Je les ai éprouvés en rétablissant l'ancien comportement : **4 des 5 écarts font échouer un test**, chacun le sien (le cinquième est couvert ailleurs).
+
+`phpunit` → **188 tests** · `flutter test` → **58 tests** · `flutter analyze` → 0 issue.
+
+---
+
+Ce que je retiens, et que j'ai inscrit dans le plan : **toute règle rejouée doit venir avec son refus, pas seulement son calcul.** Et quand un commentaire affirme qu'un contrôle est fait ailleurs, il faut aller le vérifier — c'est précisément ce qui a masqué le défaut du plafond pendant toute la première passe.
+
+Le fichier de plan est à jour avec cet audit.
+
+
+
+
+
+
+
+
+
+## 1 · Non, la remontée ne se faisait pas seule
+
+Il fallait le bouton, ou rouvrir le voyage. Le plus gênant : `Connectivite` annonce dans **sa propre docstring** qu'elle sert à « savoir QUAND retenter une vidange »… et personne ne l'écoutait.
+
+Corrigé avec **quatre déclencheurs**, parce qu'aucun ne suffit seul :
+
+| | |
+|---|---|
+| Ouverture de la base locale | au démarrage, la 1ʳᵉ tentative partait avant que SQLite soit prêt |
+| Changement de connectivité | le tunnel, la zone blanche, le mode avion |
+| Retour au premier plan | le vendeur rouvre son téléphone |
+| Retentative toutes les 2 min **tant que la file n'est pas vide** | l'antenne reste « connectée » sans débit, puis le débit revient |
+
+Le dernier est celui qui couvre le cas le plus fréquent en brousse : **aucun changement d'interface réseau, donc aucun événement**. Le sondage est borné — file vide, la tentative coûte une lecture SQLite et s'arrête là.
+
+## 2 · « Ma performance » — corrigé, et pas qu'elle
+
+Recette, billets, bagages, places libres viennent du serveur, qui ignore la vente. Même mécanisme que la position du car : correction locale à l'encaissement, la recette suivant le **net** et non le tarif plein. Les mêmes chiffres alimentent l'accueil et « Ma recette » — les trois écrans sont corrigés d'un coup. Vérifié : 57 150 → **65 150 FCFA**, 5 → **6 billets**, 54/60 → **53/60**.
+
+## 3 · L'état des sièges — conforme
+
+Vérifié avec six billets réels, car à Bouaké, vente vers Korhogo : **5, 11, 15, 28, 44** barrés, et le **35** libre puisqu'il descend *à* Bouaké. C'est exactement la priorité amont du serveur.
+
+## 4 · L'accueil après le retour en ligne — conforme
+
+Vérifié : l'accueil est revenu de 65 150 (corrigé localement) à 57 150 (vérité du serveur) sans que j'y touche.
+
+## 5 · Ce que la vérification a trouvé : une file bloquée pour toujours
+
+En testant le point 1, la vidange s'est bien déclenchée — et le serveur a répondu **409 « Un enregistrement avec ces informations existe déjà »**.
+
+La série « B » se déduisait de la **seule** file locale. J'avais effacé cette file entre deux essais, le compteur est reparti à B1 alors que le serveur détenait déjà B1 et B2. Mais le vrai problème est ailleurs :
+
+> Une violation de contrainte ferme l'EntityManager, annule la transaction du **lot entier** et remonte en 409 opaque. Le téléphone ne marque rien. **L'opération fautive bloque la file pour toujours** — toutes les ventes suivantes s'empilent derrière sans jamais partir.
+
+Atteignable par une simple réinstallation de l'application.
+
+- **Serveur** : le doublon est détecté **avant** l'écriture. On ne touche jamais la contrainte ; le refus reste local à l'opération, le reste du lot passe, et le motif dit quoi faire.
+- **Téléphone** : le compteur prend le plus haut de deux sources — la file locale **et** les codes « B » déjà dans l'instantané.
+
+Vérifié sur appareil : la file bloquée s'est débloquée **seule au démarrage suivant**, l'opération fautive passant en « refusée » avec son motif lisible.
+
+---
+
+`phpunit` → **189 tests** · `flutter test` → **65 tests** · `analyze` → 0 issue. Le plan est à jour.
+
+J'ai remis votre file locale à neuf : l'opération refusée venait de mon effacement manuel, pas d'un fait métier.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Brouillon
+
+Ça change tout — et ça confirme exactement la discordance que j'avais repérée. Un **admin de gare** (`ROLE_ADMIN_GARE`) est autorisé à vendre côté backend par un **bypass** (l'entité `Ticket` est gare-scoped), **sans** permission `Ticket/CREER` explicite. Or le `can()` de l'app ne reproduit **pas** ce bypass :
+
+```dart
+bool get isAdmin => roles.contains('ROLE_ADMIN') || roles.contains('ROLE_SUPER_ADMIN'); // ROLE_ADMIN_GARE absent !
+bool can(String entity, String action) {
+  if (isAdmin) return true;
+  return permissions.any(...); // → false pour un admin gare sans permission explicite
+}
+```
+
+→ backend autorise la vente, mais l'app **masque le bouton**. Je vérifie sur données réelles : comment `ROLE_ADMIN_GARE` est attribué, et l'admin-gare de test a-t-il (ou non) la permission explicite ?
+
+Un seul rôle RBAC existe, et l'utilisateur 3 (commercial des voyages 24/26/34) n'a **aucun** `user_role` → il est autorisé autrement. Je regarde `User::getRoles()` (dérivation de `ROLE_ADMIN_GARE`) et l'utilisateur 3 :
+
+`getRoles()` = colonne `roles` + `ROLE_USER`, et `/api/me` sérialise ça. Donc un admin de gare reçoit `roles: ["ROLE_ADMIN_GARE","ROLE_USER"]` mais **sans** permission `Ticket/CREER` (il compte sur le bypass) → `can()` = false → bouton masqué. Je confirme sur l'utilisateur 3 (l'admin de gare de test) :
+
+**Bug confirmé sur données réelles.** L'utilisateur 3 (`llll@gmail.com`, l'admin de gare affecté comme commercial) : `roles: ["ROLE_USER","ROLE_ADMIN_GARE"]`, `userRoles: []` (aucune permission explicite). Donc côté app : `isAdmin`=false (pas ROLE_ADMIN), permissions vides → `can('Ticket','CREER')`=false → **bouton masqué**. Alors que le backend l'autorise (bypass admin-gare sur `Ticket` gare-scoped).
+
+Le correctif : le `can()` de l'app doit **refléter le backend** (bypass admin-gare pour les entités gare-scoped). Je récupère la liste exacte et je regarde tous les usages de `can()`/`isAdmin` :
+
+**Cause racine confirmée et généralisée** : la liste backend est `['Voyage','Ticket','Reservation','Courrier','Bagage','User','Role']`, et TOUS les `can()` de l'app portent sur des entités gare-scoped (`Ticket`, `Bagage`). Donc pour un admin de gare commercial, **tout est cassé** (vendre, modifier billet, créer/modifier bagage) — un seul correctif règle tout : faire refléter le bypass admin-gare par `can()`.
+
+J'applique le correctif dans le modèle :
+
+Correctif appliqué. Je nettoie la commande de diagnostic jetable (banc d'essai) et je vérifie que le Dart compile :
+
+Corrigé et vérifié (`flutter analyze` : aucun problème). Banc d'essai nettoyé (commande de diagnostic supprimée, cache backend vidé).
+
+## Le bug — cause racine (prouvée sur données réelles)
+
+Ce n'était **pas** côté backend : le backend autorise bien la vente. C'était une **désynchronisation entre le `can()` de l'app et le `PermissionVoter` du backend**.
+
+Le backend accorde à un **`ROLE_ADMIN_GARE`** un *bypass* sur les entités **bornées par sa gare** (`Voyage, Ticket, Reservation, Courrier, Bagage, User, Role`) — **sans permission explicite**. Or l'app ne reproduisait ce bypass **que** pour `ROLE_ADMIN`/`ROLE_SUPER_ADMIN` :
+
+```dart
+bool get isAdmin => roles.contains('ROLE_ADMIN') || roles.contains('ROLE_SUPER_ADMIN'); // ROLE_ADMIN_GARE absent
+bool can(entity, action) { if (isAdmin) return true; return permissions.any(...); }
+```
+
+**Preuve** — l'admin de gare que tu as affecté (`llll@gmail.com`, id 3) : `/api/me` renvoie `roles: ["ROLE_USER","ROLE_ADMIN_GARE"]` et **`userRoles: []`** (aucune permission RBAC). Donc `can('Ticket','CREER')` → `isAdmin` faux + permissions vides → **false** → bouton masqué. Alors que `peutVendre` était bien vrai (voyage actif, car affecté, position ≠ terminus). (Le commercial « normal » noura, id 5, a une permission `Ticket/CREER` explicite → chez elle le bouton s'affichait.)
+
+## Les autres bugs (même cause) — repérés et corrigés d'un coup
+
+Le même `can()` bloquait, pour un admin de gare commercial, **tout** ce qui touche aux entités gare-scoped :
+- `voyage_detail_page` → **Vendre un billet** (le symptôme signalé) ;
+- `mes_ventes_page` → **modifier un billet**, **créer un bagage**, **modifier un bagage** ;
+- `vente_page` → **créer un bagage**.
+
+## Le correctif
+
+Dans [auth_user.dart](commercialflutter/lib/features/auth/data/models/auth_user.dart), j'ai fait **refléter le backend** par `can()` : un `ROLE_ADMIN_GARE` bypasse pour les entités bornées par sa gare (liste = miroir exact de `GareScopedEntities::ENTITIES`).
+
+```dart
+if (roles.contains('ROLE_ADMIN_GARE') && _gareScopedEntities.contains(e)) return true;
+```
+
+Un seul changement (logique métier du modèle, **pas** de code généré → pas besoin de `build_runner`) répare les 5 actions ci-dessus.
+
+## À faire pour voir l'effet
+Relance/hot-restart l'app (`flutter run`) et reconnecte-toi avec l'admin de gare : le bouton **Vendre un billet** apparaît, ainsi que les actions bagage/billet.
+
+## Points d'attention honnêtes
+- La liste des entités gare-scoped est désormais **dupliquée** (backend ↔ app). Je l'ai commentée comme « miroir exact » pour rendre la dépendance explicite : si tu modifies `GareScopedEntities::ENTITIES` côté backend, pense à mettre à jour cette liste.
+- Je n'ai **pas** touché au backend (il est correct) ni à la base. Le correctif est purement côté app.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pour construire ton application Flutter en **APK Android**, tu peux utiliser les commandes Flutter suivantes.
+
+### 1. Vérifier que le projet fonctionne
+
+Dans le dossier de ton projet :
+
+```bash
+flutter doctor
+```
+
+Puis :
+
+```bash
+flutter pub get
+```
+
+Et teste l'application :
+
+```bash
+flutter run
+```
+
+### 2. Construire un APK de production
+
+Pour générer un APK optimisé :
+
+```bash
+flutter build apk --release
+```
+
+Flutter va générer le fichier ici :
+
+```text
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+Tu peux ensuite copier cet APK sur un téléphone Android et l'installer.
+
+### 3. Si ton application utilise `API_BASE_URL`
+
+Comme tu avais lancé ton application avec :
+
+```bash
+flutter run --dart-define=API_BASE_URL=http://localhost:8000
+```
+
+il faut également fournir cette variable lors du build :
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=http://TON_SERVEUR:8000
+```
+
+⚠️ **Attention :** dans un APK installé sur un téléphone, `localhost` désigne **le téléphone lui-même**, pas ton PC.
+
+Par exemple, pour une API hébergée :
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://api.monsite.com
+```
+
+### 4. Générer un APK plus léger
+
+Tu peux générer un APK par architecture :
+
+```bash
+flutter build apk --release --split-per-abi
+```
+
+Tu obtiendras plusieurs fichiers, par exemple :
+
+```text
+app-armeabi-v7a-release.apk
+app-arm64-v8a-release.apk
+app-x86_64-release.apk
+```
+
+Pour la plupart des téléphones Android modernes, **`arm64-v8a`** est le plus important.
+
+### 5. Pour publier sur Google Play
+
+Pour Google Play, il est généralement préférable de générer un **Android App Bundle (`.aab`)** :
+
+```bash
+flutter build appbundle --release
+```
+
+Le fichier sera normalement :
+
+```text
+build/app/outputs/bundle/release/app-release.aab
+```
+
+### Pour ton application de réservation
+
+Vu que tu développes ton application Flutter de réservation qui communique avec ton backend Symfony, ton workflow de production pourrait être :
+
+```bash
+flutter clean
+flutter pub get
+
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://api.ton-domaine.com
+```
+
+Puis récupérer :
+
+```text
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+**Pour tester directement sur ton téléphone :** utilise l'APK `release`.
+**Pour publier sur Play Store :** utilise plutôt le `.aab`.
+
+Si tu veux, je peux aussi te montrer **comment configurer proprement Flutter + Symfony pour que l'URL de l'API change automatiquement entre développement, test et production**, ce qui est particulièrement important pour ton application.
+
+
+
+
+
+
+
+
+
+
+
+
+Pourquoi j'ai le warning suivant avec flutter : flutter run --dart-define=API_BASE_URL=http://localhost:8000
+Launching lib\main.dart on sdk gphone16k x86 64 in debug mode...
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/C:/Users/adamo/.gradle/wrapper/dists/gradle-9.1.0-all/7wzd0jkjit61aq2p43wpjgij9/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+
+Ce warning **ne vient pas de Flutter**, mais de **Java** (le JDK) utilisé par **Gradle** lors de la compilation de ton application Android.
+
+Le message est :
+
+```text
+WARNING: A restricted method in java.lang.System has been called
+
+java.lang.System::load has been called by
+net.rubygrapefruit.platform.internal.NativeLibraryLoader
+```
+
+## Pourquoi ce warning apparaît ?
+
+À partir des versions récentes de Java (JDK 24 et suivantes), Oracle a commencé à restreindre l'accès à certaines API natives.
+
+Gradle utilise une bibliothèque appelée :
+
+```
+net.rubygrapefruit.platform
+```
+
+qui charge des bibliothèques natives via :
+
+```java
+System.load(...)
+```
+
+Cette pratique est maintenant signalée par Java avec un warning.
+
+Il indique simplement :
+
+> "Aujourd'hui je t'autorise à le faire, mais dans une future version de Java ce sera bloqué si tu n'actives pas explicitement cette fonctionnalité."
+
+Donc :
+
+* ❌ ce n'est pas une erreur Flutter ;
+* ❌ ce n'est pas un problème dans ton code ;
+* ❌ ce n'est pas un problème avec Symfony ou ton backend.
+
+---
+
+## Est-ce grave ?
+
+Non.
+
+Si l'application se lance ensuite :
+
+```
+Launching lib/main.dart...
+Installing build...
+Syncing files...
+```
+
+alors tu peux ignorer ce warning.
+
+---
+
+## Pourquoi toi tu l'as ?
+
+Tu utilises probablement un JDK très récent.
+
+Vérifie avec :
+
+```bash
+java -version
+```
+
+Si tu vois quelque chose comme :
+
+```
+openjdk 25
+```
+
+ou
+
+```
+openjdk 24
+```
+
+alors c'est exactement l'origine du warning.
+
+---
+
+## Que recommande Flutter ?
+
+Flutter recommande actuellement d'utiliser :
+
+* JDK 21 (LTS) ✅
+
+C'est celui qui est le mieux testé avec Android Studio, Gradle et Flutter.
+
+---
+
+## Peut-on supprimer ce warning ?
+
+Oui.
+
+### Solution 1 (recommandée)
+
+Utiliser le JDK 21.
+
+Dans Android Studio :
+
+```
+Settings
+→ Build, Execution, Deployment
+→ Build Tools
+→ Gradle
+→ Gradle JDK
+```
+
+Choisir :
+
+```
+jbr-21
+```
+
+ou
+
+```
+OpenJDK 21
+```
+
+C'est la solution la plus propre.
+
+---
+
+### Solution 2
+
+Attendre une nouvelle version de Gradle.
+
+Le warning vient de :
+
+```
+net.rubygrapefruit.platform
+```
+
+Cette bibliothèque sera mise à jour pour les nouvelles versions de Java.
+
+---
+
+### Solution 3
+
+Ajouter l'option Java :
+
+```
+--enable-native-access=ALL-UNNAMED
+```
+
+Mais ce n'est généralement pas nécessaire pour un projet Flutter, et ce n'est pas la solution privilégiée.
+
+---
+
+## Mon avis pour ton projet
+
+Si ton projet Flutter est récent, je te conseille de vérifier que tu utilises :
+
+* Flutter stable récente
+* Android Gradle Plugin récent
+* Gradle Wrapper récent
+* **JDK 21**
+
+Peux-tu me montrer le résultat des commandes suivantes ?
+
+```bash
+flutter doctor -v
+```
+
+et
+
+```bash
+java -version
+```
+
+Avec ces deux sorties, je pourrai te dire si ton environnement est correctement configuré ou s'il y a un composant à mettre à jour.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Le **backup** (ou **sauvegarde**) est le principe qui consiste à **conserver une copie des données** afin de pouvoir les restaurer en cas de problème.
+
+Le mot clé est **restauration**. Une sauvegarde n'a de valeur que si elle peut être restaurée.
+
+---
+
+# Pourquoi faire des backups ?
+
+Imagine que ton application de transport est en production.
+
+Un jour :
+
+* un développeur supprime accidentellement la table `reservation` ;
+* une mise à jour contient un bug qui efface des données ;
+* le disque du serveur tombe en panne ;
+* un pirate supprime la base de données ;
+* une migration échoue et corrompt certaines données.
+
+Sans sauvegarde, tu perds tout.
+
+Avec un backup, tu peux revenir à un état précédent.
+
+---
+
+# Que sauvegarde-t-on ?
+
+## 1. La base de données
+
+C'est le plus important.
+
+Par exemple :
+
+* utilisateurs ;
+* réservations ;
+* billets ;
+* paiements ;
+* voyages.
+
+Sous PostgreSQL :
+
+```bash
+pg_dump transport > backup.sql
+```
+
+Sous MySQL :
+
+```bash
+mysqldump transport > backup.sql
+```
+
+---
+
+## 2. Les fichiers
+
+Par exemple :
+
+* les avatars ;
+* les logos des entreprises ;
+* les pièces jointes ;
+* les factures PDF ;
+* les billets PDF.
+
+Si tu sauvegardes seulement la base mais pas les fichiers, tu risques d'avoir des références vers des fichiers inexistants après une restauration.
+
+---
+
+## 3. Les configurations
+
+On sauvegarde également :
+
+* les variables d'environnement (`.env`) ;
+* les certificats SSL ;
+* les configurations du serveur ;
+* les scripts de déploiement.
+
+---
+
+# Les différents types de backups
+
+## 1. Backup complet (Full Backup)
+
+On copie tout.
+
+Exemple :
+
+```text
+Base de données entière
++
+Tous les fichiers
+```
+
+Avantages :
+
+* restauration simple ;
+* fiable.
+
+Inconvénients :
+
+* prend du temps ;
+* consomme plus d'espace disque.
+
+---
+
+## 2. Backup incrémental
+
+On sauvegarde uniquement ce qui a changé depuis la dernière sauvegarde.
+
+Exemple :
+
+Lundi :
+
+```
+100 Go
+```
+
+Mardi :
+
+```
++ 300 Mo
+```
+
+Mercredi :
+
+```
++ 150 Mo
+```
+
+Jeudi :
+
+```
++ 700 Mo
+```
+
+On ne recopie jamais les 100 Go à chaque fois.
+
+C'est beaucoup plus rapide.
+
+---
+
+## 3. Backup différentiel
+
+On sauvegarde tout ce qui a changé depuis le dernier **backup complet**.
+
+Exemple :
+
+Lundi :
+
+```
+Full Backup
+100 Go
+```
+
+Mardi :
+
+```
+500 Mo
+```
+
+Mercredi :
+
+```
+900 Mo
+```
+
+Jeudi :
+
+```
+1,2 Go
+```
+
+Chaque sauvegarde contient toutes les modifications depuis lundi.
+
+---
+
+# Fréquence des sauvegardes
+
+Cela dépend de l'application.
+
+Pour un SaaS de transport :
+
+* sauvegarde complète chaque nuit ;
+* sauvegarde incrémentale toutes les heures (ou plus fréquemment selon les besoins).
+
+Ainsi, si un problème survient à 14h30, tu ne perds qu'une petite partie des données récentes.
+
+---
+
+# Où stocker les backups ?
+
+Une erreur fréquente consiste à sauvegarder sur le même serveur que l'application.
+
+```
+Serveur
+
+Application
+Base
+Backup
+```
+
+Si le disque tombe en panne, tout disparaît.
+
+La bonne pratique est de stocker les sauvegardes sur un autre support :
+
+```
+Serveur A
+Application
+
+↓
+
+Serveur B
+Backups
+```
+
+ou dans un stockage cloud.
+
+---
+
+# La restauration (Restore)
+
+Faire un backup ne suffit pas.
+
+Il faut pouvoir restaurer.
+
+Exemple :
+
+```bash
+psql transport < backup.sql
+```
+
+ou
+
+```bash
+mysql transport < backup.sql
+```
+
+De nombreuses entreprises testent régulièrement leurs sauvegardes sur un serveur de test pour vérifier qu'elles sont réellement exploitables.
+
+---
+
+# La règle du 3-2-1
+
+C'est une bonne pratique très connue :
+
+* **3 copies** des données ;
+* sur **2 supports différents** ;
+* dont **1 copie hors site** (autre serveur ou cloud).
+
+Exemple :
+
+* les données de production ;
+* une sauvegarde sur un NAS ;
+* une sauvegarde dans un stockage cloud.
+
+Ainsi, même si un site entier est indisponible, tu conserves une copie.
+
+---
+
+# Backup ≠ Haute disponibilité
+
+Ces notions sont souvent confondues.
+
+Le **backup** sert à récupérer des données perdues.
+
+La **haute disponibilité** sert à maintenir le service en ligne lorsqu'un serveur tombe en panne.
+
+Par exemple :
+
+* si un développeur supprime accidentellement 10 000 réservations, un serveur de secours répliquera aussi cette suppression. Il faudra restaurer les données depuis une sauvegarde.
+* si un serveur tombe en panne mais que tu as un second serveur prêt à prendre le relais, les utilisateurs peuvent continuer à utiliser l'application sans interruption.
+
+Ces deux mécanismes sont complémentaires.
+
+---
+
+# Exemple concret avec ton SaaS de transport
+
+Imaginons qu'à **14h00**, une migration défectueuse supprime toutes les réservations.
+
+Tu disposes de :
+
+* une sauvegarde complète réalisée à **00h00** ;
+* des sauvegardes incrémentales effectuées toutes les heures : **01h00, 02h00, ..., 13h00**.
+
+Tu peux restaurer :
+
+1. la sauvegarde complète de **00h00** ;
+2. puis appliquer les sauvegardes incrémentales jusqu'à **13h00**.
+
+Tu récupères ainsi presque toutes les données. Les seules informations potentiellement perdues sont celles créées entre **13h00** et **14h00**, sauf si tu disposes d'une fréquence de sauvegarde encore plus élevée ou d'autres mécanismes comme les journaux de transactions.
+
+En résumé, les sauvegardes sont une composante essentielle de l'exploitation d'une application en production. Elles protègent contre les erreurs humaines, les bugs, les pannes matérielles et les incidents de sécurité, et elles doivent toujours être pensées avec leur stratégie de restauration, leur fréquence, leur emplacement de stockage et des tests réguliers de récupération.
+
+
+
+
+
+
+
+
+
+Le **backfill** est un principe qui consiste à **remplir des données manquantes après coup**. En d'autres termes, on exécute un traitement qui met à jour des données déjà présentes dans la base pour les rendre compatibles avec une nouvelle fonctionnalité ou une nouvelle règle métier.
+
+### Exemple simple
+
+Imaginons que tu aies une table `voyage` :
+
+| id | destination  | distance |
+| -- | ------------ | -------- |
+| 1  | Yamoussoukro | 240      |
+| 2  | Bouaké       | 350      |
+
+Quelques mois plus tard, tu ajoutes une nouvelle colonne :
+
+```sql
+temps_estime
+```
+
+Les nouveaux voyages auront cette valeur, mais les anciens auront `NULL`.
+
+Un **backfill** consiste à parcourir tous les anciens voyages et calculer :
+
+```text
+temps_estime = distance / vitesse_moyenne
+```
+
+À la fin :
+
+| id | destination  | distance | temps_estime |
+| -- | ------------ | -------- | ------------ |
+| 1  | Yamoussoukro | 240      | 3h30         |
+| 2  | Bouaké       | 350      | 5h           |
+
+---
+
+## Pourquoi fait-on un backfill ?
+
+Principalement pour :
+
+* remplir une nouvelle colonne ;
+* recalculer une donnée devenue obsolète ;
+* corriger des données existantes ;
+* migrer d'un ancien format vers un nouveau.
+
+---
+
+## Dans Symfony
+
+On crée souvent une **commande Console** :
+
+```bash
+php bin/console app:backfill:temps-voyages
+```
+
+Cette commande :
+
+1. récupère tous les voyages ;
+2. calcule `temps_estime` ;
+3. sauvegarde les modifications.
+
+---
+
+## Exemple dans ton projet de transport
+
+Imaginons que tu ajoutes un champ :
+
+```php
+Reservation::canalVente
+```
+
+Avant, il n'existait pas.
+
+Tu veux que :
+
+* les réservations créées par l'application → `APPLICATION`
+* les réservations faites au guichet → `GUICHET`
+
+Toutes les anciennes réservations ont `NULL`.
+
+Tu lances alors un backfill qui analyse les anciennes données et remplit automatiquement ce champ.
+
+---
+
+## Différence avec une migration Doctrine
+
+Une **migration** modifie la structure de la base :
+
+```sql
+ALTER TABLE reservation
+ADD canal_vente VARCHAR(20);
+```
+
+Le **backfill** modifie les **données** :
+
+```text
+Réservation 1 → APPLICATION
+Réservation 2 → GUICHET
+Réservation 3 → APPLICATION
+...
+```
+
+On fait souvent les deux dans cet ordre :
+
+1. Migration → ajout de la colonne.
+2. Déploiement de la nouvelle version de l'application.
+3. Backfill → remplissage des anciennes données.
+4. (Éventuellement) rendre la colonne obligatoire (`NOT NULL`) une fois toutes les données complétées.
+
+---
+
+## Pourquoi est-ce important dans une application en production ?
+
+Sur une application utilisée par des clients, il peut y avoir des millions d'enregistrements. Si tu rends directement une nouvelle colonne obligatoire sans backfill, l'application risque de planter sur les anciennes données. Le backfill permet de faire évoluer la base progressivement, sans interrompre le service.
+
+Pour une application comme ton SaaS de transport, le backfill est particulièrement utile lorsque tu ajoutes de nouveaux champs (par exemple un nouveau statut, un indicateur métier ou un canal de vente) et que tu souhaites que toutes les anciennes données soient cohérentes avec les nouvelles règles métier.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 2. La PWA — un bug bloquant, corrigé
+
+**Ce qui n'allait pas** : `href="./manifest.json"` et `register("./sw.js")` sont résolus **par rapport à l'URL de la page**. Sur `/voyages/12/modifier`, le navigateur allait chercher `/voyages/12/manifest.json` → 404. L'application n'était installable que depuis l'accueil. Pire pour le service worker, dont l'URL fixe le **périmètre**.
+
+Et le bloc n'était que dans `base.html.twig`, alors que **la page de connexion étend `app-base.html.twig`** — donc la toute première page vue, celle où l'installation se propose naturellement, n'avait rien.
+
+**Corrigé** : un partiel unique [pwa.html.twig](Frontend-Transport/templates/partials/pwa.html.twig) inclus dans les deux gabarits, chemins absolus (`asset()` pour le manifeste, `app.request.basePath` pour le worker — qui doit venir de la même origine), `scope` explicite et `.catch` sur l'enregistrement. Manifeste complété : `short_name`, `scope`, `id`, `lang`, `description`, `display: standalone`, `theme_color: #f59e0b` (ta couleur `--primary`), `background_color`, plus les métas `theme-color` et `apple-touch-icon` — iOS ignore le manifeste. Le `sw.js` vide est conservé, c'est le bon choix, mais je l'ai commenté pour que la « triche » soit assumée et non prise pour un oubli.
+
+**Vérifié pour de vrai** : les balises sortent bien en `/manifest.json` et `/sw.js` sur `/connexion`, le manifeste se parse, les icônes font bien 192×192 et 512×512, le `.htaccess` sert les fichiers statiques sans passer par Symfony.
+
+**Trois réserves, honnêtement** :
+- Je **n'ai pas pu vérifier l'enregistrement du service worker** : le navigateur intégré à cette session refuse toute inscription, même avec un fichier servi en `text/javascript` sur une page sécurisée. À valider dans Chrome (onglet Application → Manifest).
+- En dev derrière `php -S ... public/index.php`, le worker est servi en `text/html` et le navigateur **refuse** de l'enregistrer. Sous Apache c'est un fichier statique, donc sans effet en production — mais teste l'installation sur la vraie pile.
+- **Les icônes sont des images de démonstration** (une mascotte de raton laveur), pas la marque iTransport. Et il manque une variante `purpose: "maskable"` avec marges de sécurité, sans quoi Android encadre l'icône dans un rond blanc. Je n'ai pas déclaré `maskable` sur les images actuelles : ça les rognerait.
+
+## 3. Notes de cap
+
+Noté et mémorisé : `iTransport-feuille-de-route.html` et `iTransport-trouver-la-demande.html` sont dans `Backend-Transport/tools/`, avec les photos de référence qui les ont suivies. Je les consulterai avant de proposer une suite de chantiers.
+
+## 4. Récap par destination sur le bordereau
+
+Sur le PDF, la liste nominative des passagers étant masquée, ce récap devient le détail de la vente — je l'ai donc mis en section pleine, juste avant le cargo :
+
+```
+Abidjan → Bouaké    2
+Abidjan → Korhogo   3
+Total des billets émis depuis Abidjan   5
+```
+
+Même récap en puces sur la page web, dans le panneau « voir le détail avant impression » : ce volet ne doit rien réserver au papier.
+
+Deux décisions à connaître : la descente **vendue** et non la réelle (le bordereau constate ce qui a été encaissé), et un tri par **ordre des arrêts** et non par nombre — c'est l'ordre dans lequel le car s'arrête, donc celui dans lequel on appelle les passagers. 3 tests dans [BordereauGareTest.php](Backend-Transport/tests/Api/BordereauGareTest.php), dont un qui vérifie que la ventilation retombe toujours sur le total affiché en tête du document.
+
+---
+
+**197 tests backend** et **29 tests frontend** passent, le build webpack compile, tous les Twig sont valides. Les README des deux dépôts sont à jour.

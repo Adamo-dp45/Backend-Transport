@@ -102,6 +102,14 @@ class SiegeStateProvider implements ProviderInterface
         $ventesParSiege = [];
         $evincesParSiege = [];
         $evincesTickets = $voyage !== null ? $this->capaciteService->billetsEvinces($voyage, $entrepriseId) : [];
+        /*
+            Billets d'une gare AVAL qui seraient évincés si l'on vendait ce siège sur le tronçon
+            demandé (cf. Siege::$venduAval). On retient le plus AMONT — celui qui monterait le
+            premier — pour le nommer, et on compte les autres.
+
+            @var array<int, array{ordre:int, ticket:\App\Entity\Ticket, nombre:int}>
+        */
+        $avalParSiege = [];
         foreach ($tickets as $ticket) {
             if (!$ticket->getSiege()) {
                 continue;
@@ -133,7 +141,9 @@ class SiegeStateProvider implements ProviderInterface
             /*
                 PRIORITÉ ABSOLUE À LA GARE AMONT : le siège n'est occupé, pour qui embarque à
                 $ordreMontee, que si un passager y est DÉJÀ assis à ce moment (embarqué avant ou à ce
-                point, et descend après). Une vente d'une gare en AVAL ne grise rien.
+                point, et descend après). Une vente d'une gare en AVAL ne grise rien — mais elle est
+                désormais SIGNALÉE ('venduAval', plus bas) : la règle ne bouge pas, l'agent est juste
+                prévenu qu'il évincerait quelqu'un en prenant ce siège plutôt qu'un autre.
 
                 Conséquence ASSUMÉE : un siège vendu Bouaké → Korhogo peut être revendu Abidjan →
                 Korhogo, donc porter deux passagers sur le tronçon commun. C'est la règle
@@ -146,6 +156,37 @@ class SiegeStateProvider implements ProviderInterface
             if ($tm <= $ordreMontee && $td > $ordreMontee) {
                 $siegesOccupes[$siegeId] = $ticket;
                 $nbOccupants[$siegeId] = ($nbOccupants[$siegeId] ?? 0) + 1;
+                continue;
+            }
+
+            /*
+                VENDU EN AVAL — le billet ne grise rien (il monte APRÈS l'acheteur, la priorité amont
+                joue), mais sa montée tombe DANS le tronçon vendu : prendre ce siège l'évincerait.
+
+                LES DEUX BORNES SONT INDISPENSABLES, et oublier la première a produit un faux positif
+                qui décrédibilisait tout le repère :
+
+                  * $tm > $ordreMontee — le billet monte APRÈS l'acheteur. Ne pas sortir de ce
+                    contrôle du fait qu'on a échappé au test d'occupation ci-dessus : on y échappe
+                    AUSSI quand le passager est monté AVANT et a DÉJÀ DESCENDU ($td <= $ordreMontee).
+                    Un Abidjan → Bouaké signalait alors le siège sur le plan de Bouaké, alors que son
+                    occupant vient précisément d'en descendre — le siège y est libre, sans personne à
+                    évincer ;
+                  * $tm < $ordreDescente — sa montée tombe AVANT la descente de l'acheteur. Au-delà,
+                    le passager monte là où l'acheteur descend : c'est une REVENTE, le bon cas, et
+                    surtout pas une alerte.
+
+                Un billet DÉJÀ évincé est ignoré : son sort ne dépend pas de la vente en cours, et le
+                siège porte déjà la pastille 'conflit'. Crier deux fois au loup pour la même place
+                ferait douter des alertes qui, elles, sont évitables.
+            */
+            if ($tm > $ordreMontee && $tm < $ordreDescente && !isset($evincesTickets[$ticket->getId()])) {
+                $courant = $avalParSiege[$siegeId] ?? null;
+                $avalParSiege[$siegeId] = [
+                    'ordre' => $courant === null ? $tm : min($courant['ordre'], $tm),
+                    'ticket' => ($courant === null || $tm < $courant['ordre']) ? $ticket : $courant['ticket'],
+                    'nombre' => ($courant['nombre'] ?? 0) + 1,
+                ];
             }
         }
 
@@ -159,6 +200,18 @@ class SiegeStateProvider implements ProviderInterface
             */
             $siege->setRevendu($plusieursBillets && !$enConflit);
             $siege->setConflit($enConflit);
+
+            // AVERTISSEMENT (jamais un blocage) : le siège reste vendable, mais une gare aval l'a
+            // déjà vendu et son passager sauterait. Posé avant le statut : il vaut pour un siège
+            // LIBRE, c'est tout l'intérêt — on prévient AVANT que l'agent ne clique.
+            $aval = $avalParSiege[$siege->getId()] ?? null;
+            if ($aval !== null) {
+                $siege->setVenduAval(true);
+                $siege->setAvalNom($aval['ticket']->getNomclient());
+                $siege->setAvalMontee($aval['ticket']->getGare()?->getLibelle());
+                $siege->setAvalDescente($aval['ticket']->getGaredescente()?->getLibelle());
+                $siege->setAvalNombre($aval['nombre']);
+            }
 
             $bloquant = $siegesOccupes[$siege->getId()] ?? null;
             if ($bloquant === null) {

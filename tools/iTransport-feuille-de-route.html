@@ -1,0 +1,1061 @@
+<title>Cap iTransport</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Barlow+Semi+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+
+<style>
+  :root {
+    --papier:      #F2F5F7;
+    --surface:     #FFFFFF;
+    --surface-2:   #FAFBFC;
+    --encre:       #131A24;
+    --gris:        #55616E;
+    --gris-clair:  #7C8794;
+    --trait:       #DCE3E9;
+    --trait-fort:  #C3CDD6;
+    --signal:      #12557E;
+    --signal-doux: #E6EFF5;
+
+    --critique:    #A32319;
+    --haute:       #9C5B12;
+    --moyenne:     #12557E;
+    --faible:      #6B7480;
+    --critique-fond: #FBEAE8;
+    --haute-fond:    #FBF0E2;
+    --moyenne-fond:  #E6EFF5;
+    --faible-fond:   #ECEFF2;
+
+    --ombre: 0 1px 2px rgba(19, 26, 36, .05), 0 1px 8px rgba(19, 26, 36, .04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papier:      #0E141A;
+      --surface:     #171F28;
+      --surface-2:   #1C252F;
+      --encre:       #E4EAF0;
+      --gris:        #9CA8B4;
+      --gris-clair:  #7A8794;
+      --trait:       #2A3541;
+      --trait-fort:  #3C4855;
+      --signal:      #63A9D6;
+      --signal-doux: #16303F;
+
+      --critique:    #E88178;
+      --haute:       #D9A05B;
+      --moyenne:     #63A9D6;
+      --faible:      #96A1AD;
+      --critique-fond: #2E1A18;
+      --haute-fond:    #2C2418;
+      --moyenne-fond:  #16303F;
+      --faible-fond:   #212A34;
+
+      --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 8px rgba(0, 0, 0, .2);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --papier:      #0E141A;
+    --surface:     #171F28;
+    --surface-2:   #1C252F;
+    --encre:       #E4EAF0;
+    --gris:        #9CA8B4;
+    --gris-clair:  #7A8794;
+    --trait:       #2A3541;
+    --trait-fort:  #3C4855;
+    --signal:      #63A9D6;
+    --signal-doux: #16303F;
+
+    --critique:    #E88178;
+    --haute:       #D9A05B;
+    --moyenne:     #63A9D6;
+    --faible:      #96A1AD;
+    --critique-fond: #2E1A18;
+    --haute-fond:    #2C2418;
+    --moyenne-fond:  #16303F;
+    --faible-fond:   #212A34;
+
+    --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 8px rgba(0, 0, 0, .2);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--papier);
+    color: var(--encre);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1rem, 4vw, 2.5rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.5rem;
+  }
+
+  /* ─── En-tête ─── */
+  .tete { display: flex; flex-direction: column; gap: .9rem; }
+  .surtitre {
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-weight: 600;
+    font-size: .82rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+  h1 {
+    font-family: Barlow, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.1rem, 5.5vw, 3.1rem);
+    line-height: 1.06;
+    letter-spacing: -.022em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .chapo {
+    margin: 0;
+    max-width: 60ch;
+    font-size: 1.06rem;
+    color: var(--gris);
+  }
+
+  /* ─── Constats ─── */
+  .constats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    background: var(--trait);
+    border: 1px solid var(--trait);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .constat { background: var(--surface); padding: 1.05rem 1.15rem; display: flex; flex-direction: column; gap: .3rem; }
+  .constat b {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 500;
+    font-size: 1.45rem;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .constat span { font-size: .855rem; color: var(--gris); line-height: 1.42; }
+  .constat.manque b { color: var(--critique); }
+  .constat.acquis b { color: var(--signal); }
+
+  h2 {
+    font-family: Barlow, sans-serif;
+    font-weight: 700;
+    font-size: 1.02rem;
+    letter-spacing: .075em;
+    text-transform: uppercase;
+    margin: 0;
+    padding-bottom: .7rem;
+    border-bottom: 2px solid var(--encre);
+  }
+  .bloc { display: flex; flex-direction: column; gap: 1.6rem; }
+  .bloc > p.intro { margin: 0; max-width: 62ch; color: var(--gris); }
+
+  /* ─── Synthèse ─── */
+  .cadre-table { overflow-x: auto; border: 1px solid var(--trait); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 34rem; }
+  thead th {
+    text-align: left;
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--gris);
+    padding: .7rem .9rem;
+    border-bottom: 1px solid var(--trait-fort);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody td { padding: .62rem .9rem; border-bottom: 1px solid var(--trait); vertical-align: baseline; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.ref {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .82rem;
+    color: var(--gris-clair);
+    white-space: nowrap;
+  }
+  td.nom { font-weight: 500; }
+  td a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--trait-fort); }
+  td a:hover { border-bottom-color: var(--signal); color: var(--signal); }
+  td a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  /* ─── Pastille de priorité ─── */
+  .prio {
+    display: inline-block;
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-weight: 600;
+    font-size: .72rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: .16rem .5rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .prio.c { color: var(--critique); background: var(--critique-fond); }
+  .prio.h { color: var(--haute);    background: var(--haute-fond); }
+  .prio.m { color: var(--moyenne);  background: var(--moyenne-fond); }
+  .prio.f { color: var(--faible);   background: var(--faible-fond); }
+
+  /* ─── Fiches ─── */
+  .fiche {
+    background: var(--surface);
+    border: 1px solid var(--trait);
+    border-left: 3px solid var(--trait-fort);
+    border-radius: 3px;
+    box-shadow: var(--ombre);
+    padding: 1.35rem 1.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    scroll-margin-top: 1.5rem;
+  }
+  .fiche.c { border-left-color: var(--critique); }
+  .fiche.h { border-left-color: var(--haute); }
+  .fiche.m { border-left-color: var(--moyenne); }
+  .fiche.f { border-left-color: var(--faible); }
+
+  .fiche-tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem .8rem; }
+  .fiche-ref {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .82rem;
+    color: var(--gris-clair);
+  }
+  .fiche h3 {
+    font-family: Barlow, sans-serif;
+    font-weight: 600;
+    font-size: 1.28rem;
+    letter-spacing: -.012em;
+    margin: 0;
+    flex: 1 1 16rem;
+    text-wrap: balance;
+  }
+
+  dl { margin: 0; display: grid; gap: .1rem; }
+  @media (min-width: 48rem) {
+    dl { grid-template-columns: 8.5rem 1fr; gap: .55rem 1.4rem; }
+  }
+  dt {
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--gris);
+    padding-top: .22rem;
+  }
+  dd { margin: 0 0 .7rem; }
+  @media (min-width: 48rem) { dd { margin-bottom: 0; } }
+  dd p { margin: 0 0 .5rem; }
+  dd p:last-child { margin-bottom: 0; }
+
+  .mods { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .mod {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .77rem;
+    padding: .1rem .42rem;
+    border: 1px solid var(--trait-fort);
+    border-radius: 2px;
+    color: var(--gris);
+    white-space: nowrap;
+  }
+
+  code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .855em;
+    background: var(--surface-2);
+    border: 1px solid var(--trait);
+    border-radius: 2px;
+    padding: .05em .3em;
+  }
+  strong { font-weight: 600; }
+  em { color: var(--gris); }
+
+  .note {
+    border-left: 2px solid var(--trait-fort);
+    padding-left: .95rem;
+    color: var(--gris);
+    font-size: .93rem;
+  }
+  .note strong { color: var(--encre); }
+
+  footer {
+    border-top: 1px solid var(--trait);
+    padding-top: 1.5rem;
+    color: var(--gris);
+    font-size: .9rem;
+    max-width: 62ch;
+  }
+
+  /* ─── Impression / export PDF ─── */
+  @page { margin: 16mm 13mm; }
+
+  @media print {
+    :root,
+    :root[data-theme="dark"],
+    :root:not([data-theme="light"]) {
+      --papier: #FFFFFF;  --surface: #FFFFFF;  --surface-2: #FAFBFC;
+      --encre: #111820;   --gris: #4A5561;     --gris-clair: #6B7581;
+      --trait: #D5DCE3;   --trait-fort: #B6C0CA;
+      --signal: #0E4A6E;  --signal-doux: #EAF1F6;
+      --critique: #8E1D14; --haute: #855012;   --moyenne: #0E4A6E; --faible: #5C656F;
+      --critique-fond: #F8E7E5; --haute-fond: #F8EFE1; --moyenne-fond: #EAF1F6; --faible-fond: #EFF1F3;
+      --ombre: none;
+    }
+
+    body { font-size: 10.5pt; line-height: 1.5; }
+    .page { max-width: none; padding: 0; gap: 1.6rem; }
+
+    /* Les aplats de priorite portent l'information : on les conserve a l'impression. */
+    .prio, .constat.manque b, .constat.acquis b, .fiche { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+    .fiche { box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+    .constat, .cadre-table { break-inside: avoid; page-break-inside: avoid; }
+    h1 { font-size: 24pt; }
+    h2 { break-after: avoid; page-break-after: avoid; }
+    .fiche h3 { break-after: avoid; page-break-after: avoid; }
+
+    /* Les ancres internes n'ont pas de sens sur papier. */
+    td a { border-bottom: 0; color: inherit; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="tete">
+    <div class="surtitre">iTransport · analyse de l'existant</div>
+    <h1>Ce qui manque, et dans quel ordre le construire</h1>
+    <p class="chapo">
+      Dix-neuf propositions tirées d'une lecture du code, pas d'un catalogue de bonnes pratiques.
+      Chacune répond à un manque que j'ai vérifié dans l'application telle qu'elle est aujourd'hui.
+    </p>
+  </header>
+
+  <section class="bloc">
+    <h2>Ce que j'ai vérifié</h2>
+    <p class="intro">
+      L'application est mûre : 51 entités, 30 services de domaine, 14 tableaux de statistiques, un
+      centre d'alertes réconcilié par balayeur idempotent, un périmètre de sécurité à trois couches.
+      Les propositions qui suivent ne comblent donc pas des trous de débutant — elles visent les
+      angles morts d'une application déjà complète.
+    </p>
+    <div class="constats">
+      <div class="constat manque">
+        <b>0</b>
+        <span>Aucune clôture de caisse. La recette est calculée, jamais rapprochée de l'espèce remise.</span>
+      </div>
+      <div class="constat manque">
+        <b>0</b>
+        <span>Aucun envoi asynchrone. Un SMTP lent bloque le geste de l'agent.</span>
+      </div>
+      <div class="constat manque">
+        <b>0</b>
+        <span>Aucun SMS. Le seul canal client sortant est l'e-mail.</span>
+      </div>
+      <div class="constat manque">
+        <b>13</b>
+        <span>Lignes utiles dans la recherche globale : elle place le curseur, elle ne cherche rien.</span>
+      </div>
+      <div class="constat manque">
+        <b>50</b>
+        <span>Appels à <code>confirm()</code> natif pour des gestes qui engagent la caisse.</span>
+      </div>
+      <div class="constat acquis">
+        <b>3</b>
+        <span>Commandes planifiables, avec un cron par URL déjà prévu pour les hébergements sans shell.</span>
+      </div>
+    </div>
+    <p class="note">
+      <strong>Ce qui est déjà en place et que je ne propose donc pas :</strong> limitation des
+      tentatives de connexion (4 / 15 min), limite de débit sur la réservation publique, corbeille
+      avec restauration, journal d'activité, recalage des durées de tronçon, réaffectation des sièges
+      au changement de car, mode maintenance. Le paiement Mobile Money reste simulé en attendant
+      l'agrégateur — hors périmètre ici.
+    </p>
+  </section>
+
+  <section class="bloc">
+    <h2>Synthèse</h2>
+    <div class="cadre-table">
+      <table>
+        <thead>
+          <tr><th>Réf</th><th>Proposition</th><th>Priorité</th><th>Nature</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="ref">A1</td><td class="nom"><a href="#a1">Clôture de caisse quotidienne</a></td><td><span class="prio c">Critique</span></td><td>Existant</td></tr>
+          <tr><td class="ref">D1</td><td class="nom"><a href="#d1">Limite de débit sur la réinitialisation</a></td><td><span class="prio h">Haute</span></td><td>Sécurité</td></tr>
+          <tr><td class="ref">B2</td><td class="nom"><a href="#b2">Contrôle d'embarquement par QR</a></td><td><span class="prio h">Haute</span></td><td>Nouveau</td></tr>
+          <tr><td class="ref">C1</td><td class="nom"><a href="#c1">Recherche globale opérationnelle</a></td><td><span class="prio h">Haute</span></td><td>UX</td></tr>
+          <tr><td class="ref">A2</td><td class="nom"><a href="#a2">Report de masse d'un départ annulé</a></td><td><span class="prio h">Haute</span></td><td>Existant</td></tr>
+          <tr><td class="ref">B1</td><td class="nom"><a href="#b1">Notifications SMS au client</a></td><td><span class="prio h">Haute</span></td><td>Nouveau</td></tr>
+          <tr><td class="ref">A3</td><td class="nom"><a href="#a3">Envois d'e-mails asynchrones</a></td><td><span class="prio h">Haute</span></td><td>Existant</td></tr>
+          <tr><td class="ref">B3</td><td class="nom"><a href="#b3">Vente en mode dégradé</a></td><td><span class="prio h">Haute</span></td><td>Nouveau</td></tr>
+          <tr><td class="ref">A5</td><td class="nom"><a href="#a5">Export comptable des recettes</a></td><td><span class="prio m">Moyenne</span></td><td>Existant</td></tr>
+          <tr><td class="ref">B4</td><td class="nom"><a href="#b4">Réclamations et indemnisations</a></td><td><span class="prio m">Moyenne</span></td><td>Nouveau</td></tr>
+          <tr><td class="ref">C2</td><td class="nom"><a href="#c2">Confirmations qui montrent l'enjeu</a></td><td><span class="prio m">Moyenne</span></td><td>UX</td></tr>
+          <tr><td class="ref">A4</td><td class="nom"><a href="#a4">Journal d'activité : index et archivage</a></td><td><span class="prio m">Moyenne</span></td><td>Existant</td></tr>
+          <tr><td class="ref">D2</td><td class="nom"><a href="#d2">Purge des jetons et alertes résolues</a></td><td><span class="prio m">Moyenne</span></td><td>Technique</td></tr>
+          <tr><td class="ref">C3</td><td class="nom"><a href="#c3">Vente au clavier</a></td><td><span class="prio m">Moyenne</span></td><td>UX</td></tr>
+          <tr><td class="ref">D3</td><td class="nom"><a href="#d3">Mesure du coût des listings</a></td><td><span class="prio m">Moyenne</span></td><td>Technique</td></tr>
+          <tr><td class="ref">B5</td><td class="nom"><a href="#b5">Suivi GPS du véhicule</a></td><td><span class="prio m">Moyenne</span></td><td>Nouveau</td></tr>
+          <tr><td class="ref">E1</td><td class="nom"><a href="#e1">Tarification dynamique</a></td><td><span class="prio f">Faible</span></td><td>Long terme</td></tr>
+          <tr><td class="ref">E2</td><td class="nom"><a href="#e2">Liaisons internationales</a></td><td><span class="prio f">Faible</span></td><td>Long terme</td></tr>
+          <tr><td class="ref">E3</td><td class="nom"><a href="#e3">Portail transporteur partenaire</a></td><td><span class="prio f">Faible</span></td><td>Long terme</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════ A ══════════════ -->
+  <section class="bloc">
+    <h2>A · Améliorations de l'existant</h2>
+
+    <article class="fiche c" id="a1">
+      <div class="fiche-tete">
+        <span class="fiche-ref">A1</span>
+        <h3>Clôture de caisse quotidienne par agent</h3>
+        <span class="prio c">Critique</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>
+          <p>L'application sait, au franc près, ce qu'un guichet <em>aurait dû</em> encaisser :
+          <code>RecetteGareService</code> croise recette par gare et par agent, et le bordereau
+          l'imprime. Mais rien ne rapproche ce chiffre de l'<strong>argent réellement remis</strong>.
+          Aucune table, aucune entité, aucun écran ne porte cette notion.</p>
+          <p>Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus
+          coûteux de l'application : un écart de caisse ne se détecte aujourd'hui que par un
+          recoupement manuel, a posteriori, et sans preuve opposable à l'agent.</p>
+        </dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>
+          <p>Une <strong>session de caisse</strong> ouverte à la prise de poste, fermée à la fin.
+          À la clôture, l'agent saisit le montant compté ; l'application affiche en regard le théorique
+          — billets, bagages, courriers, encaissements de réservations, moins les remboursements — et
+          enregistre l'<strong>écart</strong>, avec un motif obligatoire au-delà d'un seuil réglé par
+          la compagnie. Le chef de gare vise. Rien ne se modifie après le visa.</p>
+          <p>La passation entre deux tours de service ferme la première session et ouvre la suivante,
+          de sorte qu'un billet appartient toujours à exactement une caisse.</p>
+        </dd>
+
+        <dt>Valeur</dt>
+        <dd>Transforme un chiffre indicatif en <strong>pièce comptable</strong>. Rend l'écart visible
+        le jour même plutôt qu'en fin de mois, et donne au chef de gare un objet à contrôler plutôt
+        qu'un soupçon à formuler.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Billetterie</span><span class="mod">Courrier</span><span class="mod">Bagage</span><span class="mod">Statistiques</span><span class="mod">Administration</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Nouvelle entité et sa migration. Rattachement d'une session à chaque écriture encaissée —
+        le point délicat, car il faut décider du sort des ventes faites hors session ouverte. S'appuie
+        sur le journal d'activité pour la traçabilité du visa, et sur une permission dédiée
+        (<code>CLOTURER</code>) dans la lignée de la séparation déjà faite.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche h" id="a2">
+      <div class="fiche-tete">
+        <span class="fiche-ref">A2</span>
+        <h3>Report de masse d'un départ annulé</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Quand un car casse et qu'aucun véhicule de remplacement n'est disponible, il faut
+        déplacer tous les passagers sur un autre départ. Aujourd'hui, cela se fait
+        <strong>billet par billet</strong>, par un désistement en mode report — quarante gestes
+        manuels pendant que quarante clients attendent au guichet.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Depuis la fiche du voyage, choisir un départ d'accueil sur la même ligne. L'application
+        propose une projection : qui rentre, qui ne rentre pas faute de place ou de tronçon
+        compatible, et quels sièges sont attribués. L'agent valide, et chaque billet est reporté avec
+        le chaînage habituel — <strong>sans pénalité</strong>, la cause étant imputable à la
+        compagnie, comme l'exonération déjà prévue pour les départs replanifiés.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Ramène un incident d'exploitation d'une demi-heure de manipulations à une décision unique,
+        traçable, et cohérente avec les règles de report existantes.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Exploitation</span><span class="mod">Billetterie</span><span class="mod">Flotte</span><span class="mod">Bagage</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Réutilise <code>DesistementProcessor</code> et <code>CapaciteService</code>. Le point à
+        traiter avec soin : l'opération doit être <strong>atomique et rejouable</strong> — un report
+        partiellement appliqué laisserait le manifeste dans un état incohérent. Les bagages rattachés
+        suivent leur billet.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche h" id="a3">
+      <div class="fiche-tete">
+        <span class="fiche-ref">A3</span>
+        <h3>Envois d'e-mails asynchrones</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Aucun transport Messenger n'est configuré : <code>MailerService::send()</code> appelle le
+        mailer <strong>dans la requête</strong>. Un SMTP lent ou injoignable fait attendre l'agent, et
+        au pire fait échouer le geste qui déclenche l'envoi. C'est le même défaut de conception que
+        celui corrigé sur le journal d'activité — un service accessoire qui décide du sort du geste
+        principal.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Activer le transport asynchrone de Symfony Messenger et router les messages de courriel
+        vers une file. Un <em>worker</em> les consomme ; les échecs partent dans une file de reprise
+        plutôt que de remonter à l'utilisateur.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Le guichet cesse de dépendre de la disponibilité du serveur de messagerie. Prépare
+        également le terrain pour l'envoi de SMS (B1), qui aura le même besoin.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Notifications</span><span class="mod">Utilisateurs</span><span class="mod">Billetterie</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Nécessite un processus <em>worker</em> supervisé sur l'hébergement — la contrainte réelle,
+        pas la configuration. Sur un hébergement mutualisé sans démon, le repli est une file en base
+        vidée par le cron par URL déjà en place.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="a4">
+      <div class="fiche-tete">
+        <span class="fiche-ref">A4</span>
+        <h3>Journal d'activité : index et archivage</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>La table <code>activite</code> ne porte que trois index, dont aucun sur le couple
+        <code>(identreprise, created_at)</code> — exactement le filtre et le tri de l'écran du journal.
+        C'est indolore aujourd'hui, mais cette table grossit à chaque vente, chaque annulation, chaque
+        mouvement de stock, et ne décroît jamais.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Ajouter l'index composite, puis définir une politique de rétention : au-delà d'une durée
+        réglée par la compagnie, les lignes partent dans une table d'archive interrogeable mais hors
+        du chemin chaud. Purge portée par une commande, planifiable comme les deux autres.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Évite une dégradation lente et difficile à diagnostiquer — le genre de problème qui
+        n'apparaît qu'après un an d'exploitation, quand il est coûteux à corriger.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Journal</span><span class="mod">Système</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Une migration pour l'index, sans risque. L'archivage demande de trancher une question
+        métier : combien de temps l'audit doit-il rester consultable en ligne.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="a5">
+      <div class="fiche-tete">
+        <span class="fiche-ref">A5</span>
+        <h3>Export comptable des recettes</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Les quatorze écrans de statistiques exportent en Excel et en PDF — des documents de
+        pilotage, faits pour être lus. Le comptable, lui, a besoin d'un <strong>journal de
+        recettes</strong> ligne à ligne, par période et par gare, dans un format qu'il puisse
+        reprendre. Cette sortie n'existe pas.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Un export dédié, par période, produisant une ligne par pièce (billet, courrier, bagage,
+        encaissement, remboursement) avec sa date, sa gare, son agent, son montant et sa référence.
+        Format et colonnes calés sur ce que réclame le cabinet comptable.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Supprime une ressaisie mensuelle et les erreurs qu'elle entraîne. Prend toute sa valeur
+        une fois A1 en place : chaque ligne devient rattachable à une caisse close.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Statistiques</span><span class="mod">Billetterie</span><span class="mod">Courrier</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Aucune dépendance technique lourde. La difficulté est de <strong>spécifier le format
+        attendu</strong> avant de coder — un export comptable mal cadré est un export à refaire.</dd>
+      </dl>
+    </article>
+  </section>
+
+  <!-- ══════════════ B ══════════════ -->
+  <section class="bloc">
+    <h2>B · Nouvelles fonctionnalités</h2>
+
+    <article class="fiche h" id="b1">
+      <div class="fiche-tete">
+        <span class="fiche-ref">B1</span>
+        <h3>Notifications SMS au client</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Le seul canal sortant est l'e-mail. Or le client type d'une compagnie ivoirienne donne un
+        <strong>numéro de téléphone</strong>, pas une adresse — c'est d'ailleurs le téléphone qui sert
+        de clé d'identité dans <code>ClientResolver</code> et de support à la carte de fidélité. Le
+        canal existe dans les données, pas dans l'application.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Trois messages, pas davantage : confirmation à l'émission du billet, avis de retard quand
+        le départ glisse, et avis d'arrivée du colis à la gare de destination. Chacun s'accroche à un
+        événement déjà matérialisé — l'alerte <code>VOYAGE_DEPART_EN_RETARD</code> et le statut du
+        courrier existent tous les deux. Envoi par la file d'attente d'A3.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Réduit les appels au guichet et les colis oubliés. Sur l'avis de retard, c'est aussi un
+        geste commercial : le client prévenu ne se déplace pas pour rien.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Billetterie</span><span class="mod">Courrier</span><span class="mod">Exploitation</span><span class="mod">Alertes</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Dépend d'un <strong>agrégateur SMS</strong> et d'un budget au message — la même
+        dépendance externe que le Mobile Money. Prévoir un plafond par jour et par compagnie, et un
+        consentement client, sous peine de transformer un service en nuisance.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche h" id="b2">
+      <div class="fiche-tete">
+        <span class="fiche-ref">B2</span>
+        <h3>Contrôle d'embarquement par QR</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Chaque billet porte déjà un QR code — mais généré côté frontend pour l'impression
+        seulement. <strong>Aucun point de lecture n'existe</strong>, et le billet ne porte aucun état
+        d'embarquement. Conséquences : un billet photocopié passe deux fois, et personne ne sait au
+        départ qui est effectivement monté.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Un écran de contrôle, tenu au quai ou dans le car, qui lit le QR et répond en trois états
+        lisibles de loin : <strong>valide</strong>, <strong>déjà scanné</strong>,
+        <strong>invalide</strong> (annulé, reporté, mauvais départ). Le pointage marque le billet
+        embarqué. À la fermeture, la liste des non-présentés est connue.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Ferme la fraude au duplicata. Surtout, produit une donnée que l'application n'a pas
+        aujourd'hui : le <strong>taux de présentation réel</strong>, qui conditionne toute politique
+        de surbooking sérieuse — alors même que le surbooking est déjà assumé par le modèle.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Billetterie</span><span class="mod">Exploitation</span><span class="mod">Mobile commercial</span><span class="mod">Statistiques</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Un état sur le billet, un point d'entrée de lecture, un écran. Le QR encode aujourd'hui le
+        <em>code du billet</em> en clair : à signer, sinon le contrôle valide n'importe quel code
+        fabriqué. L'app commerciale Flutter est le support naturel du scanner.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche h" id="b3">
+      <div class="fiche-tete">
+        <span class="fiche-ref">B3</span>
+        <h3>Vente en mode dégradé</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Le frontend est un client de l'API : sans réseau, <strong>la gare ne vend plus</strong>.
+        Aucun service worker, aucun cache applicatif. Pour des gares desservies par une connexion
+        irrégulière, c'est un arrêt d'exploitation pur et simple, au pire moment — celui du départ.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Un mode restreint, volontairement pauvre. Chaque gare reçoit à l'avance un
+        <strong>quota de sièges</strong> sur les départs du jour ; hors connexion, elle ne vend que
+        dans ce quota, sur des billets numérotés localement. Au retour du réseau, les ventes remontent
+        et se réconcilient. Pas de réservation, pas de remise, pas de désistement en mode dégradé.</dd>
+
+        <dt>Valeur</dt>
+        <dd>La vente ne s'arrête plus. Le quota est ce qui rend la chose sûre : sans lui, deux gares
+        hors ligne vendraient le même siège et le conflit ne se découvrirait qu'à l'embarquement.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Billetterie</span><span class="mod">Exploitation</span><span class="mod">Frontend</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd><strong>La proposition la plus lourde de cette liste</strong>, et à n'engager qu'après
+        A1 : la réconciliation de ventes hors ligne sans clôture de caisse pour les encadrer serait
+        ingérable. Touche au stock de sièges, à la numérotation des billets et à la file de
+        synchronisation. À traiter comme un projet, pas comme une évolution.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="b4">
+      <div class="fiche-tete">
+        <span class="fiche-ref">B4</span>
+        <h3>Réclamations et indemnisations</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Déclarer un colis ou un bagage perdu pose un statut, et s'arrête là. Ce qui suit — le
+        client réclame, la compagnie instruit, indemnise ou refuse — <strong>n'existe nulle
+        part</strong>. Le geste qui engage financièrement la compagnie est donc tracé, mais pas la
+        dette qu'il crée.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Une réclamation ouverte depuis le colis ou le bagage perdu, rattachée à son client, avec
+        un cycle court : ouverte, instruite, indemnisée ou rejetée, chaque passage motivé. Le montant
+        indemnisé rejoint la recette en négatif, comme un remboursement.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Donne une suite à une déclaration qui, aujourd'hui, ne mène nulle part. Fournit au
+        dirigeant le coût réel des pertes, gare par gare — un chiffre actuellement invisible.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Courrier</span><span class="mod">Bagage</span><span class="mod">Clients</span><span class="mod">Statistiques</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Nouvelle entité, permission dédiée (l'indemnisation engage la caisse, elle ne relève pas
+        de <code>MODIFIER</code>). S'articule avec <code>ConfigRecette</code> pour l'imputation.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="b5">
+      <div class="fiche-tete">
+        <span class="fiche-ref">B5</span>
+        <h3>Suivi GPS du véhicule</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>La position du car n'avance que par un geste humain : réception par une gare, départ
+        déclaré, avance saisie par le commercial. Le guide de prise en main promet pourtant au client
+        de suivre « où est mon car » avec la position réelle et le retard estimé. Si personne ne
+        saisit, la position ment — et l'alerte de retard avec elle.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>La position remontée périodiquement par l'application du commercial embarqué, en
+        arrière-plan, avec repli sur la saisie manuelle. Le tronçon parcouru se déduit de la position,
+        et l'écart aux durées déclarées alimente le retard estimé — le service de recalage sait déjà
+        comparer durée annoncée et durée observée.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Rend fiable une promesse déjà faite au client, et fournit au recalage une mesure continue
+        plutôt que deux horodatages par escale.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Exploitation</span><span class="mod">Mobile commercial</span><span class="mod">Mobile client</span><span class="mod">Alertes</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Consommation batterie et données sur le téléphone du commercial — la contrainte réelle.
+        Volume d'écritures à maîtriser : échantillonner, ne pas tout conserver. Sans commercial à
+        bord, aucune remontée : le mode manuel reste indispensable.</dd>
+      </dl>
+    </article>
+  </section>
+
+  <!-- ══════════════ C ══════════════ -->
+  <section class="bloc">
+    <h2>C · Expérience d'utilisation</h2>
+
+    <article class="fiche h" id="c1">
+      <div class="fiche-tete">
+        <span class="fiche-ref">C1</span>
+        <h3>Recherche globale opérationnelle</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Le champ de recherche de la barre supérieure, raccourci clavier compris, ne cherche
+        <strong>rien</strong> : le module fait treize lignes et se contente de placer le curseur. Un
+        client se présente avec un code de billet ou un numéro de téléphone, et l'agent doit deviner
+        dans quel écran chercher.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Une recherche unique qui reconnaît la <strong>forme</strong> de ce qu'on lui donne : code
+        de billet, de courrier ou de réservation, numéro de téléphone, plaque, code de voyage. Les
+        résultats sont groupés par nature et respectent le périmètre de gare — un agent ne voit que ce
+        qu'il a déjà le droit de voir.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Le geste le plus fréquent du guichet — retrouver une pièce à partir de ce que le client
+        présente — passe de plusieurs écrans à une frappe. Le champ existe déjà : il ne s'agit pas
+        d'ajouter une fonctionnalité, mais de tenir une promesse visible.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Frontend</span><span class="mod">Billetterie</span><span class="mod">Courrier</span><span class="mod">Clients</span><span class="mod">Exploitation</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Un point d'entrée de recherche transverse côté API. Attention à la <strong>fuite de
+        périmètre</strong> : la recherche doit traverser les extensions de portée entreprise et gare,
+        pas les contourner — c'est le risque principal de ce genre d'écran.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="c2">
+      <div class="fiche-tete">
+        <span class="fiche-ref">C2</span>
+        <h3>Confirmations qui montrent l'enjeu</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Cinquante appels à <code>confirm()</code> natif gardent les gestes lourds des tableaux —
+        annuler, supprimer, désister, déclarer perdu. La boîte du navigateur affiche une phrase
+        générique : ni le code de la pièce, ni le montant, ni le client. On confirme un rembour­sement
+        sans voir ce qu'on rembourse.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Un dialogue applicatif qui rappelle <strong>ce qui est en jeu</strong> — la pièce, le
+        montant, le client — et, pour les gestes irréversibles, demande le motif directement, au lieu
+        de le réclamer sur l'écran suivant. Les composants de dialogue existent déjà dans le frontend.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Réduit les erreurs de ligne, fréquentes dans un tableau dense. Cohérent avec la
+        séparation des permissions déjà faite : ces gestes ont maintenant leur propre droit, ils
+        méritent leur propre confirmation.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Frontend</span><span class="mod">Billetterie</span><span class="mod">Courrier</span><span class="mod">Bagage</span><span class="mod">Stock</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Purement frontend. Les formulaires étant soumis en POST natif, remplacer
+        <code>confirm()</code> demande de reprendre le déclenchement de la soumission — mécanique, mais
+        à faire proprement sur les cinquante points.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="c3">
+      <div class="fiche-tete">
+        <span class="fiche-ref">C3</span>
+        <h3>Vente au clavier</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Au guichet, la vente est répétée des centaines de fois par jour, souvent avec une file
+        d'attente. Le parcours actuel demande la souris à chaque étape — choix du voyage, du trajet,
+        du siège sur le plan.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Un enchaînement complet au clavier : le focus part sur le premier champ, la tabulation
+        suit l'ordre du geste réel, le numéro de siège se saisit au lieu de se pointer, la validation
+        enchaîne sur une vente vierge. L'impression, elle, ne quitte déjà plus la page.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Quelques secondes par vente, multipliées par le volume d'une journée de départs. C'est le
+        genre de gain qui ne se voit pas sur une démonstration et se sent tous les jours.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Billetterie</span><span class="mod">Frontend</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Frontend seul. Demande de <strong>regarder travailler un guichetier</strong> avant de
+        figer l'ordre des champs : l'ordre logique du formulaire n'est pas toujours l'ordre du dialogue
+        avec le client.</dd>
+      </dl>
+    </article>
+  </section>
+
+  <!-- ══════════════ D ══════════════ -->
+  <section class="bloc">
+    <h2>D · Technique et sécurité</h2>
+
+    <article class="fiche h" id="d1">
+      <div class="fiche-tete">
+        <span class="fiche-ref">D1</span>
+        <h3>Limite de débit sur la réinitialisation de mot de passe</h3>
+        <span class="prio h">Haute</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Une seule limite de débit est configurée dans l'application, et elle porte sur la
+        réservation publique. Les points d'entrée <code>/forgot</code> et <code>/reset</code> sont
+        <strong>publics et sans limite</strong>. On peut donc inonder de courriels la boîte d'un
+        utilisateur connu, et sonder l'existence d'un compte par différence de réponse.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Déclarer un limiteur par adresse IP et par adresse e-mail sur ces deux points, sur le
+        modèle de celui de la réservation. Et rendre la réponse <strong>identique</strong> que le
+        compte existe ou non — c'est ce qui ferme l'énumération.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Le meilleur rapport valeur/effort de toute cette liste : quelques lignes de configuration
+        pour fermer un vecteur de nuisance directement exploitable. La connexion, elle, est déjà
+        protégée — c'est bien cette asymétrie qui signale l'oubli.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Utilisateurs</span><span class="mod">Sécurité</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Aucune dépendance, aucune migration. À vérifier par un test fonctionnel, comme les gardes
+        de permission.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="d2">
+      <div class="fiche-tete">
+        <span class="fiche-ref">D2</span>
+        <h3>Purge des jetons et des alertes résolues</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Deux tables croissent sans jamais décroître : les jetons de rafraîchissement, écrits à
+        chaque connexion, et les alertes auto-résolues par le balayeur, qui restent en base une fois
+        sorties de la cloche. Aucune ne présente de risque aujourd'hui ; aucune ne se nettoie non plus.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd>Une commande de maintenance, planifiable avec les deux autres, qui supprime les jetons
+        expirés et archive les alertes résolues au-delà d'une durée de conservation.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Hygiène. Un jeton de rafraîchissement expiré mais conservé reste par ailleurs une donnée
+        d'authentification inutilement présente en base.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Système</span><span class="mod">Alertes</span><span class="mod">Sécurité</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Une commande, à brancher sur le cron existant. À traiter avec A4, dont c'est le même
+        besoin.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche m" id="d3">
+      <div class="fiche-tete">
+        <span class="fiche-ref">D3</span>
+        <h3>Mesure du coût des listings</h3>
+        <span class="prio m">Moyenne</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Aucun cache applicatif n'est utilisé, et certains fournisseurs de lecture font un travail
+        par ligne : <code>TicketProvider</code> interroge la position du car et l'éviction pour chaque
+        billet affiché, en mémoïsant par voyage. C'est raisonnable sur les volumes actuels — 314
+        billets — et personne ne sait ce que cela donne à cent mille.</dd>
+
+        <dt>Fonctionnement</dt>
+        <dd><strong>Mesurer avant d'optimiser</strong> : un jeu de données réaliste, puis le compteur
+        de requêtes du profileur sur les listings les plus chargés — billets, manifeste, journal,
+        statistiques. On n'optimise ensuite que ce que la mesure désigne.</dd>
+
+        <dt>Valeur</dt>
+        <dd>Évite les deux erreurs symétriques : optimiser à l'aveugle du code qui n'en a pas besoin,
+        et découvrir la lenteur en production. Le jeu de fixtures existant fournit déjà la base d'un
+        jeu volumineux.</dd>
+
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Backend</span><span class="mod">Statistiques</span><span class="mod">Billetterie</span></div></dd>
+
+        <dt>Impacts</dt>
+        <dd>Aucun changement fonctionnel. À faire <em>avant</em> B3, dont la réconciliation supposera
+        des listings sains.</dd>
+      </dl>
+    </article>
+  </section>
+
+  <!-- ══════════════ E ══════════════ -->
+  <section class="bloc">
+    <h2>E · Long terme</h2>
+    <p class="intro">
+      Trois directions qui n'ont de sens qu'une fois la base opérationnelle solide — et notamment la
+      caisse close et l'embarquement contrôlé, qui fournissent les données dont elles dépendent.
+    </p>
+
+    <article class="fiche f" id="e1">
+      <div class="fiche-tete">
+        <span class="fiche-ref">E1</span>
+        <h3>Tarification dynamique</h3>
+        <span class="prio f">Faible</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>La grille tarifaire est fixe par couple de gares. Un départ de veille de fête part plein à
+        tarif normal, un départ creux roule à moitié vide au même prix. La compagnie n'a aucun levier
+        entre les deux.</dd>
+        <dt>Fonctionnement</dt>
+        <dd>Des règles bornées et lisibles — taux de remplissage, délai avant départ, jour — appliquées
+        à la grille existante, avec un plancher et un plafond. Jamais un modèle opaque : le guichetier
+        doit pouvoir expliquer le prix au client qui est devant lui.</dd>
+        <dt>Valeur</dt>
+        <dd>Lisse le remplissage. Suppose de connaître le <strong>taux de présentation réel</strong>,
+        donc B2.</dd>
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Exploitation</span><span class="mod">Billetterie</span><span class="mod">Statistiques</span></div></dd>
+        <dt>Impacts</dt>
+        <dd>Touche au calcul du prix, donc à la recette et à la comptabilité. Historiser le tarif
+        appliqué sur le billet, sans quoi les recettes passées deviennent inexplicables.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche f" id="e2">
+      <div class="fiche-tete">
+        <span class="fiche-ref">E2</span>
+        <h3>Liaisons internationales</h3>
+        <span class="prio f">Faible</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>Les lignes vers le Burkina, le Mali ou le Ghana apportent des contraintes que le modèle
+        ignore : pièce d'identité obligatoire du passager, manifeste douanier, éventuellement une
+        seconde devise.</dd>
+        <dt>Fonctionnement</dt>
+        <dd>Un attribut « internationale » sur la ligne, qui rend obligatoires les champs d'identité à
+        la vente et débloque un manifeste au format attendu au poste frontière.</dd>
+        <dt>Valeur</dt>
+        <dd>Ouvre un segment à forte marge, aujourd'hui hors de portée de l'application.</dd>
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Exploitation</span><span class="mod">Billetterie</span><span class="mod">Clients</span></div></dd>
+        <dt>Impacts</dt>
+        <dd>La devise est la vraie difficulté : elle traverse la recette, les statistiques, la caisse
+        et la comptabilité. À n'engager qu'avec une exigence commerciale avérée.</dd>
+      </dl>
+    </article>
+
+    <article class="fiche f" id="e3">
+      <div class="fiche-tete">
+        <span class="fiche-ref">E3</span>
+        <h3>Portail transporteur partenaire</h3>
+        <span class="prio f">Faible</span>
+      </div>
+      <dl>
+        <dt>Besoin</dt>
+        <dd>L'application est déjà multi-compagnies, avec une isolation stricte des périmètres. Rien
+        n'exploite cette architecture : deux compagnies hébergées ne peuvent pas se vendre mutuellement
+        des places sur une ligne que l'une dessert et l'autre non.</dd>
+        <dt>Fonctionnement</dt>
+        <dd>Un accord explicite entre deux compagnies ouvrant, sur des lignes nommées, un quota de
+        places vendables par l'autre, avec une commission et un décompte séparé.</dd>
+        <dt>Valeur</dt>
+        <dd>Transforme l'isolation multi-compagnies, aujourd'hui purement défensive, en avantage
+        produit — et donne à la plateforme un effet de réseau.</dd>
+        <dt>Modules</dt>
+        <dd><div class="mods"><span class="mod">Administration</span><span class="mod">Billetterie</span><span class="mod">Statistiques</span></div></dd>
+        <dt>Impacts</dt>
+        <dd><strong>Le plus délicat sur le plan de la sécurité</strong> : toute brèche dans les
+        extensions de périmètre exposerait les données d'un concurrent. Ne rien entreprendre sans une
+        couverture de tests d'isolation nettement renforcée.</dd>
+      </dl>
+    </article>
+  </section>
+
+  <footer>
+    Analyse fondée sur une lecture du code au 23 août 2026 — Backend&nbsp;Symfony&nbsp;/&nbsp;API&nbsp;Platform,
+    frontend&nbsp;Symfony&nbsp;+&nbsp;React, applications mobiles Flutter <em>commercial</em> et
+    <em>réservation</em>. Chaque constat chiffré a été vérifié dans les sources ou en base ; les
+    priorités restent une proposition, à arbitrer selon la réalité d'exploitation.
+  </footer>
+
+</div>

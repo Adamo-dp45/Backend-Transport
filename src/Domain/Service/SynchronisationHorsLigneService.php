@@ -172,6 +172,27 @@ class SynchronisationHorsLigneService
             return $this->refus($reference, 'Code de billet manquant : il a été imprimé sur le reçu du client, il doit remonter tel quel');
         }
 
+        /*
+            CODE DÉJÀ PRIS — vérifié AVANT d'écrire, et c'est capital. L'index unique le refuserait
+            de toute façon, mais sous la forme d'une violation de contrainte : elle ferme
+            l'EntityManager, annule la transaction du LOT ENTIER et remonte en 409 opaque. Le
+            téléphone ne marque alors rien, et l'opération fautive BLOQUE la file pour toujours —
+            toutes les ventes suivantes s'empilent derrière sans jamais partir.
+
+            En le détectant ici, le refus reste local à l'opération : le reste du lot passe, et le
+            vendeur lit un motif qui lui dit quoi faire.
+
+            Le cas se produit quand la série « B » du téléphone repart à zéro — stockage local perdu,
+            application réinstallée — alors que le serveur détient déjà ces codes.
+        */
+        $collision = $this->ticketRepository->findOneBy(['codeticket' => $codeticket]);
+        if ($collision !== null) {
+            return $this->refus($reference, sprintf(
+                'Le code %s est déjà porté par un autre billet : celui-ci doit être ressaisi à la gare',
+                $codeticket
+            ));
+        }
+
         $ticket = (new Ticket())
             ->setVoyage($voyage)
             ->setSiege($siege)
@@ -244,6 +265,18 @@ class SynchronisationHorsLigneService
         $codebagage = $this->texte($payload['codebagage'] ?? null);
         if ($codebagage === null) {
             return $this->refus($reference, 'Code de bagage manquant : il a été imprimé sur l\'étiquette, il doit remonter tel quel');
+        }
+
+        // Même garde que pour le billet : l'unicité du code est portée PAR ENTREPRISE côté base.
+        $collision = $this->bagageRepository->findOneBy([
+            'codebagage' => $codebagage,
+            'identreprise' => $voyage->getIdentreprise(),
+        ]);
+        if ($collision !== null) {
+            return $this->refus($reference, sprintf(
+                'Le code %s est déjà porté par un autre bagage : celui-ci doit être ressaisi à la gare',
+                $codebagage
+            ));
         }
 
         $entree = new BagageInput();

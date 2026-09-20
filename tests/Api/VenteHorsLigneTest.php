@@ -224,6 +224,42 @@ final class VenteHorsLigneTest extends ApiTestCase
     }
 
     #[Test]
+    #[TestDox('Un code déjà pris est refusé SEUL : il ne bloque pas la file derrière lui')]
+    public function unCodeDejaPrisNeBloquePasLaFile(): void
+    {
+        /*
+            LE PIRE COMPORTEMENT POSSIBLE POUR UNE FILE, et c'est celui qu'on avait : l'index unique
+            refusait le doublon sous forme de violation de contrainte. Elle ferme l'EntityManager,
+            annule la transaction du LOT ENTIER et remonte en 409 opaque. Le téléphone ne marquait
+            alors rien — l'opération fautive bloquait la file POUR TOUJOURS, et toutes les ventes
+            suivantes s'empilaient derrière sans jamais partir.
+
+            Le cas se produit quand la série « B » du téléphone repart à zéro : stockage local perdu,
+            application réinstallée, alors que le serveur détient déjà ces codes.
+        */
+        $this->synchroniser([$this->vente('ref-1', siege: 1, code: 'B1')]);
+        $this->assertStatut(200);
+        self::assertSame(1, $this->reponseJson()['acceptes']);
+
+        // Le téléphone a perdu sa file : il réémet B1, puis vend normalement.
+        $this->synchroniser([
+            $this->vente('ref-2', siege: 2, code: 'B1'),
+            $this->vente('ref-3', siege: 3, code: 'B2'),
+        ]);
+
+        $this->assertStatut(200);
+        $reponse = $this->reponseJson();
+        self::assertSame(1, $reponse['refuses'], 'le doublon, et lui seul');
+        self::assertStringContainsString('déjà porté', $reponse['resultats'][0]['motif'] ?? '');
+        self::assertSame(
+            1,
+            $reponse['acceptes'],
+            'la vente suivante passe : un code fautif ne condamne pas la file'
+        );
+        self::assertNotNull($this->billetParReference('ref-3'));
+    }
+
+    #[Test]
     #[TestDox("L'avance de position remonte avec l'heure du téléphone, et se rejoue sans erreur")]
     public function laPositionRemonteEtSeRejoue(): void
     {

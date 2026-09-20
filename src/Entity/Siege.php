@@ -105,6 +105,36 @@ class Siege
     #[Groups(['read:Siege'])]
     private bool $conflit = false;
 
+    /*
+        VENDU EN AVAL — le siège est LIBRE pour qui monte ici, et il le restera : la priorité amont
+        n'est pas remise en cause. Mais il porte DÉJÀ un billet d'une gare située plus bas sur la
+        ligne, dont la montée tombe À L'INTÉRIEUR du tronçon demandé. Le vendre, c'est évincer ce
+        passager — il ne montera pas.
+
+        C'est un AVERTISSEMENT, jamais un blocage : l'agent garde la main, mais s'il a le choix il
+        prendra un autre siège, et l'éviction n'aura pas lieu. La plupart des évictions ne viennent
+        pas d'un car plein, elles viennent d'un siège pris au hasard alors qu'un autre était libre.
+
+        À distinguer de 'conflit', qui CONSTATE une éviction déjà produite : ici rien n'est encore
+        joué, et le repère disparaît dès que l'agent choisit ailleurs.
+    */
+    #[Groups(['read:Siege'])]
+    private bool $venduAval = false;
+
+    /** Le billet aval le plus AMONT (celui qui monterait le premier), pour nommer qui serait évincé. */
+    #[Groups(['read:Siege'])]
+    private ?string $avalNom = null;
+
+    #[Groups(['read:Siege'])]
+    private ?string $avalMontee = null;
+
+    #[Groups(['read:Siege'])]
+    private ?string $avalDescente = null;
+
+    /** Combien de billets aval seraient évincés — dire « et 2 autres » plutôt qu'en cacher deux. */
+    #[Groups(['read:Siege'])]
+    private int $avalNombre = 0;
+
     /**
      * @var Collection<int, Ticket>
      */
@@ -312,6 +342,66 @@ class Siege
     public function setConflit(bool $conflit): static
     {
         $this->conflit = $conflit;
+
+        return $this;
+    }
+
+    public function isVenduAval(): bool
+    {
+        return $this->venduAval;
+    }
+
+    public function setVenduAval(bool $venduAval): static
+    {
+        $this->venduAval = $venduAval;
+
+        return $this;
+    }
+
+    public function getAvalNom(): ?string
+    {
+        return $this->avalNom;
+    }
+
+    public function setAvalNom(?string $avalNom): static
+    {
+        $this->avalNom = $avalNom;
+
+        return $this;
+    }
+
+    public function getAvalMontee(): ?string
+    {
+        return $this->avalMontee;
+    }
+
+    public function setAvalMontee(?string $avalMontee): static
+    {
+        $this->avalMontee = $avalMontee;
+
+        return $this;
+    }
+
+    public function getAvalDescente(): ?string
+    {
+        return $this->avalDescente;
+    }
+
+    public function setAvalDescente(?string $avalDescente): static
+    {
+        $this->avalDescente = $avalDescente;
+
+        return $this;
+    }
+
+    public function getAvalNombre(): int
+    {
+        return $this->avalNombre;
+    }
+
+    public function setAvalNombre(int $avalNombre): static
+    {
+        $this->avalNombre = $avalNombre;
 
         return $this;
     }

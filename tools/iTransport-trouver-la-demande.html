@@ -1,0 +1,601 @@
+<title>Trouver la demande</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+
+<style>
+  :root {
+    --papier:     #F6F6F3;
+    --surface:    #FFFFFF;
+    --surface-2:  #FBFBF9;
+    --encre:      #191C1A;
+    --gris:       #5A625E;
+    --gris-clair: #838B87;
+    --trait:      #E0E2DD;
+    --trait-fort: #C6CAC3;
+
+    --vert:       #1F5C4C;
+    --vert-doux:  #E7EFEB;
+    --laterite:   #A8481A;
+
+    --ombre: 0 1px 2px rgba(25, 28, 26, .05), 0 2px 12px rgba(25, 28, 26, .04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papier:     #101311;
+      --surface:    #191D1B;
+      --surface-2:  #1E2320;
+      --encre:      #E6E9E5;
+      --gris:       #9AA29D;
+      --gris-clair: #7A827D;
+      --trait:      #2B322E;
+      --trait-fort: #3D453F;
+
+      --vert:       #6FB79E;
+      --vert-doux:  #16302A;
+      --laterite:   #DB8B5F;
+
+      --ombre: 0 1px 2px rgba(0, 0, 0, .35), 0 2px 12px rgba(0, 0, 0, .25);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --papier:     #101311;
+    --surface:    #191D1B;
+    --surface-2:  #1E2320;
+    --encre:      #E6E9E5;
+    --gris:       #9AA29D;
+    --gris-clair: #7A827D;
+    --trait:      #2B322E;
+    --trait-fort: #3D453F;
+
+    --vert:       #6FB79E;
+    --vert-doux:  #16302A;
+    --laterite:   #DB8B5F;
+
+    --ombre: 0 1px 2px rgba(0, 0, 0, .35), 0 2px 12px rgba(0, 0, 0, .25);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--papier);
+    color: var(--encre);
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.66;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  .tete { display: flex; flex-direction: column; gap: 1rem; }
+  .surtitre {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: .74rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--vert);
+  }
+  h1 {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2rem, 5.5vw, 3rem);
+    line-height: 1.05;
+    letter-spacing: -.025em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .chapo { margin: 0; font-size: 1.1rem; color: var(--gris); }
+
+  h2 {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.55rem;
+    line-height: 1.18;
+    letter-spacing: -.018em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 { font-family: Archivo, system-ui, sans-serif; font-weight: 600; font-size: 1.06rem; margin: 0; }
+
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+  section > .num {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: .74rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--gris-clair);
+    padding-bottom: .6rem;
+    border-bottom: 1px solid var(--trait);
+  }
+  p { margin: 0; }
+  strong { font-weight: 600; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .84em;
+    background: var(--surface-2);
+    border: 1px solid var(--trait);
+    border-radius: 2px;
+    padding: .06em .32em;
+  }
+
+  ul { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: .5rem; }
+  li::marker { color: var(--trait-fort); }
+
+  .encadre {
+    background: var(--surface);
+    border: 1px solid var(--trait);
+    border-radius: 3px;
+    box-shadow: var(--ombre);
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .7rem;
+  }
+  .encadre.accent { border-left: 3px solid var(--vert); }
+  .encadre.risque { border-left: 3px solid var(--laterite); }
+  .etiquette {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: .72rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--vert);
+  }
+  .encadre.risque .etiquette { color: var(--laterite); }
+
+  /* ─── Leviers ─── */
+  .leviers { display: flex; flex-direction: column; gap: 1.1rem; }
+  .levier {
+    background: var(--surface);
+    border: 1px solid var(--trait);
+    border-radius: 3px;
+    box-shadow: var(--ombre);
+    padding: 1.2rem 1.4rem 1.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+  }
+  .levier.socle { border-left: 3px solid var(--vert); background: var(--vert-doux); }
+  .levier-tete { display: flex; align-items: baseline; gap: .65rem; flex-wrap: wrap; }
+  .levier-ref {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: .8rem;
+    letter-spacing: .06em;
+    color: var(--vert);
+    font-variant-numeric: tabular-nums;
+  }
+  .levier h3 { flex: 1 1 14rem; }
+  .marque {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: .67rem;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--vert);
+    border: 1px solid var(--vert);
+    border-radius: 2px;
+    padding: .1rem .45rem;
+    white-space: nowrap;
+  }
+  .levier p { font-size: .99rem; }
+  .exige {
+    font-family: Archivo, system-ui, sans-serif;
+    font-size: .87rem;
+    color: var(--gris);
+    padding-top: .45rem;
+    border-top: 1px solid var(--trait);
+  }
+  .exige b { font-weight: 600; color: var(--encre); }
+
+  /* ─── Séquence ─── */
+  .phases { display: flex; flex-direction: column; }
+  .phase {
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.05rem 0;
+    border-top: 1px solid var(--trait);
+  }
+  .phase:last-child { border-bottom: 1px solid var(--trait); }
+  .phase-num {
+    font-family: Archivo, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.45rem;
+    line-height: 1;
+    color: var(--vert);
+    font-variant-numeric: tabular-nums;
+    padding-top: .14rem;
+  }
+  .phase-corps { display: flex; flex-direction: column; gap: .4rem; }
+  .phase h3 { font-size: 1.05rem; }
+  .phase p { font-size: .97rem; }
+
+  .cadre-table { overflow-x: auto; border: 1px solid var(--trait); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 30rem; font-family: Archivo, system-ui, sans-serif; font-size: .92rem; }
+  thead th {
+    text-align: left; font-weight: 600; font-size: .74rem;
+    letter-spacing: .11em; text-transform: uppercase; color: var(--gris);
+    padding: .7rem .9rem; background: var(--surface-2);
+    border-bottom: 1px solid var(--trait-fort);
+  }
+  tbody td { padding: .65rem .9rem; border-bottom: 1px solid var(--trait); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody td:first-child { font-weight: 600; white-space: nowrap; }
+
+  footer {
+    border-top: 1px solid var(--trait);
+    padding-top: 1.4rem;
+    color: var(--gris);
+    font-size: .93rem;
+  }
+
+  /* ─── Impression / export PDF ─── */
+  @page { margin: 18mm 15mm; }
+
+  @media print {
+    :root,
+    :root[data-theme="dark"],
+    :root:not([data-theme="light"]) {
+      --papier: #FFFFFF;  --surface: #FFFFFF;  --surface-2: #FAFAF8;
+      --encre: #161A18;   --gris: #4C544F;     --gris-clair: #6E766F;
+      --trait: #D9DDD6;   --trait-fort: #BCC2B9;
+      --vert: #17493C;    --vert-doux: #EAF1EE; --laterite: #8E3C14;
+      --ombre: none;
+    }
+
+    body { font-size: 10.5pt; line-height: 1.55; }
+    .page { max-width: none; padding: 0; gap: 1.7rem; }
+
+    .levier.socle, .option.retenue, .marque, .encadre { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+    .encadre, .levier, .versant, .phase, .cadre-table { box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+    h1 { font-size: 25pt; }
+    h2, h3 { break-after: avoid; page-break-after: avoid; }
+    section > .num { break-after: avoid; page-break-after: avoid; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="tete">
+    <div class="surtitre">iTransport · note stratégique</div>
+    <h1>Trouver la demande</h1>
+    <p class="chapo">
+      Donner à une compagnie de transport les moyens d'atteindre des clients qu'elle n'a pas encore.
+      Six leviers, l'ordre dans lequel les construire, et ce que chacun exige.
+    </p>
+  </header>
+
+  <section>
+    <div class="num">01 · Le point de départ</div>
+    <h2>La compagnie n'existe pas en ligne</h2>
+    <p>
+      Le constat est brutal et se vérifie en une minute dans le code : l'espace de travail est
+      <strong>intégralement derrière authentification</strong>. Il n'existe aucune page publique. Un
+      inconnu qui cherche un car pour Korhogo ne peut atterrir nulle part, un agent ne peut coller
+      aucun lien dans une conversation, aucun moteur de recherche n'a rien à indexer.
+    </p>
+    <p>
+      La seule surface publique est l'application mobile voyageur — et sa configuration précise
+      <code>Une build = une compagnie</code>. Elle sert donc les clients que la compagnie a
+      <em>déjà</em> : ceux qui ont su qu'elle existait, et qui ont installé son application.
+    </p>
+
+    <div class="encadre accent">
+      <div class="etiquette">La bonne nouvelle</div>
+      <p>
+        La matière première est construite. L'API publique de réservation existe déjà — villes,
+        destinations, départs, réservation, suivi, webhook de paiement — et elle est cadrée par le
+        <em>slug</em> de la compagnie. Chaque compagnie a donc déjà son périmètre public isolé.
+      </p>
+      <p>
+        Il ne manque pas un moteur de réservation. Il manque <strong>un endroit où envoyer les
+        gens</strong>, et des raisons pour qu'ils y viennent.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="num">02 · Décomposer le besoin</div>
+    <h2>D'où vient un client qu'on n'avait pas&nbsp;?</h2>
+    <p>
+      « Plus de clients » recouvre quatre mouvements très différents, qui ne se travaillent ni avec
+      les mêmes outils, ni au même coût.
+    </p>
+    <ul>
+      <li><strong>Il te cherche et te trouve.</strong> Il a un trajet en tête, pas une compagnie.
+        Aujourd'hui, il ne peut pas te trouver.</li>
+      <li><strong>Quelqu'un te l'amène.</strong> Un client satisfait, ou un tiers qui vend pour toi.
+        C'est le canal dominant du marché, et il n'est aujourd'hui pas outillé du tout.</li>
+      <li><strong>Tu le rappelles.</strong> Il a déjà voyagé avec toi et n'est jamais revenu. Ce
+        n'est pas un client nouveau, mais c'est un revenu nouveau — et le moins cher de tous.</li>
+      <li><strong>Il vient pour un besoin groupé.</strong> Un groupe, un envoi régulier de colis.
+        Panier élevé, décision planifiée, traitée aujourd'hui au téléphone.</li>
+    </ul>
+    <p>
+      Le troisième mérite qu'on s'y arrête : la base client existe déjà dans l'application, avec le
+      téléphone, l'historique des voyages et le programme de fidélité. <strong>Rien ne s'en
+      sert.</strong> Un client qui a voyagé une fois et n'est jamais revenu ne coûte rien à
+      reconquérir — il sait déjà qui tu es.
+    </p>
+  </section>
+
+  <section>
+    <div class="num">03 · Les leviers</div>
+    <h2>Six briques, une seule fondation</h2>
+
+    <div class="leviers">
+      <div class="levier socle">
+        <div class="levier-tete">
+          <span class="levier-ref">L1</span>
+          <h3>La page publique de la compagnie</h3>
+          <span class="marque">Fondation</span>
+        </div>
+        <p>
+          Une adresse web par compagnie, ouverte, indexable : qui elle est, ses lignes, ses horaires,
+          ses tarifs, et la réservation. C'est ce qui la fait exister pour quelqu'un qui ne la connaît
+          pas — et surtout, c'est <strong>la destination dont les cinq autres leviers ont besoin</strong>.
+          Sans lien où envoyer les gens, aucun canal d'acquisition ne fonctionne.
+        </p>
+        <p>
+          Le travail est plus léger qu'il n'y paraît : l'API publique fournit déjà toutes les données,
+          et le slug porte déjà l'isolation. Il s'agit d'ouvrir une façade, pas de bâtir un moteur.
+        </p>
+        <p class="exige"><b>Exige —</b> une surface web publique, séparée de l'espace de travail
+          authentifié. Aucune donnée nouvelle, aucun assouplissement du périmètre.</p>
+      </div>
+
+      <div class="levier">
+        <div class="levier-tete">
+          <span class="levier-ref">L2</span>
+          <h3>Le lien de départ partageable</h3>
+        </div>
+        <p>
+          Chaque départ dispose d'un lien court que l'agent, le chauffeur ou le gérant colle dans une
+          conversation : « Abidjan&nbsp;→&nbsp;Korhogo demain 8&nbsp;h, réserver ici ». Le canal de
+          diffusion réel du marché n'est ni le courriel ni la publicité : c'est la messagerie
+          instantanée, et elle ne demande aucun budget.
+        </p>
+        <p class="exige"><b>Exige —</b> L1, plus une page par départ et un aperçu de partage soigné
+          (titre, trajet, heure, prix) — c'est cet aperçu qui décide du clic.</p>
+      </div>
+
+      <div class="levier">
+        <div class="levier-tete">
+          <span class="levier-ref">L3</span>
+          <h3>Le parrainage outillé</h3>
+        </div>
+        <p>
+          Un client partage son lien ; celui qui réserve grâce à lui obtient un avantage, et le
+          parrain aussi. La recommandation existe déjà dans ce métier — elle se fait de bouche à
+          oreille, gratuitement et sans mesure. L'outiller, c'est la rendre traçable et récompensable.
+        </p>
+        <p>
+          Le mécanisme de récompense est déjà là : le programme de fidélité sait accorder un tampon ou
+          une remise. Il récompense aujourd'hui la <em>répétition</em> ; il suffit de lui apprendre à
+          récompenser l'<em>apport</em>.
+        </p>
+        <p class="exige"><b>Exige —</b> L1, un code de parrainage par client, et une règle
+          d'attribution écrite avant l'ouverture — sans quoi les litiges arrivent au guichet.</p>
+      </div>
+
+      <div class="levier">
+        <div class="levier-tete">
+          <span class="levier-ref">L4</span>
+          <h3>Le réseau d'apporteurs</h3>
+        </div>
+        <p>
+          Boutiques de quartier, cybercafés, réceptions d'hôtel, responsables d'association : des
+          tiers qui vendent pour la compagnie contre une commission, et qui touchent une clientèle
+          qu'elle n'atteindrait jamais. C'est le levier qui crée le plus de clients réellement
+          nouveaux.
+        </p>
+        <p>
+          Architecturalement, l'apporteur est <strong>le même motif que le commercial embarqué</strong> :
+          un vendeur identifié, dont les ventes lui sont imputées et dont on suit la recette. Le
+          modèle existe et fonctionne ; il s'agit d'en changer la portée, pas de l'inventer.
+        </p>
+        <p class="exige"><b>Exige —</b> un rôle dédié avec son périmètre, un décompte de commission,
+          et une réponse claire à la question de l'encaissement — voir les risques.</p>
+      </div>
+
+      <div class="levier">
+        <div class="levier-tete">
+          <span class="levier-ref">L5</span>
+          <h3>La réactivation de la base client</h3>
+        </div>
+        <p>
+          Les clients dorment déjà dans l'application, avec leur téléphone et leur historique. Des
+          segments utiles se calculent sans aucune donnée supplémentaire : ceux qui n'ont voyagé
+          qu'une fois, ceux d'un trajet donné, ceux qui n'ont rien réservé depuis trois mois, ceux à
+          un voyage de leur récompense de fidélité.
+        </p>
+        <p>
+          La compagnie choisit un segment, envoie un message court avec le lien de réservation, et
+          mesure les réservations qui en découlent. C'est le meilleur rapport effort/revenu de la
+          liste : le client sait déjà qui tu es, et son numéro est déjà là.
+        </p>
+        <p class="exige"><b>Exige —</b> L1 et un canal SMS — donc un agrégateur, la même dépendance
+          externe que le paiement mobile. Et un consentement, sous peine de nuire à la marque.</p>
+      </div>
+
+      <div class="levier">
+        <div class="levier-tete">
+          <span class="levier-ref">L6</span>
+          <h3>La demande groupe et colis</h3>
+        </div>
+        <p>
+          Un formulaire public de demande : un groupe de 45 personnes pour le 12, ou 300&nbsp;kg à
+          expédier chaque semaine. La demande arrive dans l'espace de travail, un agent la traite, la
+          chiffre et répond. Ce sont les paniers les plus élevés, et ils se décident plusieurs jours
+          à l'avance.
+        </p>
+        <p>
+          Sur ce segment, ce qui emporte l'affaire n'est pas le prix mais le <strong>délai de première
+          réponse</strong>. C'est donc lui qu'il faut afficher et suivre.
+        </p>
+        <p class="exige"><b>Exige —</b> L1, un point d'entrée public de demande, et une file de
+          traitement côté agent avec une alerte sur les demandes non répondues.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="num">04 · Séquence</div>
+    <h2>L'ordre n'est pas négociable sur le premier</h2>
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-num">1</div>
+        <div class="phase-corps">
+          <h3>La page publique, seule</h3>
+          <p>L1 et L2. Rien d'autre. Tant qu'il n'existe pas d'endroit où atterrir, tout budget
+            d'acquisition se déverse dans le vide. C'est aussi la brique la moins coûteuse, puisque
+            l'API est déjà là.</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-num">2</div>
+        <div class="phase-corps">
+          <h3>Faire circuler le lien</h3>
+          <p>L3 et L6 : le parrainage et la demande groupe. Aucun des deux ne dépend d'un prestataire
+            externe, et tous deux transforment une audience existante en demande mesurable.</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-num">3</div>
+        <div class="phase-corps">
+          <h3>Aller chercher</h3>
+          <p>L5 dès que le canal SMS existe, L4 quand la question de l'encaissement par un tiers est
+            tranchée. Ce sont les deux leviers à dépendance — l'un technique, l'autre contractuelle.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="num">05 · Modèle économique</div>
+    <h2>Un module d'iTransport, pas un métier séparé</h2>
+    <p>
+      Le client de ce produit est la compagnie, pas le voyageur. Il n'y a donc ni place de marché, ni
+      conflit de canal, ni commission à prélever sur le trafic de tes propres clients : la compagnie
+      garde ses clients, c'est précisément ce qu'on lui vend.
+    </p>
+    <div class="cadre-table">
+      <table>
+        <thead><tr><th>Source</th><th>Principe</th></tr></thead>
+        <tbody>
+          <tr><td>Inclus</td><td>La page publique (L1–L2) accompagne l'abonnement. C'est un argument
+            de vente d'iTransport : « avec nous, tu existes en ligne. » Ne la facture pas séparément,
+            elle vaut plus comme différenciateur.</td></tr>
+          <tr><td>Module</td><td>Réactivation et parrainage (L3, L5) en supplément mensuel, refacturés
+            au coût du SMS majoré. La compagnie voit directement ce que la campagne a rapporté.</td></tr>
+          <tr><td>À l'usage</td><td>Le réseau d'apporteurs (L4) au siège vendu, puisque son coût pour
+            toi est proportionnel au volume.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="num">06 · Mesure</div>
+    <h2>L'attribution se conçoit d'abord, pas après</h2>
+    <p>
+      Chaque réservation doit porter <strong>son origine</strong> : page publique, lien partagé,
+      parrainage, apporteur, campagne de réactivation, ou guichet. C'est un champ à poser dès la
+      première ligne — reconstituer l'attribution après coup est impossible.
+    </p>
+    <p>
+      Sans lui, aucune des six briques ne peut être défendue devant une compagnie qui demande ce que
+      son abonnement lui rapporte. Avec lui, chaque levier se juge sur un chiffre : combien de
+      réservations, pour quelle recette, à quel coût.
+    </p>
+    <p>
+      Un second indicateur mérite d'être suivi à part : la part de clients <strong>nouveaux</strong>
+      parmi les réservations attribuées. Un canal qui ne fait que déplacer au web des clients qui
+      seraient venus au guichet ne crée aucune valeur — il en déplace.
+    </p>
+  </section>
+
+  <section>
+    <div class="num">07 · Risques</div>
+    <h2>Trois questions à trancher avant de coder</h2>
+
+    <div class="encadre risque">
+      <div class="etiquette">L'apporteur qui encaisse</div>
+      <p>
+        C'est le risque opérationnel majeur de L4. Si le tiers encaisse en espèces, la compagnie lui
+        fait crédit et devra courir après l'argent. Trois issues : il ne vend que du prépayé, il ne
+        fait que de l'apport sans encaisser, ou il travaille sur une avance de trésorerie déposée.
+        <strong>Le choix conditionne tout le reste</strong>, y compris la clôture de caisse.
+      </p>
+    </div>
+
+    <div class="encadre risque">
+      <div class="etiquette">Le message non sollicité</div>
+      <p>
+        La réactivation par SMS bascule très vite du service à la nuisance. Un plafond de fréquence
+        par client, un consentement, et un désabonnement en un mot — sinon le canal se brûle en
+        quelques campagnes, et il ne se rachète pas.
+      </p>
+    </div>
+
+    <div class="encadre risque">
+      <div class="etiquette">Ce que la page publique expose</div>
+      <p>
+        Ouvrir une façade signifie exposer des horaires, des tarifs et des disponibilités à tout le
+        monde — concurrents inclus. Ce n'est pas une objection, c'est une décision : la visibilité est
+        le produit. Mais elle se borne, et il faut décider ce qui reste dedans — le taux de
+        remplissage, par exemple, n'a rien à y faire.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="num">08 · Technique</div>
+    <h2>Ce que ça coûte à l'architecture</h2>
+    <p>
+      Peu, et c'est ce qui rend l'approche solide. Comme tout reste <strong>à l'intérieur du périmètre
+      d'une compagnie</strong>, aucune des trois couches d'isolation n'est mise en cause. Le slug
+      public fait déjà le travail : c'est un ajout de surface, pas une reprise du modèle.
+    </p>
+    <ul>
+      <li><strong>La façade publique</strong> — un espace non authentifié, à isoler nettement de
+        l'espace de travail actuel plutôt qu'à greffer dessus. Le pare-feu doit refuser par défaut.</li>
+      <li><strong>L'attribution</strong> — un champ d'origine sur la réservation et le billet, plus la
+        propagation du marqueur depuis le lien jusqu'à l'émission.</li>
+      <li><strong>Le canal SMS</strong> — un agrégateur, et une file d'envoi. L'envoi asynchrone est
+        de toute façon nécessaire ailleurs.</li>
+      <li><strong>Le rôle apporteur</strong> — le motif du commercial embarqué, avec un périmètre et
+        un décompte de commission propres.</li>
+    </ul>
+    <p>
+      Un point de vigilance : la façade publique reçoit du trafic non authentifié et potentiellement
+      automatisé. Elle a besoin d'une limite de débit dès le premier jour — le mécanisme existe déjà
+      pour la réservation publique et se réutilise tel quel.
+    </p>
+  </section>
+
+  <footer>
+    Note fondée sur l'état du code au 23 août 2026 : espace de travail intégralement authentifié,
+    aucune surface web publique, API publique de réservation cadrée par slug d'entreprise, application
+    voyageur en marque blanche <em>(une build&nbsp;=&nbsp;une compagnie)</em>, base client existante
+    avec téléphone et historique, paiement mobile et canal SMS tous deux en attente d'un agrégateur.
+    La hiérarchie des leviers est une proposition, à confronter au terrain.
+  </footer>
+
+</div>

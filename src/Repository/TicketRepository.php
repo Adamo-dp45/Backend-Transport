@@ -40,6 +40,51 @@ class TicketRepository extends ServiceEntityRepository
         ];
     }
 
+    /**
+     * Combien de billets cette gare a vendus VERS CHAQUE DESCENTE, sur ce voyage.
+     *
+     * Le bordereau dit déjà « 10 billets » ; il ne disait pas vers où. Or c'est cette ventilation
+     * que le chef de gare annonce au chauffeur et recompte à l'embarquement (« 4 descendent à
+     * Bouaké, 6 vont au bout »), et c'est elle qui explique une recette : dix courts trajets et dix
+     * bouts en bout ne font pas la même caisse.
+     *
+     * Groupé en SQL plutôt qu'en PHP sur 'findPassagers' : la liste des passagers est masquée du
+     * document, cette ventilation doit tenir sans elle.
+     *
+     * La descente VENDUE ('garedescente'), jamais la réelle : le bordereau constate ce qui a été
+     * encaissé. Un passager descendu en route a payé jusqu'à sa descente vendue, c'est là qu'il
+     * compte. Les billets désistés sont exclus comme partout ailleurs ici.
+     *
+     * @return list<array{gareid:int, libelle:string, nbtickets:int}>
+     */
+    public function findRecapDestinations(int $voyageId, int $gareId, int $identreprise): array
+    {
+        $lignes = $this->createQueryBuilder('t')
+            ->select('d.id AS gareid, d.libelle AS libelle, COUNT(t.id) AS nbtickets')
+            ->join('t.garedescente', 'd')
+            ->andWhere('t.voyage = :voyageId')
+            ->andWhere('t.gare = :gareId')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.deletedAt IS NULL')
+            ->groupBy('d.id')
+            ->addGroupBy('d.libelle')
+            ->setParameter('voyageId', $voyageId)
+            ->setParameter('gareId', $gareId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getArrayResult();
+
+        return array_map(
+            static fn (array $l): array => [
+                'gareid' => (int) $l['gareid'],
+                'libelle' => (string) $l['libelle'],
+                'nbtickets' => (int) $l['nbtickets'],
+            ],
+            $lignes
+        );
+    }
+
     public function findPassagers(int $voyageId, int $gareId, int $identreprise): array
     {
         return $this->createQueryBuilder('t')

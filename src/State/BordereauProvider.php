@@ -5,6 +5,8 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Service\ReservationEcheanceService;
+use App\Entity\Gare;
+use App\Entity\Output\Bordereau\BordereauDestinationDto;
 use App\Entity\Output\Bordereau\BordereauGareDto;
 use App\Entity\Output\Bordereau\BordereauOutput;
 use App\Entity\Output\Bordereau\BordereauPassagerDto;
@@ -133,8 +135,64 @@ class BordereauProvider implements ProviderInterface
             placesoccupeesdepart: $occDepart,
             placeslibresdepart: $libreDepart,
             nbbagages: $nbBagages,
-            nbcourriers: $nbCourriers
+            nbcourriers: $nbCourriers,
+            destinations: $this->recapDestinations($voyage, $gare, (int) $voyageId, (int) $gareId, $identreprise)
         );
+    }
+
+    /**
+     * « Abidjan → Bouaké : 4 · Abidjan → Korhogo : 6 » — les billets de CETTE gare ventilés par
+     * descente, dans l'ordre où le car s'arrête.
+     *
+     * Le tri est fait ICI et non en SQL : l'ordre utile est celui des arrêts de la ligne, que seul
+     * le voyage connaît. Une destination hors ligne (billet d'une ligne modifiée depuis) est
+     * renvoyée en fin de liste plutôt que tue — sur un document de caisse, un billet qui disparaît
+     * du récapitulatif est pire qu'un billet mal rangé.
+     *
+     * @return list<BordereauDestinationDto>
+     */
+    private function recapDestinations(
+        Voyage $voyage,
+        Gare $gare,
+        int $voyageId,
+        int $gareId,
+        int $identreprise
+    ): array {
+        $lignes = $this->ticketRepository->findRecapDestinations($voyageId, $gareId, $identreprise);
+        if ($lignes === []) {
+            return [];
+        }
+
+        $ordreParGare = $this->ordreParGare($voyage);
+        usort(
+            $lignes,
+            static fn (array $a, array $b): int => ($ordreParGare[$a['gareid']] ?? PHP_INT_MAX)
+                <=> ($ordreParGare[$b['gareid']] ?? PHP_INT_MAX)
+        );
+
+        return array_map(
+            static fn (array $l): BordereauDestinationDto => new BordereauDestinationDto(
+                depart: (string) $gare->getLibelle(),
+                destination: $l['libelle'],
+                nbtickets: $l['nbtickets']
+            ),
+            $lignes
+        );
+    }
+
+    /**
+     * Ordre de chaque gare le long de la ligne du voyage, indexé par identifiant de gare.
+     *
+     * @return array<int, int>
+     */
+    private function ordreParGare(Voyage $voyage): array
+    {
+        $ordres = [];
+        foreach ($voyage->getLigne()?->getArrets() ?? [] as $arret) {
+            $ordres[$arret->getGare()->getId()] = $arret->getOrdre();
+        }
+
+        return $ordres;
     }
 
     /**
@@ -152,10 +210,7 @@ class BordereauProvider implements ProviderInterface
             return [0, $placestotal];
         }
 
-        $ordreParGare = [];
-        foreach ($ligne->getArrets() as $arret) {
-            $ordreParGare[$arret->getGare()->getId()] = $arret->getOrdre();
-        }
+        $ordreParGare = $this->ordreParGare($voyage);
         if (!isset($ordreParGare[$gareId])) {
             return [0, $placestotal];
         }
