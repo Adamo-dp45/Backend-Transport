@@ -36,7 +36,7 @@ flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-el
 
 SycaPay, Jèko, GeniusPay, AdjeminPay
 
-
+- Tester la fusion de fichier et le merge sur git et github
 - Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
 
 
