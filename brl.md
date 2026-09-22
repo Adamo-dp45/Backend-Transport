@@ -36,8 +36,11 @@ flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-el
 
 SycaPay, Jèko, GeniusPay, AdjeminPay
 
-- Tester la fusion de fichier et le merge sur git et github
 - Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
+
+
+
+
 
 
 Salut Claude Code,
@@ -62,6 +65,9 @@ Analyse le projet pour :
  
 
 
+
+
+- Faire une mise à jour du Framework vers .. 8. et montre moi comment faire
 
 
 
@@ -692,7 +698,7 @@ Pour ton application, je prévoirais donc dès le départ : **session de caisse 
 - Enlever matricule du car sur le ticket pour mettre départ..
 - QRCode des tickets à reddirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
     B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
-- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
+- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets(aussi, courriers, bagage, bordereau..) :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
 - Dépannage, approvisionnement dans la partie recette pour avoir la recette net, du genre tout ce qui rentre et tout ce qui sort
 - Plus de détails sur la recette et centralisé la recette pour que l'admin ne se perde pas
 - Pour les dépenses on a générales et par gare (sur le tableau de bord de la gare on a recette - depenses) gare nullable  sur dépense
@@ -9859,3 +9865,327 @@ npm run dev
 
 ## Suite
 Il reste le **cœur du métier** : **Billetterie / Réservations** (vente par tronçon, surbooking assumé, éviction, report — le sujet le plus riche, cf. le chantier « sièges évincés » déjà en prod côté Symfony), puis **Courrier** et **Bagage**. On attaque la Billetterie ?
+
+
+
+
+
+
+
+
+
+
+
+## New 2
+
+Dans l'état actuelle, si une gare intermédiaire réceptionne un voyage qui n'est pas encore à son niveau du genre Bouaké réceptionne alors que le cars est en route vers Yamoussoukro, est ce que ça pénalise Yamoussoukro ?
+
+
+
+
+
+Bonne question — c'est un cas de saisie erronée bien réel. Je vais lire le chemin de réception plutôt que de répondre de mémoire.
+
+Oui — lourdement, et **sans retour en arrière possible**. J'ai suivi le chemin complet.
+
+## Rien n'empêche la réception prématurée
+
+[`VoyageGuard::assertPeutReceptionner`](Backend-Transport/src/Security/VoyageGuard.php:127) ne vérifie que trois choses : gare intermédiaire, desservie par la ligne, voyage non clôturé. **Aucun contrôle d'ordre ni de position réelle du car.** Bouaké peut donc réceptionner à tout moment.
+
+## Ce que Yamoussoukro perd immédiatement
+
+La réception avance `garecourante` à Bouaké (ordre 2), puis appelle [`cloturerMonteesDepassees`](Backend-Transport/src/Domain/Service/ReservationEcheanceService.php:339) dans la foulée. Yamoussoukro (ordre 1) est désormais « dépassée » :
+
+**Ses réservations vivantes sont fermées sur-le-champ** — `dateexpiration` ramenée à maintenant, place libérée, paiement fermé. Les réservations payées sont marquées `penaliteexoneree` (pas de pénalité financière, c'est la seule consolation), mais au prochain passage du cron elles basculent en `A_REGULARISER` : le client a payé, sa place est reprise, et il faudra le reporter sur un autre départ. Alors que le car n'est même pas encore arrivé chez lui.
+
+Ensuite, `monteeDepassee(Yamoussoukro)` reste vrai en permanence (position 2 > montée 1). Ça ferme pour Yamoussoukro, sur ce voyage :
+
+- la **vente de billets** ([`TicketProcessor:167`](Backend-Transport/src/State/TicketProcessor.php:167))
+- la **correction d'un billet** ([`TicketUpdateProcessor:92`](Backend-Transport/src/State/TicketUpdateProcessor.php:92))
+- le **désistement**, report comme annulation ([`DesistementProcessor:130`](Backend-Transport/src/State/DesistementProcessor.php:130))
+- **création, encaissement, émission du billet et régularisation** d'une réservation
+
+Pire pour le diagnostic : le voyage **disparaît purement et simplement** des sélecteurs ([`VoyagesReservablesProvider:137`](Backend-Transport/src/State/VoyagesReservablesProvider.php:137) et `DepartsPubliquesProvider`). L'agent de Yamoussoukro n'a même pas de message d'erreur — le départ n'est plus dans sa liste, et rien ne lui dit pourquoi.
+
+## Ce qui n'est pas touché
+
+Les **courriers et bagages** de Yamoussoukro ne bougent pas : le processor ne bascule que ceux de la gare qui réceptionne. Yamoussoukro pourra toujours réceptionner plus tard — le garde l'autorise — et ses colis basculeront normalement à ce moment-là.
+
+Le **recalage** est protégé : le tronçon mesuré ressortirait négatif, et [`RecalageService:133`](Backend-Transport/src/Domain/Service/RecalageService.php:133) écarte déjà tout delta ≤ 0 (« un delta ≤ 0 trahit un horodatage erroné »).
+
+## Ce qui est faussé en plus
+
+Le `Passage` de Bouaké porte une **arrivée qui n'a pas eu lieu** : son retard est flatté, et si Yamoussoukro réceptionne ensuite, son arrivée sera postérieure à celle de Bouaké — l'« évolution du retard le long du trajet » devient incohérente. Et si le départ n'avait pas été marqué à l'origine, la réception l'**invente** à l'instant présent (`VoyageDepartService::marquerDepart`).
+
+## Aucune réparation par l'application
+
+`garecourante` est exposée en **lecture seule** ([`Voyage.php:388`](Backend-Transport/src/Entity/Voyage.php:388), groupe `read:Voyage` uniquement) et son avance est **monotone**. Une réception de Yamoussoukro ensuite ne la ramène pas en arrière, aucun endpoint n'annule une réception. Seule une correction directe en base répare — et elle ne ressusciterait pas les réservations déjà fermées.
+
+Aucun test ne couvre l'ordre des réceptions.
+
+---
+
+Si tu veux que je referme ça, il y a deux approches et le choix t'appartient, parce qu'elles n'ont pas le même coût d'exploitation :
+
+1. **Garde d'ordre à la réception** — refuser une réception qui saute un arrêt non encore horodaté. Simple et net, mais une gare qui oublie de réceptionner **bloque toutes les suivantes** : il faudrait un rattrapage explicite (réceptionner pour le compte des gares sautées, ou une action d'admin).
+2. **Découpler la fermeture des réservations de la position déclarée** — ne fermer les montées d'une gare que si le **départ de cette gare** est consigné, pas seulement parce que `garecourante` l'a dépassée. Plus tolérant, mais ça élargit une règle qui sert partout, et une gare qui ne pointe jamais son départ continuerait de vendre.
+
+Dis-moi laquelle, ou si tu préfères d'abord voir l'étendue exacte des appels concernés pour la seconde.
+
+
+
+
+
+
+
+
+
+Option 1 avec rattrapage par un admin. Je regarde d'abord comment la position avance par ailleurs, pour que la garde et le rattrapage parlent de la même chose.
+
+Le rattrapage doit rester un **pointage de passage**, pas une réception de colis — sinon on déclarerait livrés des colis encore à bord. Je vérifie deux détails avant d'écrire.
+
+Je commence par la garde d'ordre.
+
+Maintenant le service partagé d'avance de position, pour que la réception et le rattrapage ne divergent pas.
+
+Maintenant l'action de rattrapage : l'entrée, la constante d'audit, puis le processor.
+
+Il reste à déclarer l'opération sur l'entité `Voyage`.
+
+Les tests, en commençant par le scénario exact que tu as décrit.
+
+La garde fonctionne. Deux échecs sont dus à mon test (le démarrage horodate à l'instant présent). J'en profite pour fermer aussi le cas d'une heure dans le futur.
+
+10 tests au vert. Je lance la suite complète pour vérifier que la garde ne casse rien ailleurs.
+
+Un test de domaine affirmait que Bouaké pouvait réceptionner directement — c'est précisément ce que la garde interdit désormais. Je le mets à jour.
+
+210 tests au vert. Il reste à exposer l'action côté frontend.
+
+Maintenant l'interface. Je regarde la frise des horaires sur la fiche voyage, l'endroit naturel pour ça.
+
+Je complète les pastilles du journal d'activité pour le nouveau type, puis les README.
+
+Les README, puis vérification en conditions réelles.
+
+Le test en conditions réelles demanderait d'écrire dans ta base de dev (démarrer, réceptionner). Je regarde d'abord, en lecture seule, s'il existe déjà un voyage à la bonne forme.
+
+Voyage 40 est parti, 4 arrêts, **aucune arrivée pointée** — exactement la forme voulue. Un refus n'écrit rien, je peux donc le vérifier sans toucher à tes données.
+
+La garde refuse proprement, et le refus n'écrit rien. Je regarde maintenant l'interface.
+
+La session du navigateur a été perdue en fermant le panneau. Il me faut une reconnexion pour le contrôle visuel.
+
+C'est fait et testé. Voici l'état.
+
+## La garde d'ordre
+
+[`VoyageGuard::assertPeutReceptionner`](Backend-Transport/src/Security/VoyageGuard.php:159) exige désormais que **tous les arrêts situés entre l'origine effective et la gare qui réceptionne portent une arrivée horodatée**. Le refus nomme la gare oubliée et dit par où sortir.
+
+Vérifié à l'instant sur ta base de dev, sur le voyage `LI-ABI-KOR-0001-V37` (parti, aucune arrivée pointée) :
+
+```
+PATCH /api/voyages/40/receptionner  (agent de Bouaké)
+→ HTTP 400
+« Le car ne peut pas être arrivé à Gare de Bouaké sans être passé par Gare de
+  Yamoussoukro, qui n'a pas encore été pointée. Faites-la réceptionner, ou
+  demandez à un administrateur de rattraper ce passage. »
+```
+
+Et après le refus : position toujours à Adjamé, un seul passage (le départ), aucune réservation touchée. **Un refus n'écrit rien.**
+
+Un point de conception que j'ai tranché : la garde cherche une **arrivée dans `Passage`**, pas une réception. L'avance déclarée par le commercial à bord suffit donc — une gare traversée sans agent, le cas ordinaire, ne bloque pas la suivante. Exiger une réception aurait rendu la garde inapplicable là où elle sert le plus.
+
+## Le rattrapage admin
+
+`PATCH /api/voyages/{id}/rattraper-passage`, `ROLE_ADMIN`, [RattraperPassageProcessor.php](Backend-Transport/src/State/RattraperPassageProcessor.php).
+
+**Il consigne un passage, il ne réceptionne pas.** Les courriers et bagages qui descendent à cette gare ne basculent pas : s'il n'y avait personne pour pointer le car, il n'y avait probablement personne pour décharger. La gare fera sa réception ensuite — l'arrivée déjà posée n'est pas réécrite, seuls les colis bougent.
+
+**L'heure réelle est obligatoire et doit s'insérer dans la chronologie** : postérieure au départ ou au passage amont, antérieure au passage aval, jamais dans le futur. Sans cette garde, le rattrapage rouvrait par la porte de service le défaut qu'on vient de fermer — tronçon mesuré négatif, retard de la gare égal à celui de l'oubli — et cette fois signé par un administrateur, donc au-dessus de tout soupçon.
+
+Refus explicites : voyage clôturé, départ non enregistré (sinon le passage serait antérieur au départ), gare hors ligne, origine, terminus, passage déjà consigné. Audité à part sous `VOYAGE_PASSAGE_RATTRAPE`.
+
+## Une chose que j'ai extraite
+
+L'avance de position vit maintenant dans [PositionCouranteService](Backend-Transport/src/Domain/Service/PositionCouranteService.php), partagée par la réception et le rattrapage : deux chemins, un seul état possible. J'ai laissé `AvanceePositionService` (commercial) distinct **exprès** — il ne ferme pas les réservations. Le commercial signale où est le véhicule, la gare *constate* son passage, et c'est ce constat qui décide qu'un client ne montera pas. Les fusionner fermerait des réservations sur une simple déclaration de position, y compris rejouée depuis une file hors ligne.
+
+## Interface
+
+Sur la **frise des horaires** de la fiche voyage, chaque arrêt intermédiaire sans arrivée offre à un admin un dépliant « Passage non pointé — rattraper » : heure réelle, bornée à maintenant, avec confirmation qui rappelle que les colis ne sont pas réceptionnés. Placé là plutôt que dans la barre d'actions — le trou se voit sur la frise, la réparation doit être au même endroit.
+
+## Tests
+
+**210 tests au vert.** Dix nouveaux dans [ReceptionOrdreTest.php](Backend-Transport/tests/Api/ReceptionOrdreTest.php), dont celui qui compte : après un refus, l'échéance de la réservation de Yamoussoukro est **intacte** et la position n'a pas bougé.
+
+Un test de domaine existant affirmait que Bouaké pouvait réceptionner directement — c'est exactement ce que la garde interdit. Je l'ai basculé sur Yamoussoukro, le premier intermédiaire, en renvoyant à la nouvelle suite.
+
+---
+
+Deux choses pour finir :
+
+**Pour le contrôle visuel**, la session du navigateur a été perdue en fermant le panneau tout à l'heure. Si tu te reconnectes sur http://127.0.0.1:8300 (frontend de test, API sur 8200, ta base), j'ouvre le voyage 40 et je te montre le dépliant sur la frise. Le **chemin réussi** (rattraper puis réceptionner) écrit en revanche dans ta base — je ne le lance pas sans ton feu vert.
+
+**Et une question que je te laisse** : `AvanceePositionService`, la voie du commercial, n'a **aucune garde d'ordre** non plus. Un commercial peut donc sauter Yamoussoukro d'un geste. Ça ne ferme pas ses réservations (ce service ne les touche pas), mais ça avance quand même `garecourante` — donc ça bloque la vente à Yamoussoukro via `monteeDepassee`. Tu ne m'as parlé que des gares, je ne l'ai pas élargi de moi-même. Dis-moi si tu veux que je m'en occupe.
+
+
+
+
+Oui.
+
+
+
+
+Je prends ton « oui » pour la voie du commercial. Avant de coder, je regarde comment l'app mobile déclare la progression — le hors-ligne change ce qui est acceptable.
+
+Un point décisif : l'app mobile n'avance **que d'un arrêt à la fois** (`prochainArret`), donc la garde ne lui coûterait rien. Je vérifie ce point et un piège de rejeu hors ligne.
+
+Deux confirmations qui décident de tout :
+
+- l'app n'avance que vers `prochainArret` — **la garde ne lui coûte rien** ;
+- mais `PassageService` persiste **sans flusher**, donc ma garde actuelle lit `$voyage->getPassages()` et ne verrait pas une arrivée posée quelques lignes plus haut dans un lot hors ligne. Je corrige ça d'abord.
+
+Maintenant la garde sur la voie du commercial.
+
+Mon édition par script a coupé trop large dans `VoyageGuard` — des méthodes ont disparu. Je restaure et je reprends proprement.
+
+Je complète le test pour couvrir la voie du commercial, y compris le rejeu hors ligne.
+
+12 tests au vert. Suite complète :
+
+Tu as commité le travail précédent entre-temps — les modifications restantes sont donc bien uniquement celles d'aujourd'hui. Voici le bilan.
+
+## La garde, étendue au commercial
+
+Même règle dans [`AvanceePositionService`](Backend-Transport/src/Domain/Service/AvanceePositionService.php:76) que pour les gares : on n'avance pas par-dessus un arrêt jamais pointé.
+
+Le point qui a décidé de l'approche : **l'app du commercial n'avance que vers `prochainArret`**, l'arrêt immédiatement suivant. Un saut lui est impossible, en ligne comme hors ligne, et le rejeu d'une file reproduit la même progression pas à pas. La garde ne lui coûte donc **rien** — pas de refus qui tomberait à la synchronisation après coup, ce qui aurait été rédhibitoire. Elle attrape ce qu'elle doit : un appel direct à l'endpoint, un admin qui saute un arrêt, un futur client mal écrit.
+
+## Un piège que j'ai failli livrer
+
+Ma garde initiale lisait `$voyage->getPassages()`. Or `PassageService::pour()` persiste **sans flusher et sans rattacher** le passage à la collection du voyage. Dans un lot hors ligne, la deuxième avance n'aurait donc pas vu l'arrivée posée par la première, et aurait été refusée au motif qu'elle n'avait jamais eu lieu — exactement le piège que ton `PassageService::connu()` documente pour le départ après une arrivée.
+
+La lecture de la chaîne vit maintenant dans [`PassageService::premierArretNonPointe`](Backend-Transport/src/Domain/Service/PassageService.php:77), qui consulte le cache de requête avant la base. `VoyageGuard` et `AvanceePositionService` l'utilisent tous les deux. Un test verrouille le cas : deux avances successives dans la même séquence doivent passer.
+
+## À signaler : j'ai cassé puis restauré `VoyageGuard`
+
+Une édition par script a coupé trop large et supprimé `monteeAtteinte`, `monteeDepassee`, `aQuitteLaGare` et `ordresPosition`. La suite de tests l'a montré immédiatement (45 échecs, `Call to undefined method`). J'ai restauré le fichier depuis git et refait les trois modifications une par une. Le fichier a bien ses 10 méthodes d'origine plus le constructeur.
+
+## Total
+
+**212 tests au vert**, dont 12 dans [ReceptionOrdreTest.php](Backend-Transport/tests/Api/ReceptionOrdreTest.php).
+
+Vérifié aussi sur ta base de dev, sans rien y écrire : Bouaké se fait refuser la réception du voyage 40 en nommant Yamoussoukro, et après le refus la position est toujours à Adjamé, un seul passage, aucune réservation touchée.
+
+## Reste ouvert
+
+Le **contrôle visuel** du dépliant de rattrapage sur la frise. Les serveurs de test tournent (front `http://127.0.0.1:8300`, API sur 8200, ta base) mais la session du navigateur a été perdue en fermant le panneau. Si tu te reconnectes, j'ouvre le voyage 40 et je te montre. Le chemin réussi — rattraper puis réceptionner — écrit en revanche dans ta base, je ne le lance pas sans ton accord.
+
+
+
+
+
+
+
+
+
+Feu vert reçu. Je capture d'abord l'état avant, pour pouvoir te montrer exactement ce qui change.
+
+L'état a changé depuis hier — le car a avancé. Je regarde le détail avant de choisir quoi faire.
+
+Les passages ont été pointés cette nuit à 22:58 et 23:00. Je vérifie dans le journal si c'est le rattrapage qui a servi.
+
+Tu l'as déjà lancé toi-même cette nuit, et ça a marché de bout en bout. Le journal du voyage 40 en garde la trace exacte :
+
+Il n'y avait plus rien à lancer : **tu l'as fait toi-même cette nuit**, et le journal du voyage 40 en garde la trace complète.
+
+```
+23:00:04  VOYAGE_RECEPTION          Voyage réceptionné à Gare de Bouaké
+          par agent.bouake@ira-transport.ci
+
+22:59:23  VOYAGE_PASSAGE_RATTRAPE   Passage rattrapé à Gare de Yamoussoukro
+          par admin@ira-transport.ci     (arrivée déclarée le 21/09/2026 22:58)
+```
+
+C'est exactement le parcours prévu, dans le bon ordre et avec les bons acteurs : l'admin consigne le passage oublié à 22:58, puis Bouaké réceptionne **41 secondes plus tard** — alors que la même réception était refusée juste avant. Les passages en base le confirment : Adjamé (départ 16:52), Yamoussoukro (22:58), Bouaké (23:00), Korhogo encore vide, position courante à Bouaké.
+
+J'ai quand même fermé la dernière boucle, en lecture seule — un second rattrapage sur Yamoussoukro :
+
+```
+HTTP 400
+« Le passage à Gare de Yamoussoukro est déjà consigné (21/09/2026 22:58) :
+  il n'y a rien à rattraper »
+```
+
+L'idempotence tient : on ne réécrit jamais un horodatage posé.
+
+**Ce que je n'ai donc pas relancé, et pourquoi** : le voyage 40 n'a plus de trou dans sa chaîne. Rejouer le rattrapage se ferait refuser (ci-dessus), et re-réceptionner Bouaké passerait mais n'écrirait qu'une ligne de journal en double, sans rien démontrer. Le seul arrêt restant est le terminus, qui relève de la clôture.
+
+Du coup le contrôle visuel du dépliant n'est plus possible sur ce voyage : il ne s'affiche que sur un arrêt intermédiaire **sans** arrivée, et il n'y en a plus. Si tu veux le voir, il faut un départ qui présente le trou — soit un nouveau voyage sur la ligne Adjamé → Korhogo démarré sans pointer Yamoussoukro, soit tu attends le prochain cas réel. Dis-moi si tu veux que j'en prépare un.
+
+J'ai arrêté les serveurs de test (8200 et 8300) et nettoyé les jetons.
+
+**Un détail que j'ai noté au passage** : le rattrapage n'a pas pu démontrer qu'il laisse les colis tranquilles — Yamoussoukro n'avait ni courrier ni bagage à descendre sur ce voyage. C'est couvert par un test, mais pas observé en vrai.
+
+
+
+
+
+
+
+
+
+
+Feu vert. Je le crée par l'API, avec les vraies règles — pas par insertion SQL.
+
+Le voyage est en route avec le trou. Je vérifie que la garde se déclenche et que l'état est bien celui voulu.
+
+Le voyage de démonstration est prêt. Je relance le frontend et je regarde si une session subsiste.
+
+La session tient. Voici la frise du voyage préparé :
+
+L'interface est exactement celle prévue. Un détail de mon jeu de test fausse la lecture (« -385 min ») : j'ai daté le départ prévu à 06:00 le lendemain. Je corrige.
+
+Le bouton « Consigner » est dans le DOM mais je ne le vois pas rendu. Je vérifie ses styles calculés.
+
+Vrai défaut trouvé : `bg-amber-600` calcule en **transparent** — texte blanc sur fond transparent, bouton invisible. La classe n'existe pas dans le CSS compilé : je n'ai pas rebâti les assets après avoir écrit ce gabarit.
+
+La page chargée dans le navigateur date d'avant le rebuild. Je recharge et je revérifie.
+
+Le voyage de démonstration est prêt et l'interface se comporte comme prévu.
+
+## Ce que j'ai créé
+
+**Voyage 41 — `LI-ABI-KOR-0001-V38`**, ligne Adjamé → Yamoussoukro → Bouaké → Korhogo, car `4521 AB 01` (60 places), parti à 23:35 pour un départ prévu à 23:00.
+
+Tout est passé par l'API avec les vraies règles, jamais par insertion SQL :
+
+- un **billet** Adjamé → Yamoussoukro (`…-TCK-2026-1`, siège 12, 5 000 F) ;
+- un **bagage** qui descend à Yamoussoukro (`BAG-2026-69`, 14 kg, 2 500 F) → `EMBARQUE` ;
+- un **courrier** à destination de Yamoussoukro (`CRR-2026-7`) → `EN_TRANSIT` ;
+- le voyage démarré, **et Yamoussoukro volontairement non pointée**.
+
+Le bagage et le courrier sont là exprès : ils permettront d'observer en vrai que le rattrapage **ne les livre pas** — le seul point que les tests couvraient sans qu'on puisse le voir.
+
+## Ce que ça donne
+
+L'API refuse bien la réception de Bouaké :
+
+> « Le car ne peut pas être arrivé à Gare de Bouaké sans être passé par Gare de Yamoussoukro, qui n'a pas encore été pointée. Faites-la réceptionner, ou demandez à un administrateur de rattraper ce passage. »
+
+Et sur la frise, connecté en admin :
+
+- **Adjamé** — `DÉPART` · `CAR ICI` · `+35 min` · départ 23:35
+- **Yamoussoukro** — *Passage non pointé — rattraper*, dépliant ouvert avec l'heure réelle pré-remplie et le bouton **Consigner**
+- **Bouaké** — même dépliant, replié
+- **Korhogo** — `TERMINUS`, **aucun dépliant** : le terminus relève de la clôture, pas du rattrapage
+
+## Deux choses à te signaler
+
+**J'ai cru trouver un bug, c'en était un de ma part** : le bouton « Consigner » s'affichait en blanc sur transparent. J'avais oublié de rebâtir les assets après avoir écrit le gabarit — la classe `bg-amber-600` n'existait pas encore dans le CSS compilé. Après `npm run build` et rechargement, le bouton est bien en ambre (`rgb(218,119,0)`). Rien à corriger dans le code, mais **le build est nécessaire** avant de déployer ce changement.
+
+**J'ai ajusté l'heure de départ prévue** du voyage 41 après coup (de 06:00 le 22 à 23:00 le 21) : mon premier choix affichait « -385 min », un car en avance de plus de six heures, ce qui rendait la frise illisible. C'est une écriture supplémentaire sur ce voyage de démonstration, pas sur tes données existantes.
+
+---
+
+Les serveurs tournent toujours (front `http://127.0.0.1:8300`, API 8200). Tu peux cliquer « Consigner » toi-même pour voir la suite : Bouaké devient réceptionnable, et le bagage comme le courrier de Yamoussoukro doivent rester `EMBARQUE` et `EN_TRANSIT`. Dis-moi si tu veux que je le déroule, ou que je supprime ce voyage de démonstration une fois que tu l'auras vu.

@@ -5,7 +5,7 @@ namespace App\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Service\ActiviteLogger;
-use App\Domain\Service\ReservationEcheanceService;
+use App\Domain\Service\PositionCouranteService;
 use App\Domain\Service\VoyageDepartService;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\CourrierStatus;
@@ -34,7 +34,7 @@ class ReceptionnerVoyageProcessor implements ProcessorInterface
         private VoyageGuard $guard,
         private ActiviteLogger $activiteLogger,
         private VoyageDepartService $departService,
-        private ReservationEcheanceService $reservationEcheance,
+        private PositionCouranteService $positionCourante,
         private \App\Domain\Service\PassageService $passageService
     )
     {
@@ -95,23 +95,9 @@ class ReceptionnerVoyageProcessor implements ProcessorInterface
 
         // Avance la POSITION COURANTE du car à cette gare intermédiaire (avancement monotone) : c'est
         // depuis cette gare que le commercial à bord vendra désormais (« la carte s'actualise »).
-        $ligne = $data->getLigne();
-        if ($ligne !== null && $gare !== null) {
-            $ordreParGare = [];
-            foreach ($ligne->getArrets() as $arret) {
-                $ordreParGare[$arret->getGare()->getId()] = $arret->getOrdre();
-            }
-            $cibleOrdre = $ordreParGare[$gare->getId()] ?? null;
-            $courante = $data->getGarecourante() ?? $data->getOrigineEffective();
-            $courantOrdre = $courante ? ($ordreParGare[$courante->getId()] ?? 0) : 0;
-            if ($cibleOrdre !== null && $cibleOrdre > $courantOrdre) {
-                $data->setGarecourante($gare);
-                // La position vient d'avancer : les réservations des gares désormais DÉPASSÉES ne
-                // seront pas honorées (le car n'y repassera pas) — on libère leurs places et on
-                // ferme le paiement. Celles de CETTE gare sont épargnées : le car y est, on embarque.
-                $this->reservationEcheance->cloturerMonteesDepassees($data, $now);
-            }
-        }
+        // La règle vit dans 'PositionCouranteService', partagée avec le rattrapage d'un passage
+        // oublié par un administrateur : deux chemins, un seul état possible.
+        $this->positionCourante->avancerA($data, $gare, $now);
 
         $this->activiteLogger->voyage(
             ActiviteLogger::VOYAGE_RECEPTION,

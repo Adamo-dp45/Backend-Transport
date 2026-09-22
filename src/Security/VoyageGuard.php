@@ -2,6 +2,7 @@
 
 namespace App\Security;
 
+use App\Domain\Service\PassageService;
 use App\Entity\Gare;
 use App\Entity\Ligne;
 use App\Entity\User;
@@ -22,6 +23,12 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
  */
 class VoyageGuard
 {
+    public function __construct(
+        private readonly PassageService $passageService
+    )
+    {
+    }
+
     private function isAdmin(User $user): bool
     {
         return in_array('ROLE_ADMIN', $user->getRoles(), true) || in_array('ROLE_SUPER_ADMIN', $user->getRoles(), true);
@@ -155,6 +162,43 @@ class VoyageGuard
         }
         if ($gare->getId() === $ligne->getGareterminus()?->getId()) {
             throw new BadRequestHttpException('La gare de destination ne réceptionne pas le voyage : elle le clôture');
+        }
+
+        /*
+            ORDRE DES ARRÊTS — un car ne saute pas une gare de sa ligne. Réceptionner ici alors qu'un
+            arrêt situé AVANT n'a jamais été pointé, c'est affirmer que le véhicule est arrivé sans
+            y être passé.
+
+            Ce n'était pas gardé, et ça ne coûtait pas qu'un horodatage : la réception AVANCE la
+            position du car, et tout ce qui en dépend punit alors les gares survolées. Bouaké
+            réceptionnant trop tôt fermait d'un coup, pour Yamoussoukro, les réservations vivantes
+            (place rendue, paiement clos), la vente de billets, leur correction, les désistements et
+            l'émission d'un billet de réservation — et le départ disparaissait même de son sélecteur,
+            sans le moindre message. Le tout sans retour en arrière : 'garecourante' n'est pas
+            écrivable par l'API et n'avance que dans un sens.
+
+            Le pointage recherché est l'ARRIVÉE consignée dans 'Passage' — celle que posent aussi
+            bien la réception d'une gare que l'avance déclarée par le commercial à bord. Une gare
+            réellement traversée sans agent n'a donc pas besoin d'être « réceptionnée » pour laisser
+            passer la suivante : il suffit que quelqu'un ait pointé le car.
+
+            Reste le cas où personne ne l'a fait. Refuser bloquerait alors toute la ligne derrière un
+            oubli, d'où le rattrapage explicite par un administrateur
+            ('PATCH /voyages/{id}/rattraper-passage'), qui consigne le passage manquant à l'heure
+            réelle. C'est une correction tracée, pas un contournement silencieux.
+        */
+        $oubliee = $this->passageService->premierArretNonPointe(
+            $voyage,
+            $ordreProvenance,
+            $ordreParGare[$gare->getId()]
+        );
+        if ($oubliee !== null) {
+            throw new BadRequestHttpException(sprintf(
+                'Le car ne peut pas être arrivé à %s sans être passé par %s, qui n\'a pas encore été pointée. '
+                . 'Faites-la réceptionner, ou demandez à un administrateur de rattraper ce passage.',
+                (string) $gare->getLibelle(),
+                (string) $oubliee->getLibelle()
+            ));
         }
     }
 

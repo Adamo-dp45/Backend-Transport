@@ -71,6 +71,33 @@ class AvanceePositionService
             return false;
         }
 
+        /*
+            ORDRE DES ARRÊTS — même règle que la réception d'une gare
+            ({@see App\Security\VoyageGuard::assertPeutReceptionner}), et pour la même raison : avancer
+            par-dessus un arrêt jamais pointé, c'est affirmer que le car y est passé sans rien en
+            savoir. La position commande ensuite ce qui est vendable, et une gare survolée se retrouve
+            fermée à la vente sans que le car soit arrivé chez elle.
+
+            ELLE NE COÛTE RIEN À L'APPLICATION DU COMMERCIAL : elle n'avance jamais que vers
+            `prochainArret`, l'arrêt immédiatement suivant la position courante — un saut lui est
+            impossible, en ligne comme hors ligne, et le rejeu d'une file reproduit la même
+            progression pas à pas. La garde attrape donc ce qu'elle doit attraper : un appel direct à
+            l'endpoint, un admin qui saute un arrêt, un futur client mal écrit.
+
+            !! la chaîne est lue par `PassageService`, jamais par `Voyage::getPassages()` : dans un LOT
+            hors ligne, l'arrivée posée à l'opération précédente n'est pas encore flushée et la
+            collection ne la verrait pas — la deuxième avance du même lot serait refusée au motif que
+            la première n'a jamais eu lieu.
+        */
+        $oubliee = $this->passageService->premierArretNonPointe($voyage, $ordreCourant, $ordreParGare[$cibleId]);
+        if ($oubliee !== null) {
+            throw new BadRequestHttpException(sprintf(
+                'Le car ne peut pas être arrivé à %s sans être passé par %s : déclarez d\'abord ce passage.',
+                (string) $cible->getLibelle(),
+                (string) $oubliee->getLibelle()
+            ));
+        }
+
         $voyage->setGarecourante($cible);
 
         // Le commercial déclare que le car est ARRIVÉ ici. 'PassageService' est idempotent : le

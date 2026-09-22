@@ -19,6 +19,7 @@ use App\Entity\Dto\AffectcarInput;
 use App\Entity\Dto\AffectCommercialInput;
 use App\Entity\Dto\AffectpersonnelInput;
 use App\Entity\Dto\AvancerCommercialInput;
+use App\Entity\Dto\RattrapagePassageInput;
 use App\Entity\Dto\CloturerInput;
 use App\Entity\Interface\EntrepriseOwnedInterface;
 use App\Entity\Interface\LigneGareScopedInterface;
@@ -36,6 +37,7 @@ use App\State\CloturerVoyageProcessor;
 use App\State\BordereauChauffeurProvider;
 use App\State\BordereauProvider;
 use App\State\DemarrerVoyageProcessor;
+use App\State\RattraperPassageProcessor;
 use App\State\ReceptionnerVoyageProcessor;
 use App\State\RepartirVoyageProcessor;
 use App\State\SoftDeleteProcessor;
@@ -142,6 +144,25 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new Operation(
                 summary: 'Réceptionner un voyage à sa gare',
                 description: 'L\'agent confirme le passage du véhicule à sa gare : les courriers et bagages qui y descendent sont réceptionnés/livrés automatiquement',
+                security: [['bearerAuth' => []]]
+            )
+        ),
+        new Patch(
+            /*
+                ROLE_ADMIN, et rien de moins : c'est une écriture RÉTROACTIVE sur la chronologie d'un
+                voyage. Elle débloque les gares en aval, avance la position du car et ferme des
+                réservations. Un agent de gare réceptionne sa propre gare — il ne certifie pas le
+                passage du car chez le voisin.
+            */
+            security: "is_granted('ROLE_ADMIN')",
+            uriTemplate: '/voyages/{id}/rattraper-passage',
+            requirements: ['id' => '\d+'],
+            input: RattrapagePassageInput::class,
+            processor: RattraperPassageProcessor::class,
+            denormalizationContext: ['groups' => ['write:RattrapagePassageInput']],
+            openapi: new Operation(
+                summary: 'Rattraper le passage d\'une gare jamais pointée',
+                description: 'Consigne, à son heure RÉELLE, l\'arrivée du car à une gare que personne n\'a réceptionnée — ce qui débloque la réception des gares suivantes. Ne réceptionne PAS les colis : la gare le fera elle-même. L\'heure doit s\'insérer entre les passages déjà connus.',
                 security: [['bearerAuth' => []]]
             )
         ),

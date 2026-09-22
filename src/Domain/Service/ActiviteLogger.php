@@ -33,6 +33,12 @@ class ActiviteLogger
     public const VOYAGE_COMMERCIAL = 'VOYAGE_COMMERCIAL';
     public const VOYAGE_POSITION = 'VOYAGE_POSITION';
     public const VOYAGE_RECEPTION = 'VOYAGE_RECEPTION';
+    /*
+        Un administrateur consigne à la main le passage d'une gare que personne n'a pointée. C'est une
+        écriture RÉTROACTIVE sur la chronologie d'un voyage — elle débloque les gares suivantes, ferme
+        des réservations et déplace des retards. Elle doit se voir, avec l'heure déclarée et son auteur.
+    */
+    public const VOYAGE_PASSAGE_RATTRAPE = 'VOYAGE_PASSAGE_RATTRAPE';
     public const VOYAGE_DEPART = 'VOYAGE_DEPART';
     public const VOYAGE_CLOTURE = 'VOYAGE_CLOTURE';
     public const VOYAGE_PERSONNEL = 'VOYAGE_PERSONNEL';

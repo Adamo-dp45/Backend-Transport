@@ -191,7 +191,12 @@ final class VoyageGuardTest extends IntegrationTestCase
     {
         $voyage = $this->voyage();
 
-        $this->guard->assertPeutReceptionner($this->agent('Bouaké'), $voyage);
+        /*
+            Yamoussoukro et non Bouaké : c'est le PREMIER intermédiaire de la ligne, donc le seul qui
+            puisse réceptionner sans que rien n'ait encore été pointé. Depuis la garde d'ordre, Bouaké
+            exige que Yamoussoukro l'ait été — la règle a son propre test, 'ReceptionOrdreTest'.
+        */
+        $this->guard->assertPeutReceptionner($this->agent('Yamoussoukro'), $voyage);
 
         foreach ([
             'Abidjan' => 'ne réceptionne pas un voyage : elle le lance',

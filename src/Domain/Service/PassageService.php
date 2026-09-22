@@ -74,6 +74,44 @@ class PassageService
     }
 
     /** find-or-create (persist sans flush). Null si le voyage n'est pas persisté ou la gare manque. */
+    /**
+     * Le premier arrêt situé STRICTEMENT entre deux ordres dont l'ARRIVÉE n'est pas consignée —
+     * null si la chaîne est complète.
+     *
+     * Porté ICI et non par les appelants parce que la réponse dépend du CACHE DE REQUÊTE : dans un
+     * lot de synchronisation, l'arrivée posée quelques lignes plus haut n'est pas encore flushée, et
+     * `Voyage::getPassages()` ne la voit pas — `pour()` ne rattache pas le passage créé à la
+     * collection du voyage. Une garde qui lirait la collection refuserait donc la deuxième avance
+     * d'un même lot au motif que la première n'a jamais eu lieu. `connu()` consulte le cache avant
+     * la base, exactement comme le fait le départ après une arrivée.
+     *
+     * Sert la garde d'ordre des réceptions ({@see App\Security\VoyageGuard::assertPeutReceptionner})
+     * et celle de l'avance du commercial ({@see AvanceePositionService}).
+     */
+    public function premierArretNonPointe(Voyage $voyage, int $ordreApres, int $ordreAvant): ?Gare
+    {
+        $manquants = [];
+        foreach ($voyage->getLigne()?->getArrets() ?? [] as $arret) {
+            $ordre = (int) $arret->getOrdre();
+            $gare = $arret->getGare();
+            if ($gare === null || $ordre <= $ordreApres || $ordre >= $ordreAvant) {
+                continue;
+            }
+            if ($this->connu($voyage, $gare)?->getArriveeReelle() === null) {
+                $manquants[$ordre] = $gare;
+            }
+        }
+
+        if ($manquants === []) {
+            return null;
+        }
+
+        // Le plus AMONT : c'est par lui que le rattrapage doit commencer.
+        ksort($manquants);
+
+        return reset($manquants);
+    }
+
     private function pour(Voyage $voyage, ?Gare $gare): ?Passage
     {
         if ($voyage->getId() === null || $gare === null || $gare->getId() === null) {
