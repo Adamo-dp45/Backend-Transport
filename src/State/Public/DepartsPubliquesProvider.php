@@ -100,6 +100,7 @@ final class DepartsPubliquesProvider implements ProviderInterface
             $departs[] = new DepartPubliqueDto(
                 voyageId: $voyage->getId(),
                 codevoyage: $voyage->getCodevoyage(),
+                numerodepart: $voyage->getNumerodepart(),
                 heurepassage: $this->echeance->heurePassage($voyage, $gareMontee)?->format(\DateTimeInterface::ATOM),
                 datedepartprevue: $voyage->getDatedepartprevue()?->format(\DateTimeInterface::ATOM),
                 datearriveeprevue: $voyage->getDatearriveeprevue()?->format(\DateTimeInterface::ATOM),

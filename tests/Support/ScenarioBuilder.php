@@ -2,6 +2,7 @@
 
 namespace App\Tests\Support;
 
+use App\Domain\Service\NumeroDepartService;
 use App\Domain\Enum\BeneficiaireCategorie;
 use App\Domain\Enum\CarStatus;
 use App\Domain\Enum\ReferenceStatus;
@@ -12,6 +13,7 @@ use App\Entity\Bagage;
 use App\Entity\Beneficiaire;
 use App\Entity\Car;
 use App\Entity\ConfigRemise;
+use App\Entity\Depense;
 use App\Entity\Entreprise;
 use App\Entity\Gare;
 use App\Entity\Ligne;
@@ -23,6 +25,7 @@ use App\Entity\Role;
 use App\Entity\Siege;
 use App\Entity\Tarif;
 use App\Entity\Tarifbagage;
+use App\Entity\Typedepense;
 use App\Entity\Ticket;
 use App\Entity\User;
 use App\Entity\UserRole;
@@ -185,6 +188,14 @@ final class ScenarioBuilder
         if ($car !== null) {
             $voyage->setCar($car)->setPlacesTotal($car->getNbrsiege());
         }
+
+        /*
+            Numéro de départ par le SERVICE DE PRODUCTION, et non par un compteur de test : un
+            scénario qui ouvre deux départs le même jour sur la même ligne doit se heurter à la même
+            suite que le guichet (et à l'index unique qui la tient). Lisible ici parce que le builder
+            flushe chaque voyage — la base porte donc bien les précédents.
+        */
+        (new NumeroDepartService($this->em->getRepository(Voyage::class)))->attribuer($voyage);
 
         $this->em->persist($voyage);
         $this->em->flush();
@@ -447,6 +458,48 @@ final class ScenarioBuilder
         $this->em->flush();
 
         return $user;
+    }
+
+    public function typedepense(Entreprise $entreprise, string $libelle = 'Carburant'): Typedepense
+    {
+        $type = (new Typedepense())
+            ->setLibelle($libelle . ' ' . ++$this->compteur)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($type);
+        $this->em->flush();
+
+        return $type;
+    }
+
+    /**
+     * Une charge d'exploitation.
+     *
+     * 'gare' vaut null par DÉFAUT, c'est-à-dire une dépense du SIÈGE : les tests de périmètre se
+     * lisent alors d'eux-mêmes, et l'on n'oublie pas que cette portée existe.
+     */
+    public function depense(
+        Entreprise $entreprise,
+        int $montant,
+        ?Gare $gare = null,
+        ?Typedepense $type = null,
+        ?DateTimeImmutable $date = null,
+        ?Voyage $voyage = null,
+        string $modereglement = 'ESPECES',
+    ): Depense {
+        $depense = (new Depense())
+            ->setDatedepense($date ?? new DateTimeImmutable())
+            ->setMontant($montant)
+            ->setTypedepense($type ?? $this->typedepense($entreprise))
+            ->setGare($gare)
+            ->setVoyage($voyage)
+            ->setModereglement($modereglement)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($depense);
+        $this->em->flush();
+
+        return $depense;
     }
 
     /**

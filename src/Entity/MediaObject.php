@@ -60,16 +60,22 @@ class MediaObject
     private ?int $id = null;
 
     #[ApiProperty(types: ['https://schema.org/contentUrl'], writable: false)]
-    #[Groups(['media_object:read', 'read:Personnel', 'read:Piece', 'read:Entreprise'])]
+    #[Groups(['media_object:read', 'read:Personnel', 'read:Piece', 'read:Entreprise', 'read:Depense'])]
     public ?string $contentUrl = null;
 
     #[UploadableField(mapping: 'media_object', fileNameProperty: 'filePath')]
     #[Assert\NotNull]
-    #[Assert\Image(
+    /*
+        'File' et non 'Image' depuis le module DÉPENSES : un justificatif arrive aussi bien en photo
+        prise au guichet qu'en FACTURE PDF déjà numérisée, que la contrainte 'Image' refusait. Le
+        changement est strictement PERMISSIF — les trois types d'images restent acceptés, le logo
+        d'entreprise, la photo d'un personnel et l'image d'une pièce continuent de passer.
+    */
+    #[Assert\File(
         maxSize: '5M',
-        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-        maxSizeMessage: 'L\'image ne doit pas dépasser 5Mo',
-        mimeTypesMessage: 'Seules les images JPEG, PNG et WEBP sont autorisées'
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+        maxSizeMessage: 'Le fichier ne doit pas dépasser 5Mo',
+        mimeTypesMessage: 'Seuls les fichiers JPEG, PNG, WEBP et PDF sont autorisés'
     )]
     public ?File $file = null;
 

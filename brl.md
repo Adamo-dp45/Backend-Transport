@@ -11,8 +11,8 @@
     > php bin/console make:subscriber
     > php bin/console make:fixtures
     > php bin/console doctrine:fixtures:load
-    > php bin/console make:migration
     > php bin/console doctrine:database:create
+    > php bin/console make:migration
     > php bin/console doctrine:schema:update --force : `--env=test` pour les tests
         > php bin/console doctrine:schema:update --dump-sql
     > php bin/console doctrine:fixtures:load : `--env=test` pour les tests
@@ -33,70 +33,21 @@ Docker, Server, Sql Postgre(claude), Git(claude), ia, UI, Symfony, backups et ba
 php -S 10.0.2.2:8000 -t public
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 flutter build apk --release --dart-define=API_BASE_URL=https://proud-gauntlet-elongated.ngrok-free.dev
+ngrok http 80 --url https://proud-gauntlet-elongated.ngrok-free.dev
 
 SycaPay, Jèko, GeniusPay, AdjeminPay
 
-- Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
-
-
-
-
-
-
-Salut Claude Code,
-
-Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
-
-## Stack technique
-- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
-- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
-- **Apps Mobile** : Flutter, React Native
-
-## Rappel
-- **Ignore les fichiers `brl.md`** du projet : ce sont juste des brouillons
-
-## Ce que j'attends
-
-Analyse le projet pour :
-- te remettre à jour sur l'architecture générale et les modules existants,
-- retrouver l'état d'avancement du projet,
-- être prêt pour la suite des instructions que je vais te donner.
-
- 
-
-
-
-
 - Faire une mise à jour du Framework vers .. 8. et montre moi comment faire
+- Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
+- Wiki du projet
 
 
-
-
-
-
-
-## Les deux notes de cap dans `documents/`
-
-- **Feuille de route** — 19 propositions priorisées. Déjà fait depuis : **B3 Vente en mode dégradé**. Restent en tête : **A1 Clôture de caisse quotidienne** (critique — la recette est calculée mais jamais rapprochée de l'espèce remise), **D1 limite de débit sur la réinitialisation de mot de passe**, **B2 contrôle d'embarquement par QR**, **C1 recherche globale**, **A2 report de masse**, **B1 SMS**, **A3 e-mails asynchrones**.
-- **Trouver la demande** — constat : aucune surface publique web, tout est derrière authentification. Six leviers, séquence non négociable : **L1 page publique par compagnie** (fondation) + L2 lien de départ partageable, puis L3 parrainage / L6 groupe-colis, puis L5 réactivation SMS / L4 apporteurs. Avec une contrainte posée d'emblée : le champ **origine** sur chaque réservation.
-
-Deux dépendances externes bloquent toujours : l'agrégateur Mobile Money (paiement simulé) et le canal SMS.
-
-
-## Travail en cours (non commité)
-
-Tout tourne autour du **dernier chantier : la vente hors ligne du commercial**, plus un démarrage de PWA.
-
-**Backend** — garde anti-collision de code dans [SynchronisationHorsLigneService.php:175](Backend-Transport/src/Domain/Service/SynchronisationHorsLigneService.php:175) : un code `B1` déjà pris est refusé *avant* l'écriture (sinon la violation d'index ferme l'EntityManager, annule le lot entier et bloque la file pour toujours). Même garde pour le bagage, par entreprise. Test `unCodeDejaPrisNeBloquePasLaFile` ajouté.
-
-**commercialflutter** — nouveau [vidange_automatique.dart](commercialflutter/lib/core/offline/vidange_automatique.dart) : la file repart seule sur 4 déclencheurs (ouverture SQLite, connectivité, retour au premier plan, retentative 2 min tant que la file n'est pas vide — le cas « antenne connectée sans débit »). Monté à la racine dans `app.dart`. Et `CodesHorsLigne` prend désormais le **max(file locale, instantané serveur)** pour que le compteur « B » ne reparte pas à 1 après réinstallation.
 
 ## Points ouverts que j'ai relevés
 
 - Mobile Money réel : toujours simulé, en attente d'un agrégateur souscrit.
 - commercialflutter « à venir » : bilan de recette par période (nécessite un endpoint dédié, `/api/stats/commercial` étant admin) et fidélité à la vente.
 - Alertes : seuils encore en constantes de service, externalisation par entreprise non faite. Pas de notifications côté mobile.
-- Avant déploiement : vérifier l'absence de doublons `codeticket` / `codebagage` (migrations `Version20260912090000` et `...140000`).
 - Piste notée mais non entamée : visite interactive à la première connexion (Driver.js / Shepherd.js).
 
 
@@ -105,7 +56,19 @@ Tout tourne autour du **dernier chantier : la vente hors ligne du commercial**, 
 
 
 
-Prends la garde d'ordre à la réception, avec un rattrapage explicite
+Vu qu'on a la notion de caisse, comment on calcule la recette
+
+Palier 3 — les sorties et le visa. Depense, remboursement du désistement, réservations, /viser, CaisseScopeExtension, CaisseGuard, permissions, audit. Vérifié : vente + annulation le même jour laissent le théorique inchangé ; un agent ne vise pas sa caisse. !!
+
+la vente du commercial — en ligne et via /sync — ne crée aucune session ; !! Mais est ce que ça entre dans la caisse de sa gare !!
+
+
+Et pourquoi il n'y a pas d'entité Caisse pour la gare ? chatgpt
+Ignore le dossier `brl/` dans `Backend-Transport/tools/`, c'est un brouillon aussi
+
+
+
+Montre moi l'état de la recette actuelle 
 
 
 
@@ -114,178 +77,941 @@ Prends la garde d'ordre à la réception, avec un rattrapage explicite
 
 
 
-- La notion de départ sur voyage (un champ sur voyage), ici je me dis qu'on procédera d'une façon auto en faisant l'incrémentation par ligne, par jour.. :: N°départ (01 à 07H, 02 à 10H..)
-    - La notion de départ (chatgpt)
+Je vois que fournisseur est une liste vide pour le chef de gare ! est ce que c'est voulue ?
+-- La modification de dépense..
+
+Chaque gare a un solde , à la création du'une gare on crée sold initial, on pourra savoir combien la gare à vendu aujourdhui
+Aussi, on m'a parler d'un truc du genre : Chaque doit avoir un sold initial qu'on décrémente et incrémente, aussi combien la gare a vendu aujourd'hui, hier, etc.., la dépense que la gare à faite est sortir de quel recette.. etc... !
 
 
 
-Sur des tickets de voyage je vois souvent "Départ 1" ou "Départ 2" etc..., ça parle de quoi dans notre cas ?
+# Mettre les statistiques de recettes au claire en connessant l'état actuelle et les allignés
 
-C'est une très bonne question. En réalité, **"Départ 1", "Départ 2", etc. n'ont pas une signification universelle**. Leur signification dépend de chaque compagnie.
+recettes − dépannages − approvisionnements − dépenses ici vu la notion de caisse je me dis que c'est caisse - 
 
-Dans le contexte de ton application, il y a plusieurs interprétations possibles.
+Depense n'est pas ajoutée à GareScopedEntities::ENTITIES : y figurer donnerait à tout ROLE_ADMIN_GARE un bypass d'écriture sans permission, et le droit de déléguer ces permissions. Sur une donnée qui fait sortir de l'argent, la permission reste explicite, accordée par l'admin d'entreprise — même régime que le stock.
 
-## Cas 1 : Le numéro de départ d'une ligne (le plus courant)
+la limite du résultat par gare : les dépannages et approvisionnements n'étant rattachés à aucune gare, je ne peux pas les y déduire. Je préfère l'afficher honnêtement (« résultat d'exploitation », pas « bénéfice », plus deux totaux qui se recoupent côté entreprise) plutôt que de sortir un chiffre qui ment ;
 
-Prenons :
+
+Deux constats de l'exploration, avant de te poser les bonnes questions :
+
+Rien n'existe pour l'argent qui sort : aucune entité, migration, route ni écran. Les seuls « coûts » modélisés sont Depannage::$couttotal et Detailapprovisionnement::$couttotal.
+
+Le bénéfice net se calcule à un seul endroit, en dur : FinancierStatsProvider.php:59 — recettes − coutDepannages − coutApprovisionnements. C'est le point d'entrée naturel pour un troisième poste.
+
+
+- Aussi, peut-on connaître les dépenses éffectué lors d'un voyage
+- A la fin du voyage les péages nous ont pris combien
+- La somme net reçu sur un car dans les statistiques
+- Plus de détails sur la recette et centralisé la recette pour que l'admin ne se perde pas
+- Vérifié si hors courriers est bien pris en compte dans toutes les stats
+
+
+On m'a parler aussi d'une notion qui est : Les charges qui contient aussi la main d'oeuvre externe de dépannage :: Dans la création de dépannage avoir la possibilité de choisir les mains d'oeuvre :: Frais externe de main d'oeuvre == 3 chantier après frais de route
+
+- RH (Charges, paie)
+
+# 8. Pourquoi lier les dépenses au voyage
+
+Très important.
+
+Sinon :
+
+* impossible de calculer la rentabilité réelle.
+
+---
+
+# 9. Exemple de calcul réel
+
+## Voyage
+
+```text id="a0n12u"
+Recettes tickets = 300000
+```
+
+---
+
+## Dépenses
+
+| Type      | Montant |
+| --------- | ------- |
+| Carburant | 70000   |
+| Péage     | 10000   |
+| Chauffeur | 30000   |
+| Dépannage | 15000   |
+
+--- Frais de route
+
+
+# 17. Ce que je te conseille maintenant
+
+Vu ton système :
+
+> la prochaine grosse brique logique est clairement :
+
+## Gestion des dépenses + caisse
+
+Parce que tu as déjà :
+
+* recettes,
+* stock,
+* maintenance.
+
+Mais il manque :
+
+* la sortie d’argent globale.
+
+---
+
+Caisse journalière
+
+# A. Dépenses d’exploitation voyage
+
+Liées directement à un voyage.
+
+Exemples :
+
+* carburant,
+* péage,
+* frais chauffeur,
+* frais de route,
+* repas équipage.
+
+---
+
+# B. Dépenses de maintenance
+
+Exemples :
+
+* pièces détachées,
+* réparations,
+* main d’œuvre mécanique.
+
+Tu en gères déjà une partie avec :
+
+```text id="c5wx15"
+Depannage
+```
+
+---
+
+# C. Dépenses administratives
+
+Exemples :
+
+* électricité,
+* internet,
+* loyers,
+* fournitures.
+
+---
+
+# D. Dépenses RH
+
+Exemples :
+
+* salaires,
+* primes,
+* avances.
+
+---
+
+# 3. Le vrai principe métier
+
+Chaque dépense doit répondre à :
+
+| Question         | Exemple           |
+| ---------------- | ----------------- |
+| Qui a dépensé ?  | chauffeur         |
+| Pourquoi ?       | carburant         |
+| Pour quoi ?      | voyage V001       |
+| Combien ?        | 25 000            |
+| Quand ?          | 12 juin           |
+| Validé par qui ? | chef exploitation |
+
+---
+
+# 4. Ce qu’il te manque actuellement
+
+Tu as :
+
+* approvisionnements,
+* dépannage.
+
+Mais tu n’as pas encore :
+
+> une vraie gestion générale des dépenses.
+
+Et elle devient indispensable.
+
+---
+
+# 5. Ce qu’il faut créer
+
+Je te conseille fortement une entité :
+
+```text id="wnif5y"
+Depense
+```
+
+---
+
+# 6. Structure recommandée
+
+```text id="bf91d6"
+Depense
+- libelle
+- montant
+- date_depense
+- categorie
+- description
+- mode_paiement
+- justificatif
+- voyage NULL
+- car NULL
+- personnel NULL
+- entreprise
+```
+
+---
+
+# 7. Exemple concret
+
+---
+
+## Dépense carburant
+
+```text id="kvyrk4"
+Libellé : Carburant voyage Korhogo
+Montant : 45000
+Voyage : V001
+Car : 2548AB01
+```
+
+---
+
+## Dépense péage
+
+```text id="bx1mfr"
+Libellé : Péage Yamoussoukro
+Montant : 5000
+Voyage : V001
+```
+
+---
+
+## Dépense administrative
+
+```text id="11p0k5"
+Libellé : Internet gare
+Montant : 30000
+```
+
+---
+
+# 8. Pourquoi lier les dépenses au voyage
+
+Très important.
+
+Sinon :
+
+* impossible de calculer la rentabilité réelle.
+
+---
+
+# 9. Exemple de calcul réel
+
+## Voyage
+
+```text id="a0n12u"
+Recettes tickets = 300000
+```
+
+---
+
+## Dépenses
+
+| Type      | Montant |
+| --------- | ------- |
+| Carburant | 70000   |
+| Péage     | 10000   |
+| Chauffeur | 30000   |
+| Dépannage | 15000   |
+
+---
+
+## Résultat
+
+```text id="e1wy04"
+Bénéfice = 175000
+```
+
+---
+
+# 10. Très important : catégories de dépenses
+
+Ajoute une entité ou enum.
+
+---
+
+## Exemple
+
+```php id="0d6mji"
+enum CategorieDepense
+{
+    CARBURANT,
+    PEAGE,
+    MAINTENANCE,
+    SALAIRE,
+    ADMINISTRATIF,
+    AUTRE
+}
+```
+
+---
+
+# 11. Gestion des justificatifs --- Ici on a pris forfait final
+
+Très important dans les entreprises.
+
+Tu peux stocker :
+
+* facture,
+* reçu,
+* photo.
+
+Exemple :
+
+```text id="v8w72e"
+Depense
+- justificatif
+```
+
+---
+
+# 12. Workflow réel souvent utilisé
+
+---
+
+## Étape 1
+
+Le chauffeur reçoit une avance.
+
+---
+
+## Étape 2
+
+Il dépense pendant le voyage.
+
+---
+
+## Étape 3
+
+Il revient avec les justificatifs.
+
+---
+
+## Étape 4
+
+Le gestionnaire valide les dépenses.
+
+---
+
+# 13. Tu peux gérer les avances aussi
+
+Très utile plus tard.
+
+---
+
+## Exemple
+
+```text id="g52g4m"
+AvanceVoyage
+- voyage
+- personnel
+- montant
+```
+
+Puis :
+
+* dépenses déduites de l’avance.
+
+---
+
+# 14. Très important : validation
+
+Dans les vraies compagnies :
+
+> une dépense doit souvent être validée.
+
+Tu peux ajouter :
+
+```text id="1n94x0"
+Depense
+- statut
+- valide_par
+- date_validation
+```
+
+---
+
+# 15. Différence avec ton module Approvisionnement
+
+---
+
+## Approvisionnement
+
+Concerne :
+
+* entrée de stock.
+
+Exemple :
+
+* achat de pneus.
+
+---
+
+## Dépense
+
+Concerne :
+
+* sortie d’argent.
+
+Exemple :
+
+* paiement carburant.
+
+---
+
+# 16. Relation entre les deux
+
+Un approvisionnement peut :
+
+* générer automatiquement une dépense.
+
+Exemple :
+
+```text id="xop1dn"
+Approvisionnement :
+Achat pneus = 200000
+```
+
+↓
+
+```text id="n2njd5"
+Depense :
+Paiement fournisseur = 200000
+```
+
+Très professionnel.
+
+# 19. Niveau avancé futur
+
+Plus tard tu peux ajouter :
+
+* caisse journalière,
+* comptabilité,
+* budgets,
+* fournisseurs à crédit,
+* échéances,
+* dette fournisseurs,
+* rapprochement bancaire.
+
+Et là ton système deviendra un vrai ERP transport complet.
+
+
+
+
+# 2. La recette d'une gare
+
+Pour moi, la recette d'une gare est **tout ce qui a été vendu au nom de cette gare**, indépendamment du canal de paiement.
+
+Elle comprend :
+
+* ✅ Tickets vendus au guichet de la gare
+* ✅ Tickets vendus par les commerciaux rattachés à cette gare
+* ✅ Réservations initiées par cette gare (si elles sont payées)
+* ✅ Bagages enregistrés par cette gare
+* ✅ Courriers déposés dans cette gare
+
+Elle **ne dépend pas** de savoir si le paiement a été effectué :
+
+* au guichet ;
+* par un commercial ;
+* en ligne.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+======
+
+- Dans le darkMode on vas rajouter le choix du `système` aussi en plus du mode `dark` et `light`.
+- QRCode des tickets à redirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
+    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
+- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets(aussi, courriers, bagage, bordereau..) :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
+- Revoire le cas de désistement qui se fait que sur un voyage de la même ligne !
+- Plus d'infos sur le tableau de bord de gare concernant les filtres
+
+
+Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel voyage ouvert
+
+Cela dépend de ce que tu appelles "désister", mais dans les compagnies de transport on distingue généralement :
+
+1. **Annulation simple** → remboursement ou avoir.
+2. **Report du billet** → transfert vers un autre voyage.
+
+Dans le cas du report, le nouveau voyage n'est **pas forcément sur le même voyage**, mais il doit normalement rester **compatible avec le trajet acheté**.
+
+---
+
+## Cas 1 : Même ligne (le plus courant)
+
+Le client avait :
 
 ```text
-Ligne :
+Abidjan → Korhogo
+Voyage V001
+08h
+```
+
+Il ne peut plus voyager.
+
+On le reporte sur :
+
+```text
+Abidjan → Korhogo
+Voyage V002
+14h
+```
+
+C'est le cas le plus fréquent.
+
+---
+
+## Cas 2 : Autre voyage de la même ligne
+
+Par exemple :
+
+```text
+Ligne : Abidjan → Korhogo
+```
+
+Voyages :
+
+```text
+V001 - 08h
+V002 - 14h
+V003 - 18h
+```
+
+Le billet est déplacé vers un autre départ.
+
+Très courant.
+
+---
+
+## Cas 3 : Voyage d'une autre ligne compatible
+
+Supposons :
+
+```text
+L1 : Abidjan → Korhogo
+L2 : Abidjan → Bouaké → Korhogo
+```
+
+Le client avait acheté :
+
+```text
 Abidjan → Korhogo
 ```
 
-Le matin :
+S'il reste des places sur L2, certaines compagnies acceptent le transfert.
+
+Métierement, ce qui compte n'est pas la ligne mais :
 
 ```text
-08h00
+Départ
+Arrivée
 ```
-
-Le car est plein.
-
-La compagnie ouvre un deuxième car à la même heure ou quelques minutes après.
-
-On obtient :
-
-```text
-Départ 1
-08h00
-Car A
-```
-
-```text
-Départ 2
-08h15
-Car B
-```
-
-Ici, **Départ 2** signifie simplement :
-
-> deuxième départ organisé sur cette ligne.
-
-C'est très courant pendant les périodes de forte affluence.
 
 ---
 
-## Cas 2 : Plusieurs départs dans une journée
+## Cas 4 : Voyage totalement différent
 
 Exemple :
 
 ```text
-Abidjan → Bouaké
+Billet :
+Abidjan → Korhogo
 ```
 
-La compagnie propose :
+et on veut le transférer vers :
 
 ```text
-06h00
-
-09h00
-
-12h00
-
-15h00
+Abidjan → Man
 ```
 
-Certaines compagnies les nomment :
+Là, ce n'est plus un report.
 
-```text
-Départ 1
+C'est pratiquement :
 
-Départ 2
-
-Départ 3
-
-Départ 4
-```
-
-Le numéro sert uniquement à identifier le créneau.
+* une annulation,
+* suivie d'un nouvel achat.
 
 ---
 
-## Cas 3 : Plusieurs cars au même horaire
+## Dans ton système
+
+Comme tu tends vers un modèle segmenté :
+
+```text
+Ticket
+- gare_depart
+- gare_arrivee
+- voyage
+```
+
+Je te conseillerais la règle suivante :
+
+### Un report est autorisé si :
+
+```text
+nouveau voyage passe par
+gare_depart
+et
+gare_arrivee
+```
+
+et qu'il reste des places sur le segment.
+
+Ainsi :
+
+| Ancien billet     | Nouveau voyage                    | Autorisé |
+| ----------------- | --------------------------------- | -------- |
+| Abidjan → Korhogo | Autre voyage Abidjan → Korhogo    | ✅        |
+| Abidjan → Korhogo | Voyage Abidjan → Bouaké → Korhogo | ✅        |
+| Abidjan → Korhogo | Voyage Abidjan → Man              | ❌        |
+
+---
+
+## Comment font les compagnies ?
+
+La plupart ont une logique proche de :
+
+```text
+Annulation
+ou
+Report vers le prochain départ disponible
+```
+
+Le plus souvent :
+
+1. Le siège est libéré sur l'ancien voyage.
+2. Un nouveau ticket est créé sur le nouveau voyage.
+3. Une éventuelle différence tarifaire est calculée.
+
+---
+
+## Modélisation
+
+Je te déconseille de modifier directement le ticket existant.
+
+Il est préférable de conserver l'historique :
+
+```text
+Ticket T001
+    STATUT = REPORTE
+```
+
+et créer :
+
+```text
+Ticket T045
+    STATUT = ACTIF
+    ticket_origine = T001
+```
+
+Ainsi tu gardes une trace complète des reports.
+
+Pour ton application, la règle métier la plus réaliste est :
+
+> Un client peut être reporté sur n'importe quel voyage ouvert qui dessert sa gare de départ et sa gare d'arrivée, même si ce voyage appartient à une autre ligne. Ce qui compte est la possibilité réelle d'effectuer le trajet acheté.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Moyen de paiement, on vas mettre plusieurs, mais on vas commencer par Stripe
+Le Mobile Money reste hors périmètre en attendant l'agrégateur
+- Mobile money -> Frais payé par le client + un plus pour les timbres du genre au lieu de 100F on ajoute 200F
+
+- La modification peut géner plusieurs choses comme les réservations...
+- Prévenir les alertes via une baffe ou aussi ce qui se fait dans les aéroports qui averti le départ..
+- Auth client réservation via numéro de téléphone
+- Retour client et agent vi codeqr et peut envoyer des images, vidéos etc...
+
+- Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
+- Dépannage auto création typepanne
+
+- 
+Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
+    new GetCollection(
+        security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
+        openapi: new Operation(
+            summary: 'La liste des cars',
+            description: 'Permet de voir la liste des cars',
+            security: [['bearerAuth' => []]]
+        )
+    ), CAR
+Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
+
+Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
+
+- Quand tu regarde l'appli comment je pourrais écrire une explication ou guide pour les endroits éssenciel de l'application
+- La possibilités d'activer ou désactiver des modules dans l'application
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Vu tout ce que nous avons construit ensemble, si ton objectif est d'avoir un **logiciel professionnel de gestion de compagnies de transport** (multi-entreprises, multi-gares, réservations, exploitation, temps réel, application mobile, etc.), je partirais sur une architecture moderne plutôt que de simplement changer de framework.
+
+## Backend
+
+Je garderais **Symfony**.
+
+Pourquoi ?
+
+* Tu maîtrises déjà Symfony.
+* API Platform est excellent pour construire des API REST.
+* L'écosystème est mature.
+* Facile à faire évoluer vers des microservices plus tard si nécessaire.
+
+J'ajouterais :
+
+* **API Platform**
+* **PostgreSQL** (je le préfère à MySQL pour ce type d'application)
+* **Redis** (cache, files d'attente, sessions, verrous)
+* **Messenger** (traitements asynchrones)
+* **Mercure ou WebSocket** pour le temps réel
+
+---
+
+## Frontend Web
+
+Je passerais sur **Next.js**.
+
+Pourquoi ?
+
+* Très performant.
+* Excellent avec React.
+* Facile pour construire un tableau de bord riche.
+* Très bon pour les SaaS.
+
+Tu avais d'ailleurs demandé si React ou Next.js était préférable pour consommer ton backend Symfony : je resterais sur **Next.js**.
+
+---
+
+## Mobile
+
+Je garderais **Flutter**.
+
+Tu as déjà créé le projet.
+
+Un seul code pour :
+
+* Android
+* iOS
+
+---
+
+## Temps réel
+
+Pour le suivi des voyages, je ne me limiterais pas à Mercure.
+
+Je mettrais :
+
+* WebSocket
+* ou Mercure si tu restes sur Symfony
+
+Pour afficher :
+
+* position du car
+* retards
+* ventes
+* nouveaux tickets
+* nouvelles réservations
+
+sans recharger la page.
+
+---
+
+## Cartographie
+
+Pour le suivi GPS :
+
+* Google Maps
+* ou OpenStreetMap + Leaflet (moins coûteux)
+
+Tu pourras afficher :
+
+* le trajet ;
+* la position du car ;
+* les gares ;
+* les retards.
+
+---
+
+## Notifications
+
+* Firebase Cloud Messaging (Flutter)
+* Emails
+* SMS (si besoin)
+
+---
+
+## Authentification
+
+* JWT
+* Refresh Token
+* Gestion fine des rôles (tu as déjà un bon modèle RBAC)
+
+---
+
+## Déploiement
+
+* Docker
+* Nginx
+* GitHub Actions
+* VPS ou Cloud
+
+---
+
+## Base de données
+
+Je passerais sur **PostgreSQL**.
+
+Avec notamment :
+
+* index performants ;
+* transactions solides ;
+* types avancés ;
+* possibilité d'utiliser des extensions géographiques si tu ajoutes beaucoup de fonctionnalités GPS.
+
+---
+
+# Si tu veux vraiment du temps réel
+
+Je pense que ton application aura besoin de deux types de temps réel.
+
+### 1. Temps réel métier
 
 Exemple :
 
-```text
-08h00
+* un ticket est vendu ;
+* une réservation est créée ;
+* un voyage est annulé.
 
-Car A
-Départ 1
-
-Car B
-Départ 2
-
-Car C
-Départ 3
-```
-
-Les trois cars partent pratiquement en même temps.
-
-Le numéro permet simplement de savoir dans quel car le passager doit monter.
+Tous les écrans concernés se mettent à jour automatiquement.
 
 ---
 
-# Dans ton application
+### 2. Temps réel GPS
 
-Avec la logique que nous avons définie :
+Le chauffeur possède l'application Flutter.
 
-* Ligne
-* Voyage
-* Car
-* Voyage de renfort
-
-Je **n'ajouterais pas un champ `depart`** dans la base de données.
-
-Je garderais simplement :
+Toutes les 10 à 30 secondes :
 
 ```text
-Voyage
+Latitude
 
-dateDepartPrevue
+Longitude
 
-car
+Vitesse
 
-codeVoyage
+Heure
 ```
 
-Et si plusieurs voyages existent pour une même ligne à une même heure :
+sont envoyées au serveur.
 
-```text
-L1
+L'application web affiche alors :
 
-08h00
-
-V001
-Car 101
-
-V002
-Car 102
-```
-
-L'interface pourrait afficher :
-
-```text
-Départ 1
-(V001)
-```
-
-```text
-Départ 2
-(V002)
-```
-
-mais **"Départ 1" serait une information d'affichage**, calculée à partir de l'ordre des voyages, et non une donnée métier stockée.
+* le car sur la carte ;
+* le retard ;
+* le prochain arrêt.
 
 ---
 
-## Ce que je te conseille
+# Si je devais repartir de zéro aujourd'hui
 
-Dans ton modèle, **`Départ 1`, `Départ 2`, etc. ne devraient pas être des champs persistés**. Ils peuvent être générés automatiquement pour l'affichage si plusieurs voyages correspondent à une même ligne et un même créneau horaire.
+Je choisirais :
 
-Le véritable identifiant métier reste le **voyage** (`codeVoyage`) avec son **car** et sa **date/heure de départ prévue**.
+| Couche          | Technologie                             |
+| --------------- | --------------------------------------- |
+| Backend         | Symfony + API Platform                  |
+| Base de données | PostgreSQL                              |
+| Cache           | Redis                                   |
+| Temps réel      | Mercure + WebSocket (selon les besoins) |
+| Web             | Next.js + React Query + TypeScript      |
+| Mobile          | Flutter                                 |
+| Cartographie    | Google Maps ou Leaflet                  |
+| Auth            | JWT + Refresh Token                     |
+| Déploiement     | Docker + Nginx + GitHub Actions         |
 
-C'est une solution plus souple et plus cohérente avec l'architecture que tu as construite.
+## Mon dernier conseil
 
+Au vu de l'évolution de ton projet, je pense que le plus grand changement ne sera **pas la technologie**, mais **l'architecture métier**.
+
+Tu commences à intégrer des notions d'exploitation en temps réel (passage dans les gares, retards, suivi des cars, bordereaux, statistiques, réservations, multi-gares). À ce stade, je structurerais le projet autour de grands domaines fonctionnels (Administration, Exploitation, Billetterie, Réservations, Flotte, Stock, Comptabilité, etc.) plutôt que d'une simple organisation par entités.
+
+C'est cette organisation qui fera réellement passer ton application d'un CRUD évolué à un logiciel professionnel de gestion de compagnies de transport.
 
 
 
@@ -681,1103 +1407,6 @@ Il faut la considérer comme un véritable **système de synchronisation** :
 Et la **clôture de caisse doit être la photographie comptable d'une session de caisse**, tandis que la synchronisation garantit que cette photographie est connue du serveur.
 
 Pour ton application, je prévoirais donc dès le départ : **session de caisse → opérations de caisse → ventes → journal hors-ligne → synchronisation idempotente → contrôle des écarts → clôture définitive**. C'est beaucoup plus solide que d'ajouter le hors-ligne après coup.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- Enlever matricule du car sur le ticket pour mettre départ..
-- QRCode des tickets à reddirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
-    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
-- Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets(aussi, courriers, bagage, bordereau..) :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
-- Dépannage, approvisionnement dans la partie recette pour avoir la recette net, du genre tout ce qui rentre et tout ce qui sort
-- Plus de détails sur la recette et centralisé la recette pour que l'admin ne se perde pas
-- Pour les dépenses on a générales et par gare (sur le tableau de bord de la gare on a recette - depenses) gare nullable  sur dépense
-    Dépenses : 2 types (Dépense générale et gare)
-        Objetdepense -> libelle          Objetdepensegare..
-        Depense                          Depensegare..
-            objetdepense -> vers Objetdepense
-            date
-            montant
-            detail
-    Puis après retranchement on a la recette net
-    Les charges qui contient aussi la main d'oeuvre externe de dépannage :: Dans la création de dépannage avoir la possibilité de choisir les mains d'oeuvre :: Frais externe de main d'oeuvre
-    RH (Charges, paie)
-    Type de depense (Prestation, main d'oeuvre, péage)
-    Tout ce qui est charge possible dans une gare (Comptabilité)
-
-
-
-
-
-
-
-
-Le principe de gestion des dépenses dans une compagnie de transport est :
-
-> enregistrer tout l’argent que l’entreprise dépense pour faire fonctionner son activité.
-
-Le but est de :
-
-* connaître les coûts réels,
-* calculer les bénéfices,
-* contrôler les abus,
-* et analyser la rentabilité.
-
----
-
-# 1. Pourquoi la gestion des dépenses est essentielle
-
-Une compagnie de transport gagne de l’argent avec :
-
-* les tickets,
-* les colis,
-* les services.
-
-Mais elle dépense énormément pour :
-
-* carburant,
-* maintenance,
-* salaires,
-* péages,
-* pneus,
-* imprévus.
-
-Donc :
-
-> sans suivi des dépenses, impossible de savoir si l’entreprise gagne réellement de l’argent.
-
----
-
-# 2. Les grandes catégories de dépenses
-
----
-
-# A. Dépenses d’exploitation voyage
-
-Liées directement à un voyage.
-
-Exemples :
-
-* carburant,
-* péage,
-* frais chauffeur,
-* frais de route,
-* repas équipage.
-
----
-
-# B. Dépenses de maintenance
-
-Exemples :
-
-* pièces détachées,
-* réparations,
-* main d’œuvre mécanique.
-
-Tu en gères déjà une partie avec :
-
-```text id="c5wx15"
-Depannage
-```
-
----
-
-# C. Dépenses administratives
-
-Exemples :
-
-* électricité,
-* internet,
-* loyers,
-* fournitures.
-
----
-
-# D. Dépenses RH
-
-Exemples :
-
-* salaires,
-* primes,
-* avances.
-
----
-
-# 3. Le vrai principe métier
-
-Chaque dépense doit répondre à :
-
-| Question         | Exemple           |
-| ---------------- | ----------------- |
-| Qui a dépensé ?  | chauffeur         |
-| Pourquoi ?       | carburant         |
-| Pour quoi ?      | voyage V001       |
-| Combien ?        | 25 000            |
-| Quand ?          | 12 juin           |
-| Validé par qui ? | chef exploitation |
-
----
-
-# 4. Ce qu’il te manque actuellement
-
-Tu as :
-
-* approvisionnements,
-* dépannage.
-
-Mais tu n’as pas encore :
-
-> une vraie gestion générale des dépenses.
-
-Et elle devient indispensable.
-
----
-
-# 5. Ce qu’il faut créer
-
-Je te conseille fortement une entité :
-
-```text id="wnif5y"
-Depense
-```
-
----
-
-# 6. Structure recommandée
-
-```text id="bf91d6"
-Depense
-- libelle
-- montant
-- date_depense
-- categorie
-- description
-- mode_paiement
-- justificatif
-- voyage NULL
-- car NULL
-- personnel NULL
-- entreprise
-```
-
----
-
-# 7. Exemple concret
-
----
-
-## Dépense carburant
-
-```text id="kvyrk4"
-Libellé : Carburant voyage Korhogo
-Montant : 45000
-Voyage : V001
-Car : 2548AB01
-```
-
----
-
-## Dépense péage
-
-```text id="bx1mfr"
-Libellé : Péage Yamoussoukro
-Montant : 5000
-Voyage : V001
-```
-
----
-
-## Dépense administrative
-
-```text id="11p0k5"
-Libellé : Internet gare
-Montant : 30000
-```
-
----
-
-# 8. Pourquoi lier les dépenses au voyage
-
-Très important.
-
-Sinon :
-
-* impossible de calculer la rentabilité réelle.
-
----
-
-# 9. Exemple de calcul réel
-
-## Voyage
-
-```text id="a0n12u"
-Recettes tickets = 300000
-```
-
----
-
-## Dépenses
-
-| Type      | Montant |
-| --------- | ------- |
-| Carburant | 70000   |
-| Péage     | 10000   |
-| Chauffeur | 30000   |
-| Dépannage | 15000   |
-
----
-
-## Résultat
-
-```text id="e1wy04"
-Bénéfice = 175000
-```
-
----
-
-# 10. Très important : catégories de dépenses
-
-Ajoute une entité ou enum.
-
----
-
-## Exemple
-
-```php id="0d6mji"
-enum CategorieDepense
-{
-    CARBURANT,
-    PEAGE,
-    MAINTENANCE,
-    SALAIRE,
-    ADMINISTRATIF,
-    AUTRE
-}
-```
-
----
-
-# 11. Gestion des justificatifs
-
-Très important dans les entreprises.
-
-Tu peux stocker :
-
-* facture,
-* reçu,
-* photo.
-
-Exemple :
-
-```text id="v8w72e"
-Depense
-- justificatif
-```
-
----
-
-# 12. Workflow réel souvent utilisé
-
----
-
-## Étape 1
-
-Le chauffeur reçoit une avance.
-
----
-
-## Étape 2
-
-Il dépense pendant le voyage.
-
----
-
-## Étape 3
-
-Il revient avec les justificatifs.
-
----
-
-## Étape 4
-
-Le gestionnaire valide les dépenses.
-
----
-
-# 13. Tu peux gérer les avances aussi
-
-Très utile plus tard.
-
----
-
-## Exemple
-
-```text id="g52g4m"
-AvanceVoyage
-- voyage
-- personnel
-- montant
-```
-
-Puis :
-
-* dépenses déduites de l’avance.
-
----
-
-# 14. Très important : validation
-
-Dans les vraies compagnies :
-
-> une dépense doit souvent être validée.
-
-Tu peux ajouter :
-
-```text id="1n94x0"
-Depense
-- statut
-- valide_par
-- date_validation
-```
-
----
-
-# 15. Différence avec ton module Approvisionnement
-
----
-
-## Approvisionnement
-
-Concerne :
-
-* entrée de stock.
-
-Exemple :
-
-* achat de pneus.
-
----
-
-## Dépense
-
-Concerne :
-
-* sortie d’argent.
-
-Exemple :
-
-* paiement carburant.
-
----
-
-# 16. Relation entre les deux
-
-Un approvisionnement peut :
-
-* générer automatiquement une dépense.
-
-Exemple :
-
-```text id="xop1dn"
-Approvisionnement :
-Achat pneus = 200000
-```
-
-↓
-
-```text id="n2njd5"
-Depense :
-Paiement fournisseur = 200000
-```
-
-Très professionnel.
-
----
-
-# 17. Ce que je te conseille maintenant
-
-Vu ton système :
-
-> la prochaine grosse brique logique est clairement :
-
-## Gestion des dépenses + caisse
-
-Parce que tu as déjà :
-
-* recettes,
-* stock,
-* maintenance.
-
-Mais il manque :
-
-* la sortie d’argent globale.
-
----
-
-# 18. Architecture recommandée
-
-```text id="a0etv5"
-Voyage
-   ├── Tickets (recettes)
-   ├── Dépenses
-   └── Résultat financier
-```
-
-Et :
-
-```text id="q61b8v"
-Approvisionnement
-   └── Dépense
-
-Depannage
-   └── Dépense
-```
-
----
-
-# 19. Niveau avancé futur
-
-Plus tard tu peux ajouter :
-
-* caisse journalière,
-* comptabilité,
-* budgets,
-* fournisseurs à crédit,
-* échéances,
-* dette fournisseurs,
-* rapprochement bancaire.
-
-Et là ton système deviendra un vrai ERP transport complet.
-
-
-
-
-
-
-
-
-
-
-- Frais de route sur voyage (c'est de l'argent que la compagnie donne au chauffeur et commercial pour le voyage en cas de dépenses, du genre ration équipage) -> Recette voyage = Vente - Frais de route = Recette net
-    - Aussi, peut-on connaître les dépenses éffectué lors d'un voyage
-    - A la fin du voyage les péages nous ont pris combien
-- La somme net reçu sur un car dans les statistiques
-- Revoire le cas de désistement qui se fait que sur un voyage de la même ligne !
-
-
-Vérifié si hors courriers est bien pris en compte dans toutes les stats
-
-rejoint la recette en négatif, comme un remboursement.
-
-
-
-
-
-
-
-
-
-Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel voyage ouvert
-
-Cela dépend de ce que tu appelles "désister", mais dans les compagnies de transport on distingue généralement :
-
-1. **Annulation simple** → remboursement ou avoir.
-2. **Report du billet** → transfert vers un autre voyage.
-
-Dans le cas du report, le nouveau voyage n'est **pas forcément sur le même voyage**, mais il doit normalement rester **compatible avec le trajet acheté**.
-
----
-
-## Cas 1 : Même ligne (le plus courant)
-
-Le client avait :
-
-```text
-Abidjan → Korhogo
-Voyage V001
-08h
-```
-
-Il ne peut plus voyager.
-
-On le reporte sur :
-
-```text
-Abidjan → Korhogo
-Voyage V002
-14h
-```
-
-C'est le cas le plus fréquent.
-
----
-
-## Cas 2 : Autre voyage de la même ligne
-
-Par exemple :
-
-```text
-Ligne : Abidjan → Korhogo
-```
-
-Voyages :
-
-```text
-V001 - 08h
-V002 - 14h
-V003 - 18h
-```
-
-Le billet est déplacé vers un autre départ.
-
-Très courant.
-
----
-
-## Cas 3 : Voyage d'une autre ligne compatible
-
-Supposons :
-
-```text
-L1 : Abidjan → Korhogo
-L2 : Abidjan → Bouaké → Korhogo
-```
-
-Le client avait acheté :
-
-```text
-Abidjan → Korhogo
-```
-
-S'il reste des places sur L2, certaines compagnies acceptent le transfert.
-
-Métierement, ce qui compte n'est pas la ligne mais :
-
-```text
-Départ
-Arrivée
-```
-
----
-
-## Cas 4 : Voyage totalement différent
-
-Exemple :
-
-```text
-Billet :
-Abidjan → Korhogo
-```
-
-et on veut le transférer vers :
-
-```text
-Abidjan → Man
-```
-
-Là, ce n'est plus un report.
-
-C'est pratiquement :
-
-* une annulation,
-* suivie d'un nouvel achat.
-
----
-
-## Dans ton système
-
-Comme tu tends vers un modèle segmenté :
-
-```text
-Ticket
-- gare_depart
-- gare_arrivee
-- voyage
-```
-
-Je te conseillerais la règle suivante :
-
-### Un report est autorisé si :
-
-```text
-nouveau voyage passe par
-gare_depart
-et
-gare_arrivee
-```
-
-et qu'il reste des places sur le segment.
-
-Ainsi :
-
-| Ancien billet     | Nouveau voyage                    | Autorisé |
-| ----------------- | --------------------------------- | -------- |
-| Abidjan → Korhogo | Autre voyage Abidjan → Korhogo    | ✅        |
-| Abidjan → Korhogo | Voyage Abidjan → Bouaké → Korhogo | ✅        |
-| Abidjan → Korhogo | Voyage Abidjan → Man              | ❌        |
-
----
-
-## Comment font les compagnies ?
-
-La plupart ont une logique proche de :
-
-```text
-Annulation
-ou
-Report vers le prochain départ disponible
-```
-
-Le plus souvent :
-
-1. Le siège est libéré sur l'ancien voyage.
-2. Un nouveau ticket est créé sur le nouveau voyage.
-3. Une éventuelle différence tarifaire est calculée.
-
----
-
-## Modélisation
-
-Je te déconseille de modifier directement le ticket existant.
-
-Il est préférable de conserver l'historique :
-
-```text
-Ticket T001
-    STATUT = REPORTE
-```
-
-et créer :
-
-```text
-Ticket T045
-    STATUT = ACTIF
-    ticket_origine = T001
-```
-
-Ainsi tu gardes une trace complète des reports.
-
-Pour ton application, la règle métier la plus réaliste est :
-
-> Un client peut être reporté sur n'importe quel voyage ouvert qui dessert sa gare de départ et sa gare d'arrivée, même si ce voyage appartient à une autre ligne. Ce qui compte est la possibilité réelle d'effectuer le trajet acheté.
-
-
-
-
-
-
-
-
-
-Au final, la recette total est constituée de quoi, aussi la recette d'une gare est constituée de quoi ?
-
-C'est justement là qu'il faut fixer une définition métier claire. Sinon, tu risques d'avoir des statistiques contradictoires.
-
-Pour ton application, je définirais les recettes ainsi.
-
-# 1. La recette totale de l'entreprise
-
-La recette totale représente **tout ce que l'entreprise a vendu**, quel que soit le canal de vente.
-
-Elle est constituée de :
-
-* ✅ Tickets vendus au guichet
-* ✅ Tickets vendus par les commerciaux
-* ✅ Réservations payées
-* ✅ Bagages payés
-* ✅ Courriers payés (si l'entreprise souhaite les inclure)
-
-Par exemple :
-
-```text
-Tickets guichet        1 500 000
-Tickets commerciaux      400 000
-Réservations payées      300 000
-Bagages                  120 000
-Courriers                 80 000
--------------------------------
-Recette totale         2 400 000
-```
-
-Comme tu l'as déjà évoqué, certaines entreprises ne souhaitent pas intégrer les courriers dans leur chiffre d'affaires transport de voyageurs. Je prévoirais donc également :
-
-* **Recette totale**
-* **Recette totale hors courriers**
-
----
-
-# 2. La recette d'une gare
-
-Pour moi, la recette d'une gare est **tout ce qui a été vendu au nom de cette gare**, indépendamment du canal de paiement.
-
-Elle comprend :
-
-* ✅ Tickets vendus au guichet de la gare
-* ✅ Tickets vendus par les commerciaux rattachés à cette gare
-* ✅ Réservations initiées par cette gare (si elles sont payées)
-* ✅ Bagages enregistrés par cette gare
-* ✅ Courriers déposés dans cette gare
-
-Elle **ne dépend pas** de savoir si le paiement a été effectué :
-
-* au guichet ;
-* par un commercial ;
-* en ligne.
-
-La gare est responsable de l'exploitation locale.
-
----
-
-# 3. La recette du commercial
-
-Elle comprend uniquement :
-
-* les tickets qu'il a vendus ;
-* les bagages qu'il a enregistrés (si tu autorises cela) ;
-* éventuellement les courriers (si le commercial peut en vendre).
-
-Cette recette est un sous-ensemble de la recette de la gare.
-
-Par exemple :
-
-```text
-Gare de Bouaké
-
-Guichet :        600 000
-Commercial A :   250 000
-Commercial B :   150 000
-Bagages :         40 000
-Courriers :       20 000
-
-Recette gare :
-1 060 000
-```
-
-Les 400 000 FCFA des commerciaux sont déjà inclus dans la recette de la gare.
-
----
-
-# 4. Les encaissements
-
-C'est encore autre chose.
-
-Tu peux avoir :
-
-```text
-Guichet
-600 000
-
-Commercial A
-250 000
-
-Commercial B
-150 000
-
-Paiement en ligne
-300 000
-```
-
-Ce sont les caisses, pas les recettes d'exploitation.
-
----
-
-# Ce que je te recommande
-
-Je structurerais ton tableau de bord comme ceci :
-
-### Recettes
-
-* Recette totale
-* Recette totale hors courriers
-* Recette par gare
-* Recette par commercial
-* Recette bagages
-* Recette courriers
-
-### Encaissements
-
-* Encaissement guichet
-* Encaissement commerciaux
-* Encaissement paiements en ligne
-
----
-
-## Un point d'attention concernant les réservations
-
-Il y a un cas qu'il faudra trancher dans ton application.
-
-Tu m'as expliqué que :
-
-1. Le client réserve.
-2. Il paie.
-3. Il reçoit un **bon de réservation**.
-4. Plus tard, la gare émet le ticket.
-
-Pour éviter tout **double comptage**, il faudra choisir une seule règle :
-
-* **Option A (celle que je recommande)** : la recette est reconnue **au moment du paiement de la réservation**. L'émission du ticket ne crée pas une nouvelle recette ; elle ne fait que matérialiser le droit au transport.
-* Option B : la recette est reconnue à l'émission du ticket (mais alors les réservations payées ne doivent pas être comptabilisées avant).
-
-L'option A est la plus proche des principes comptables et t'évitera des incohérences dans les rapports. Ainsi, chaque vente est comptée une seule fois, quel que soit le moment où le ticket est finalement édité.
-
-
-
-
-
-
-
-
-
-
-
-
-Moyen de paiement, on vas mettre plusieurs, mais on vas commencer par Stripe
-Le Mobile Money reste hors périmètre en attendant l'agrégateur
-- Mobile money -> Frais payé par le client + un plus pour les timbres du genre au lieu de 100F on ajoute 200F
-
-
-- La modification peut géner plusieurs choses comme les réservations...
-- Prévenir les alertes via une baffe ou aussi ce qui se fait dans les aéroports qui averti le départ..
-- Auth client réservation via numéro de téléphone
-- Retour client et agent vi codeqr et peut envoyer des images, vidéos etc...
-
-
-- - 
-- Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
-- Dépannage auto création typepanne
-
-- 
-Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
-    new GetCollection(
-        security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
-        openapi: new Operation(
-            summary: 'La liste des cars',
-            description: 'Permet de voir la liste des cars',
-            security: [['bearerAuth' => []]]
-        )
-    ), CAR
-Ticket, Ville, Voyage, Ligne, Gare, Personnel, Tarif
-
-Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne part pas
-
-- Quand tu regarde l'appli comment je pourrais écrire une explication ou guide pour les endroits éssenciel de l'application
-- La possibilités d'activer ou désactiver des modules dans l'application
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Vu tout ce que nous avons construit ensemble, si ton objectif est d'avoir un **logiciel professionnel de gestion de compagnies de transport** (multi-entreprises, multi-gares, réservations, exploitation, temps réel, application mobile, etc.), je partirais sur une architecture moderne plutôt que de simplement changer de framework.
-
-## Backend
-
-Je garderais **Symfony**.
-
-Pourquoi ?
-
-* Tu maîtrises déjà Symfony.
-* API Platform est excellent pour construire des API REST.
-* L'écosystème est mature.
-* Facile à faire évoluer vers des microservices plus tard si nécessaire.
-
-J'ajouterais :
-
-* **API Platform**
-* **PostgreSQL** (je le préfère à MySQL pour ce type d'application)
-* **Redis** (cache, files d'attente, sessions, verrous)
-* **Messenger** (traitements asynchrones)
-* **Mercure ou WebSocket** pour le temps réel
-
----
-
-## Frontend Web
-
-Je passerais sur **Next.js**.
-
-Pourquoi ?
-
-* Très performant.
-* Excellent avec React.
-* Facile pour construire un tableau de bord riche.
-* Très bon pour les SaaS.
-
-Tu avais d'ailleurs demandé si React ou Next.js était préférable pour consommer ton backend Symfony : je resterais sur **Next.js**.
-
----
-
-## Mobile
-
-Je garderais **Flutter**.
-
-Tu as déjà créé le projet.
-
-Un seul code pour :
-
-* Android
-* iOS
-
----
-
-## Temps réel
-
-Pour le suivi des voyages, je ne me limiterais pas à Mercure.
-
-Je mettrais :
-
-* WebSocket
-* ou Mercure si tu restes sur Symfony
-
-Pour afficher :
-
-* position du car
-* retards
-* ventes
-* nouveaux tickets
-* nouvelles réservations
-
-sans recharger la page.
-
----
-
-## Cartographie
-
-Pour le suivi GPS :
-
-* Google Maps
-* ou OpenStreetMap + Leaflet (moins coûteux)
-
-Tu pourras afficher :
-
-* le trajet ;
-* la position du car ;
-* les gares ;
-* les retards.
-
----
-
-## Notifications
-
-* Firebase Cloud Messaging (Flutter)
-* Emails
-* SMS (si besoin)
-
----
-
-## Authentification
-
-* JWT
-* Refresh Token
-* Gestion fine des rôles (tu as déjà un bon modèle RBAC)
-
----
-
-## Déploiement
-
-* Docker
-* Nginx
-* GitHub Actions
-* VPS ou Cloud
-
----
-
-## Base de données
-
-Je passerais sur **PostgreSQL**.
-
-Avec notamment :
-
-* index performants ;
-* transactions solides ;
-* types avancés ;
-* possibilité d'utiliser des extensions géographiques si tu ajoutes beaucoup de fonctionnalités GPS.
-
----
-
-# Si tu veux vraiment du temps réel
-
-Je pense que ton application aura besoin de deux types de temps réel.
-
-### 1. Temps réel métier
-
-Exemple :
-
-* un ticket est vendu ;
-* une réservation est créée ;
-* un voyage est annulé.
-
-Tous les écrans concernés se mettent à jour automatiquement.
-
----
-
-### 2. Temps réel GPS
-
-Le chauffeur possède l'application Flutter.
-
-Toutes les 10 à 30 secondes :
-
-```text
-Latitude
-
-Longitude
-
-Vitesse
-
-Heure
-```
-
-sont envoyées au serveur.
-
-L'application web affiche alors :
-
-* le car sur la carte ;
-* le retard ;
-* le prochain arrêt.
-
----
-
-# Si je devais repartir de zéro aujourd'hui
-
-Je choisirais :
-
-| Couche          | Technologie                             |
-| --------------- | --------------------------------------- |
-| Backend         | Symfony + API Platform                  |
-| Base de données | PostgreSQL                              |
-| Cache           | Redis                                   |
-| Temps réel      | Mercure + WebSocket (selon les besoins) |
-| Web             | Next.js + React Query + TypeScript      |
-| Mobile          | Flutter                                 |
-| Cartographie    | Google Maps ou Leaflet                  |
-| Auth            | JWT + Refresh Token                     |
-| Déploiement     | Docker + Nginx + GitHub Actions         |
-
-## Mon dernier conseil
-
-Au vu de l'évolution de ton projet, je pense que le plus grand changement ne sera **pas la technologie**, mais **l'architecture métier**.
-
-Tu commences à intégrer des notions d'exploitation en temps réel (passage dans les gares, retards, suivi des cars, bordereaux, statistiques, réservations, multi-gares). À ce stade, je structurerais le projet autour de grands domaines fonctionnels (Administration, Exploitation, Billetterie, Réservations, Flotte, Stock, Comptabilité, etc.) plutôt que d'une simple organisation par entités.
-
-C'est cette organisation qui fera réellement passer ton application d'un CRUD évolué à un logiciel professionnel de gestion de compagnies de transport.
 
 
 
@@ -9878,6 +9507,29 @@ Il reste le **cœur du métier** : **Billetterie / Réservations** (vente par tr
 
 ## New 2
 
+
+Salut Claude Code,
+
+Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
+
+## Stack technique
+- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
+- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
+- **Apps Mobile** : Flutter, React Native
+
+## Rappel
+- **Ignore les fichiers `brl.md`** du projet : ce sont juste des brouillons
+
+## Ce que j'attends
+
+Analyse le projet pour :
+- te remettre à jour sur l'architecture générale et les modules existants,
+- retrouver l'état d'avancement du projet,
+- être prêt pour la suite des instructions que je vais te donner.
+
+
+
+
 Dans l'état actuelle, si une gare intermédiaire réceptionne un voyage qui n'est pas encore à son niveau du genre Bouaké réceptionne alors que le cars est en route vers Yamoussoukro, est ce que ça pénalise Yamoussoukro ?
 
 
@@ -10189,3 +9841,15 @@ Et sur la frise, connecté en admin :
 ---
 
 Les serveurs tournent toujours (front `http://127.0.0.1:8300`, API 8200). Tu peux cliquer « Consigner » toi-même pour voir la suite : Bouaké devient réceptionnable, et le bagage comme le courrier de Yamoussoukro doivent rester `EMBARQUE` et `EN_TRANSIT`. Dis-moi si tu veux que je le déroule, ou que je supprime ce voyage de démonstration une fois que tu l'auras vu.
+
+
+
+
+
+## Travail en cours (non commité)
+
+Tout tourne autour du **dernier chantier : la vente hors ligne du commercial**, plus un démarrage de PWA.
+
+**Backend** — garde anti-collision de code dans [SynchronisationHorsLigneService.php:175](Backend-Transport/src/Domain/Service/SynchronisationHorsLigneService.php:175) : un code `B1` déjà pris est refusé *avant* l'écriture (sinon la violation d'index ferme l'EntityManager, annule le lot entier et bloque la file pour toujours). Même garde pour le bagage, par entreprise. Test `unCodeDejaPrisNeBloquePasLaFile` ajouté.
+
+**commercialflutter** — nouveau [vidange_automatique.dart](commercialflutter/lib/core/offline/vidange_automatique.dart) : la file repart seule sur 4 déclencheurs (ouverture SQLite, connectivité, retour au premier plan, retentative 2 min tant que la file n'est pas vide — le cas « antenne connectée sans débit »). Monté à la racine dans `app.dart`. Et `CodesHorsLigne` prend désormais le **max(file locale, instantané serveur)** pour que le compteur « B » ne reparte pas à 1 après réinstallation.

@@ -77,6 +77,7 @@ final class VoyagesReservablesProvider implements ProviderInterface
             $reservables[] = new VoyageReservableDto(
                 id: (int) $voyage->getId(),
                 codevoyage: $voyage->getCodevoyage(),
+                numerodepart: $voyage->getNumerodepart(),
                 provenance: $voyage->getProvenance(),
                 destination: $voyage->getDestination(),
                 heurepassage: $gareAgent === null

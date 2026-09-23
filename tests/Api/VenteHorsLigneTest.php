@@ -328,6 +328,18 @@ final class VenteHorsLigneTest extends ApiTestCase
         self::assertNotEmpty($instantane['billets'], 'les places déjà prises, pour le plan de sièges hors ligne');
         self::assertSame(20, $instantane['plafondRemisePourcentage']);
 
+        /*
+            Le NUMÉRO DE DÉPART voyage avec l'instantané : le reçu s'imprime hors couverture et porte
+            « DEPART 4 » face au siège. Un téléphone ne peut pas le recalculer — c'est un compteur de
+            gare, par jour —, donc s'il n'est pas embarqué ici, il ne sera jamais sur le papier remis
+            au client.
+        */
+        self::assertSame(
+            $this->voyage->getNumerodepart(),
+            $instantane['voyage']['numerodepart'],
+            'sans lui, le reçu imprimé à bord ne porte pas le départ que la gare annonce'
+        );
+
         // La grille : le prix est le seul calcul serveur qu'un téléphone peut refaire à l'identique.
         $couples = array_map(
             static fn (array $t): string => $t['departId'] . '>' . $t['arriveeId'],

@@ -2,6 +2,7 @@
 
 namespace App\Controller\Api;
 
+use App\Domain\Service\DepenseGareService;
 use App\Domain\Service\RecetteGareService;
 use App\Domain\Trait\PeriodeTrait;
 use App\Entity\User;
@@ -402,12 +403,18 @@ final class GareStatsController extends AbstractController
     /**
      * Pilotage : recette par gare sur la période N comparée à la période précédente N-1 de même durée
      * (juste avant), avec la variation en %. Recette = billets + courriers + bagages encaissés à la gare.
+     *
+     * S'y ajoute ce que chaque gare a DÉPENSÉ, et son RÉSULTAT — la seule lecture qui dise laquelle
+     * gagne vraiment de l'argent. Ce résultat ne déduit que les dépenses IMPUTÉES à la gare :
+     * dépannages et approvisionnements sont portés par l'entreprise et ne se rattachent à aucun
+     * point de vente (cf. 'DepenseGareService').
      */
     #[Route('/api/stats/gares/pilotage', name: 'api_stats_gares_pilotage', methods: ['GET'])]
     public function pilotage(
         Request $request,
         Security $security,
-        RecetteGareService $recetteGareService
+        RecetteGareService $recetteGareService,
+        DepenseGareService $depenseGareService
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -423,18 +430,33 @@ final class GareStatsController extends AbstractController
 
         $cur = $this->recetteMap($recetteGareService, $debut, $fin, $ent);
         $prev = $this->recetteMap($recetteGareService, $prevDebut, $prevFin, $ent);
+        $depCur = $this->depenseMap($depenseGareService, $debut, $fin, $ent);
+        $depPrev = $this->depenseMap($depenseGareService, $prevDebut, $prevFin, $ent);
 
-        $ids = array_unique(array_merge(array_keys($cur), array_keys($prev)));
+        /*
+            Une gare peut n'avoir que des dépenses sur la période (un guichet fermé qui paie encore
+            son loyer) : elle doit figurer au classement, sans quoi le seul résultat négatif du
+            réseau serait justement celui qu'on ne verrait pas.
+        */
+        $ids = array_unique(array_merge(
+            array_keys($cur), array_keys($prev), array_keys($depCur), array_keys($depPrev)
+        ));
         $parGare = [];
         foreach ($ids as $id) {
             $n = $cur[$id]['recette'] ?? 0;
             $n1 = $prev[$id]['recette'] ?? 0;
+            $dn = $depCur[$id]['montant'] ?? 0;
+            $dn1 = $depPrev[$id]['montant'] ?? 0;
             $parGare[] = [
                 'gareId' => $id,
-                'libelle' => $cur[$id]['libelle'] ?? $prev[$id]['libelle'] ?? '—',
+                'libelle' => $cur[$id]['libelle'] ?? $prev[$id]['libelle'] ?? $depCur[$id]['libelle'] ?? '—',
                 'recetteN' => $n,
                 'recetteN1' => $n1,
                 'variation' => $n1 > 0 ? (int) round(($n - $n1) / $n1 * 100) : ($n > 0 ? 100 : 0),
+                'depensesN' => $dn,
+                'depensesN1' => $dn1,
+                'resultatN' => $n - $dn,
+                'resultatN1' => $n1 - $dn1,
             ];
         }
         usort($parGare, fn ($a, $b) => $b['recetteN'] <=> $a['recetteN']);
@@ -443,6 +465,9 @@ final class GareStatsController extends AbstractController
             'periode' => ['debut' => $debut->format('Y-m-d'), 'fin' => $fin->format('Y-m-d')],
             'periodePrecedente' => ['debut' => $prevDebut->format('Y-m-d'), 'fin' => $prevFin->format('Y-m-d')],
             'parGare' => $parGare,
+            // Ce que le résultat ci-dessus NE déduit PAS, pour que l'écran puisse le dire.
+            'perimetreResultat' => 'DEPENSES_GARE',
+            'siege' => $depenseGareService->parGare($debut, $fin, $ent)['siege'],
         ]);
     }
 
@@ -456,6 +481,20 @@ final class GareStatsController extends AbstractController
         $map = [];
         foreach ($svc->parGare($debut, $fin, $ent) as $id => $g) {
             $map[$id] = ['libelle' => $g['libelle'], 'recette' => (int) $g['recetteTotale']];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Dépenses imputées à chaque gare → [gareid => [libelle, montant]]. Jumeau de 'recetteMap', et
+     * pour la même raison : une seule définition, partagée par toutes les surfaces.
+     */
+    private function depenseMap(DepenseGareService $svc, \DateTimeImmutable $debut, \DateTimeImmutable $fin, int $ent): array
+    {
+        $map = [];
+        foreach ($svc->parGare($debut, $fin, $ent)['gares'] as $id => $g) {
+            $map[$id] = ['libelle' => $g['libelle'], 'montant' => (int) $g['montant']];
         }
 
         return $map;

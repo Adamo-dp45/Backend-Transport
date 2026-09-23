@@ -141,6 +141,10 @@ class HistoriqueFixtures extends Fixture implements DependentFixtureInterface, F
             $voyage = new Voyage();
             $voyage
                 ->setCodevoyage(sprintf('%s-V%d', $ligne->getCodeligne(), $numero++))
+                // Un seul départ par jour dans l'historique : Abidjan ne lance qu'un car quotidien sur
+                // cette ligne, c'est donc toujours le « départ 1 » de sa journée. Le compteur du
+                // numéro de départ repart à 1 chaque jour (cf. NumeroDepartService).
+                ->setNumerodepart(1)
                 ->setLigne($ligne)
                 ->setGareprovenance($this->gare('abidjan'))
                 // Voyage terminé : le car est au terminus.

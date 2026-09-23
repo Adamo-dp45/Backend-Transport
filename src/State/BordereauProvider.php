@@ -111,6 +111,7 @@ class BordereauProvider implements ProviderInterface
             voyage: new BordereauVoyageDto(
                 id: $voyage->getId(),
                 codevoyage: $voyage->getCodevoyage(),
+                numerodepart: $voyage->getNumerodepart(),
                 provenance: $voyage->getProvenance(),
                 destination: $voyage->getDestination(),
                 datedepartprevue: $voyage->getDatedepartprevue()?->format('d/m/Y H:i') ?? '',

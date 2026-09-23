@@ -9,6 +9,7 @@ use App\Entity\Model;
 use App\Entity\Modelvehicule;
 use App\Entity\Typepanne;
 use App\Entity\Typepersonnel;
+use App\Entity\Typedepense;
 use App\Entity\Typepiece;
 use App\Entity\Typevehicule;
 use App\Entity\Ville;
@@ -70,6 +71,22 @@ class ReferentielFixtures extends Fixture implements DependentFixtureInterface, 
 
     private const MODELES_PIECE = ['standard' => 'Standard', 'renforce' => 'Renforcé', 'origine' => 'Pièce d\'origine'];
 
+    /**
+     * Les postes de dépense d'une compagnie de transport ivoirienne. 'fraisroute' est le forfait
+     * remis à l'équipage au départ — il n'a pas encore d'écran, mais le poste existe pour que la
+     * dépense puisse déjà être saisie et rattachée à son voyage.
+     */
+    private const TYPES_DEPENSE = [
+        'carburant' => 'Carburant',
+        'peage' => 'Péage',
+        'pneumatique' => 'Pneus',
+        'entretien' => 'Entretien courant',
+        'salaire' => 'Salaires',
+        'loyer' => 'Loyer',
+        'fraisroute' => 'Frais de route',
+        'imprevu' => 'Imprévu',
+    ];
+
     public function getDependencies(): array
     {
         return [EntrepriseFixtures::class];
@@ -100,6 +117,7 @@ class ReferentielFixtures extends Fixture implements DependentFixtureInterface, 
             $this->creerLibelles($manager, Typepiece::class, 'typepiece', $cie, $id, self::TYPES_PIECE);
             $this->creerLibelles($manager, Marquepiece::class, 'marquepiece', $cie, $id, self::MARQUES_PIECE);
             $this->creerLibelles($manager, Model::class, 'model', $cie, $id, self::MODELES_PIECE);
+            $this->creerLibelles($manager, Typedepense::class, 'typedepense', $cie, $id, self::TYPES_DEPENSE);
         }
 
         $manager->flush();

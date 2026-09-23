@@ -19,6 +19,9 @@ final class ReportPossibleDto
         public readonly int $voyageId,
         #[Groups(['read:ReportPossible'])]
         public readonly ?string $codevoyage,
+        /** Numéro de départ DU JOUR, tel qu'imprimé sur le billet (« DÉPART 4 »). */
+        #[Groups(['read:ReportPossible'])]
+        public readonly ?int $numerodepart,
         #[Groups(['read:ReportPossible'])]
         public readonly ?string $provenance,
         #[Groups(['read:ReportPossible'])]

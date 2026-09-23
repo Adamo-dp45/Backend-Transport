@@ -39,9 +39,29 @@ class ActiviteLogger
         des réservations et déplace des retards. Elle doit se voir, avec l'heure déclarée et son auteur.
     */
     public const VOYAGE_PASSAGE_RATTRAPE = 'VOYAGE_PASSAGE_RATTRAPE';
+    /*
+        Un départ replanifié à un AUTRE JOUR reprend un numéro dans sa journée d'accueil. Le numéro
+        étant imprimé sur les billets déjà vendus, il faut pouvoir relier après coup le « Départ 2 »
+        d'hier au « Départ 5 » d'aujourd'hui.
+    */
+    public const VOYAGE_NUMERO_DEPART = 'VOYAGE_NUMERO_DEPART';
     public const VOYAGE_DEPART = 'VOYAGE_DEPART';
     public const VOYAGE_CLOTURE = 'VOYAGE_CLOTURE';
     public const VOYAGE_PERSONNEL = 'VOYAGE_PERSONNEL';
+
+    /*
+        DÉPENSES — la SORTIE d'argent. C'est le seul geste du système qui fait sortir du cash sans
+        contrepartie automatique : une vente laisse un billet, un approvisionnement laisse un
+        mouvement de stock, une dépense ne laisse que sa ligne. La trace est donc tout ce qui reste
+        pour dire qui a sorti quoi, et pour quoi.
+    */
+    public const DEPENSE_ENREGISTREE = 'DEPENSE_ENREGISTREE';
+    /*
+        Modification : journalisée UNIQUEMENT quand le montant, la gare d'imputation ou le type
+        changent (cf. 'DepenseProcessor'). Tracer une correction de libellé noierait le journal.
+    */
+    public const DEPENSE_MODIFIEE = 'DEPENSE_MODIFIEE';
+    public const DEPENSE_SUPPRIMEE = 'DEPENSE_SUPPRIMEE';
 
     // Billetterie / courrier / bagage — événements critiques (annulation, suppression, perte, livraison)
     public const TICKET_ANNULE = 'TICKET_ANNULE';

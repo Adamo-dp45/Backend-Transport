@@ -12,6 +12,7 @@ use App\Entity\Output\Client\ClientStatistiqueOutput;
 use App\Entity\Output\Courrier\CourrierStatistiqueOutput;
 use App\Entity\Output\Exploitation\ExploitationStatistiqueOutput;
 use App\Entity\Output\Fidelite\FideliteStatistiqueOutput;
+use App\Entity\Output\Depense\DepenseStatistiqueOutput;
 use App\Entity\Output\Financier\FinancierStatistiqueOutput;
 use App\Entity\Output\Flotte\FlotteStatistiqueOutput;
 use App\Entity\Output\FlotteActivity\FlotteActiviteOutput;
@@ -26,6 +27,7 @@ use App\State\ClientStatsProvider;
 use App\State\CourrierStatsProvider;
 use App\State\ExploitationStatsProvider;
 use App\State\FideliteStatsProvider;
+use App\State\DepenseStatsProvider;
 use App\State\FinancierStatsProvider;
 use App\State\FlotteActiviteStatsProvider;
 use App\State\FlotteStatsProvider;
@@ -61,6 +63,21 @@ use App\State\StockStatsProvider;
             openapi: new Operation(
                 summary: 'Statistiques financières',
                 description: 'Permet de voir les statistiques financières',
+                security: [['bearerAuth' => []]]
+            )
+        ),
+        new Get(
+            security: "is_granted('ROLE_ADMIN')", /*
+                - Les charges du SIÈGE (loyer, salaires de la direction) sont dans cette charge :
+                  elle reste réservée à l'administrateur, comme la synthèse financière
+            */
+            uriTemplate: '/stats/depenses',
+            provider: DepenseStatsProvider::class,
+            input: false,
+            output: DepenseStatistiqueOutput::class,
+            openapi: new Operation(
+                summary: 'Statistiques des dépenses',
+                description: 'Permet de voir où part l\'argent : par poste, par gare, par mois et par mode de règlement',
                 security: [['bearerAuth' => []]]
             )
         ),

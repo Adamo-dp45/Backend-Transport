@@ -53,6 +53,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 
 #[ORM\Entity(repositoryClass: VoyageRepository::class)]
 /*
+    - NUMÉRO DE DÉPART : unique par entreprise + ligne + gare de provenance + JOUR. Déclaré ici, dans
+      le mapping, et non en SQL brut dans la migration : la base de TEST est construite par
+      'doctrine:schema:update' (cf. 'make test-db'), qui ne connaît que les mappings — un index posé
+      seulement par la migration n'y existerait pas, et les tests valideraient une règle non tenue.
+    - Les voyages LEGACY sans 'gareprovenance' (NULL) échappent à l'index, 'mysql' admettant autant de
+      NULL qu'on veut dans un index unique. Ils sont numérotés par la migration et plus rien n'en crée :
+      le processor pose toujours la provenance effective.
+*/
+#[ORM\UniqueConstraint(
+    name: 'uniq_voyage_numerodepart',
+    columns: ['identreprise', 'ligne_id', 'gareprovenance_id', 'jourdepart', 'numerodepart']
+)]
+/*
     - L'unicité (datedepartprevue, ligne) est vérifiée dans 'VoyageProcessor' : robuste à la transition
       trajet -> ligne, la ligne étant résolue dans le processor (et non au moment de la validation).
 */
@@ -339,8 +352,41 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     private ?int $id = null;
 
     #[ORM\Column(length: 255)]
-    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation'])]
+    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation', 'read:Depense'])]
     private ?string $codevoyage = null;
+
+    /**
+     * NUMÉRO DE DÉPART DU JOUR — ce que le passager lit sur son billet, dans la case face au siège
+     * (« DÉPART 4 · SIÈGE 29 »). Compteur par ENTREPRISE + LIGNE + GARE DE PROVENANCE effective +
+     * JOUR : le Nième car que CETTE gare lance sur CETTE ligne ce jour-là. Un DÉPART PARTIEL a donc
+     * sa propre suite — à Bouaké le premier car de la journée s'annonce « départ 1 », même si
+     * Abidjan en a déjà fait partir deux sur la même ligne. C'est la lecture du GUICHET : le
+     * passager entend l'ordre des cars que SA gare fait partir, et son billet porte déjà sa
+     * destination.
+     *
+     * FIGÉ à la création ('NumeroDepartService') : un voyage ouvert APRÈS coup pour une heure plus
+     * tôt portera quand même un numéro plus grand. C'est le prix de la STABILITÉ DE L'IMPRIMÉ — un
+     * billet remis au client ne doit jamais changer de numéro de départ dans son dos. SEULE
+     * exception, le changement de JOUR (replanification) : le numéro appartient à l'ancienne
+     * journée, le garder entrerait en collision avec le départ du même rang déjà ouvert le jour
+     * cible. Distinct de 'codeligne' + 'codevoyage', qui identifient le voyage pour l'exploitation.
+     */
+    #[ORM\Column]
+    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation'])]
+    private ?int $numerodepart = null;
+
+    /**
+     * JOUR de 'datedepartprevue' — maintenu par SON SETTER, jamais écrit à la main.
+     *
+     * DÉRIVÉ mais STOCKÉ, contre la règle maison, et pour une seule raison : porter l'unicité du
+     * numéro de départ par un INDEX plutôt que par une vérification PHP. Une expression
+     * ('CAST(datedepartprevue AS DATE)') ne se déclare pas dans le mapping Doctrine, donc
+     * n'existerait pas dans la base de test ; et sans index, deux créations simultanées sur la même
+     * ligne produiraient deux « Départ 2 » EN SILENCE — exactement le défaut corrigé sur
+     * 'codeticket'. Non exposé : l'API sert déjà 'datedepartprevue', dont il n'est que le jour.
+     */
+    #[ORM\Column(type: 'date_immutable')]
+    private ?\DateTimeImmutable $jourdepart = null;
 
     #[ORM\Column(length: 255)]
     #[Groups(['read:Voyage', 'write:Voyage', 'write:Voyage:update', 'read:Personnel', 'read:Ticket', 'read:Bagage', 'read:Reservation'])]
@@ -537,8 +583,31 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     public function setDatedepartprevue(\DateTimeImmutable $datedepartprevue): static
     {
         $this->datedepartprevue = $datedepartprevue;
+        // Le jour SUIT la date de départ prévue, ici et nulle part ailleurs : dérivé au seul endroit
+        // qui écrit la date, 'jourdepart' ne peut pas s'en écarter (cf. son commentaire).
+        $this->jourdepart = $datedepartprevue->setTime(0, 0);
 
         return $this;
+    }
+
+    public function getNumerodepart(): ?int
+    {
+        return $this->numerodepart;
+    }
+
+    /**
+     * Réservé à 'NumeroDepartService' : le numéro n'est jamais saisi, ni par l'agent ni par l'API.
+     */
+    public function setNumerodepart(int $numerodepart): static
+    {
+        $this->numerodepart = $numerodepart;
+
+        return $this;
+    }
+
+    public function getJourdepart(): ?\DateTimeImmutable
+    {
+        return $this->jourdepart;
     }
 
     public function getDatearriveeprevue(): ?\DateTimeImmutable

@@ -19,6 +19,9 @@ final class VoyageReservableDto
         public readonly int $id,
         #[Groups(['read:VoyageReservable'])]
         public readonly ?string $codevoyage,
+        /** Numéro de départ DU JOUR, tel qu'imprimé sur le billet (« DÉPART 4 »). */
+        #[Groups(['read:VoyageReservable'])]
+        public readonly ?int $numerodepart,
         #[Groups(['read:VoyageReservable'])]
         public readonly ?string $provenance,
         #[Groups(['read:VoyageReservable'])]

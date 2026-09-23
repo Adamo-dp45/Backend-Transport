@@ -354,6 +354,7 @@ final class VoyageManifesteController extends AbstractController
             'voyage' => [
                 'id' => $voyage->getId(),
                 'codevoyage' => $voyage->getCodevoyage(),
+                'numerodepart' => $voyage->getNumerodepart(),
                 'provenance' => $voyage->getProvenance(),
                 'destination' => $voyage->getDestination(),
                 'car' => $voyage->getCar()?->getMatricule(),

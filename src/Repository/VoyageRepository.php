@@ -16,6 +16,38 @@ class VoyageRepository extends ServiceEntityRepository
         parent::__construct($registry, Voyage::class);
     }
 
+    /**
+     * Plus haut NUMÉRO DE DÉPART déjà attribué sur (entreprise, ligne, gare de provenance effective,
+     * jour) — 0 si cette gare n'a encore rien lancé sur cette ligne ce jour-là.
+     *
+     * !! COMPTE AUSSI LES VOYAGES SUPPRIMÉS (aucun 'deletedAt IS NULL'), et c'est essentiel : un
+     * départ mis à la corbeille GARDE sa ligne en base, donc son numéro et l'index unique qui va
+     * avec. L'exclure ferait rendre son numéro au suivant — soit un refus brut à l'insertion, soit,
+     * pire, deux billets imprimés « Départ 2 » pour la même journée. C'est le défaut corrigé sur
+     * 'codeticket', dont le générateur comptait les non-supprimés.
+     *
+     * La gare est celle de l'ORIGINE EFFECTIVE : 'gareprovenance' quand elle est posée (tout voyage
+     * créé depuis que le départ partiel existe), sinon l'origine de la ligne — sans quoi un voyage
+     * LEGACY (provenance nulle) et un voyage récent partis de la même gare tiendraient deux comptes
+     * séparés, et se disputeraient le même numéro.
+     */
+    public function maxNumeroDepart(int $identreprise, int $ligneId, int $gareId, \DateTimeImmutable $jour): int
+    {
+        return (int) $this->createQueryBuilder('v')
+            ->select('COALESCE(MAX(v.numerodepart), 0)')
+            ->join('v.ligne', 'l')
+            ->andWhere('v.identreprise = :ide')
+            ->andWhere('l.id = :ligne')
+            ->andWhere('COALESCE(IDENTITY(v.gareprovenance), IDENTITY(l.gareorigine)) = :gare')
+            ->andWhere('v.jourdepart = :jour')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('ligne', $ligneId)
+            ->setParameter('gare', $gareId)
+            ->setParameter('jour', $jour->setTime(0, 0))
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     /* Statistiques
      */
 

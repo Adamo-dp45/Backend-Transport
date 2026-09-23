@@ -13,6 +13,7 @@ use App\Repository\ApprovisionnementRepository;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
 use App\Repository\DepannageRepository;
+use App\Repository\DepenseRepository;
 use App\Repository\ReservationRepository;
 use App\Repository\TicketRepository;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -27,6 +28,7 @@ class FinancierStatsProvider implements ProviderInterface
         private RequestStack $requestStack,
         private ApprovisionnementRepository $approvisionnementRepository,
         private DepannageRepository $depannageRepository,
+        private DepenseRepository $depenseRepository,
         private TicketRepository $ticketRepository,
         private CourrierRepository $courrierRepository,
         private BagageRepository $bagageRepository,
@@ -56,7 +58,14 @@ class FinancierStatsProvider implements ProviderInterface
         $recettesTotales = $recettesTickets + $recettesReservations + ($courriersHorsCa ? 0 : $recettesCourriers) + $recettesBagages;
         $coutDepannages = $this->depannageRepository->coutTotal($dateDebut, $dateFin, $identreprise);
         $coutApprovisionnements = $this->approvisionnementRepository->coutTotal($dateDebut, $dateFin, $identreprise);
-        $beneficeNet = $recettesTotales - $coutDepannages - $coutApprovisionnements;
+        /*
+            TROISIÈME poste : les charges saisies à la main (carburant, salaires, péage…), qui ne
+            passent par aucun module. Elles ne recouvrent NI les dépannages NI les approvisionnements
+            — aucune dépense n'est dérivée de ceux-ci, sans quoi le double comptage serait technique
+            donc invisible (cf. l'en-tête de 'Depense'). C'est ce qui rend le bénéfice enfin complet.
+        */
+        $coutDepenses = $this->depenseRepository->coutTotal($dateDebut, $dateFin, $identreprise);
+        $beneficeNet = $recettesTotales - $coutDepannages - $coutApprovisionnements - $coutDepenses;
 
         // Recettes par jour — fusion tickets (hors résa) + réservations payées + courriers + bagages
         $rawTickets   = $this->ticketRepository->recettesParJour($dateDebut, $dateFin, $identreprise);
@@ -108,6 +117,7 @@ class FinancierStatsProvider implements ProviderInterface
         // Coûts par jour
         $depannagesParJour = $this->depannageRepository->coutParJour($dateDebut, $dateFin, $identreprise);
         $approsParJour     = $this->approvisionnementRepository->coutParJour($dateDebut, $dateFin, $identreprise);
+        $depensesParJour   = $this->depenseRepository->coutParJour($dateDebut, $dateFin, $identreprise);
 
         $coutsMap = [];
         foreach ($depannagesParJour as $row) {
@@ -116,6 +126,9 @@ class FinancierStatsProvider implements ProviderInterface
         foreach ($approsParJour as $row) {
             $coutsMap[$row['label']]['approvisionnement'] = (float)$row['montant'];
         }
+        foreach ($depensesParJour as $row) {
+            $coutsMap[$row['label']]['depense'] = (float)$row['montant'];
+        }
         ksort($coutsMap);
 
         $coutsParJour = array_map(
@@ -123,6 +136,7 @@ class FinancierStatsProvider implements ProviderInterface
                 label: $label,
                 depannage: round($valeurs['depannage'] ?? 0, 2),
                 approvisionnement: round($valeurs['approvisionnement'] ?? 0, 2),
+                depense: round($valeurs['depense'] ?? 0, 2),
             ),
             array_keys($coutsMap),
             array_values($coutsMap)
@@ -145,6 +159,7 @@ class FinancierStatsProvider implements ProviderInterface
             recettesBagages: $recettesBagages,
             coutDepannages: $coutDepannages,
             coutApprovisionnements: $coutApprovisionnements,
+            coutDepenses: $coutDepenses,
             beneficeNet: $beneficeNet,
             recettesParJour: $recettesParJour,
             coutsParJour: $coutsParJour

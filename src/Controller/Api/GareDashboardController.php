@@ -2,6 +2,7 @@
 
 namespace App\Controller\Api;
 
+use App\Domain\Service\DepenseGareService;
 use App\Domain\Service\RecetteGareService;
 use App\Entity\User;
 use App\Repository\BagageRepository;
@@ -28,6 +29,7 @@ final class GareDashboardController extends AbstractController
         Request $request,
         Security $security,
         RecetteGareService $recetteGareService,
+        DepenseGareService $depenseGareService,
         TicketRepository $ticketRepository,
         BagageRepository $bagageRepository,
         CourrierRepository $courrierRepository
@@ -62,6 +64,10 @@ final class GareDashboardController extends AbstractController
         $incBagages = $this->ligneGare($bagageRepository->incidentsParGare($debut, $fin, $entId), $gareId);
         $incCourriers = $this->ligneGare($courrierRepository->incidentsParGare($debut, $fin, $entId), $gareId);
 
+        // Ce que CETTE gare a dépensé sur la période, ventilé par poste (cf. DepenseGareService).
+        $depenses = $depenseGareService->pourGare($debut, $fin, $entId, $gareId);
+        $recetteTotale = (int) ($g['recetteTotale'] ?? 0);
+
         return $this->json([
             'gare' => ['id' => $gareId, 'libelle' => $gare->getLibelle()],
             'periode' => $periode,
@@ -75,7 +81,24 @@ final class GareDashboardController extends AbstractController
                 'commercial' => (int) ($g['canalCommercial'] ?? 0),
                 'reservation' => (int) ($g['canalReservation'] ?? 0),
             ],
-            'recetteTotale' => (int) ($g['recetteTotale'] ?? 0),
+            'recetteTotale' => $recetteTotale,
+            'depenses' => [
+                'count' => $depenses['nb'],
+                'montant' => $depenses['montant'],
+                'parType' => $depenses['parType'],
+            ],
+            /*
+                RÉSULTAT D'EXPLOITATION de la gare, et surtout PAS « bénéfice » : les dépannages et
+                les achats de pièces sont portés par l'entreprise et ne sont rattachés à aucune gare,
+                ils ne peuvent donc pas être déduits ici. 'perimetre' voyage avec le chiffre pour que
+                l'écran puisse le dire au lieu de laisser croire à un résultat complet.
+            */
+            'resultat' => [
+                'recette' => $recetteTotale,
+                'depenses' => $depenses['montant'],
+                'net' => $recetteTotale - $depenses['montant'],
+                'perimetre' => 'DEPENSES_GARE',
+            ],
             // Incidents (comptes seuls) : ce que la gare a émis puis annulé / perdu / désisté sur la période
             'incidents' => [
                 'ticketsAnnules' => (int) ($desist['nbannules'] ?? 0),

@@ -44,6 +44,9 @@ class VoyageFixtures extends Fixture implements DependentFixtureInterface, Fixtu
 {
     use HorodatageTrait;
 
+    /** Numéros de départ déjà distribués, par ligne + gare de provenance + jour. */
+    private array $compteurDepart = [];
+
     public function getDependencies(): array
     {
         return [ExploitationFixtures::class, FlotteFixtures::class, PersonnelFixtures::class, UserFixtures::class];
@@ -168,6 +171,7 @@ class VoyageFixtures extends Fixture implements DependentFixtureInterface, Fixtu
         $voyage = new Voyage();
         $voyage
             ->setCodevoyage($codevoyage)
+            ->setNumerodepart($this->prochainNumeroDepart($ligne, $provenance, $departPrevu))
             ->setLigne($ligne)
             // Provenance EFFECTIVE : origine de la ligne pour un départ normal, gare intermédiaire
             // pour un départ partiel. Tous les calculs d'heure de passage s'y réfèrent.
@@ -197,6 +201,23 @@ class VoyageFixtures extends Fixture implements DependentFixtureInterface, Fixtu
         $this->addReference(Refs::voyage($cie, $code), $voyage);
 
         return $voyage;
+    }
+
+    /**
+     * Numéro de départ du jour, compté EN MÉMOIRE — et non par 'NumeroDepartService'.
+     *
+     * Le service lit le plus haut numéro EN BASE ; or les fixtures persistent tout et ne flushent
+     * qu'à la fin, si bien qu'il ne verrait aucun des voyages déjà créés et donnerait « 1 » à tous —
+     * puis l'index unique refuserait le lot entier. Même piège que 'PassageService::connu()' dans un
+     * lot hors ligne, même remède : ne pas interroger la base pour ce qui n'y est pas encore.
+     *
+     * La règle reproduite est celle du service : un compteur par ligne + gare de provenance + JOUR.
+     */
+    private function prochainNumeroDepart(Ligne $ligne, Gare $provenance, DateTimeImmutable $depart): int
+    {
+        $cle = sprintf('%d|%d|%s', $ligne->getId(), $provenance->getId(), $depart->format('Y-m-d'));
+
+        return $this->compteurDepart[$cle] = ($this->compteurDepart[$cle] ?? 0) + 1;
     }
 
     /**

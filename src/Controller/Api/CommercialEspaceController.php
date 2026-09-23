@@ -87,6 +87,7 @@ final class CommercialEspaceController extends AbstractController
             $data[] = [
                 'id' => $vid,
                 'codevoyage' => $v->getCodevoyage(),
+                'numerodepart' => $v->getNumerodepart(),
                 'provenance' => $v->getProvenance(),
                 'destination' => $v->getDestination(),
                 'datedepartprevue' => $v->getDatedepartprevue()?->format('Y-m-d\TH:i:sP'),

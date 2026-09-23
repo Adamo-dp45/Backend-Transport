@@ -19,6 +19,8 @@ final class ReservationPubliqueDto
         public readonly ?string $montee,
         public readonly ?string $descente,
         public readonly ?string $codevoyage,
+        /** Numéro de départ DU JOUR, tel qu'imprimé sur le billet (« DÉPART 4 »). */
+        public readonly ?int $numerodepart,
         /*
             Heure attendue du car À LA GARE DE MONTÉE du client (départ du voyage + durée de l'arrêt),
             donc l'heure à laquelle il doit être là — et celle qui borne 'dateexpiration'. Distincte

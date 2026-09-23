@@ -239,6 +239,7 @@ final class CommercialInstantaneController extends AbstractController
             'voyage' => [
                 'id' => $voyage->getId(),
                 'codevoyage' => $voyage->getCodevoyage(),
+                'numerodepart' => $voyage->getNumerodepart(),
                 'provenance' => $voyage->getProvenance(),
                 'destination' => $voyage->getDestination(),
                 'datedepartprevue' => $voyage->getDatedepartprevue()?->format(DATE_ATOM),

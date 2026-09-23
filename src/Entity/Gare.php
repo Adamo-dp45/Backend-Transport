@@ -108,7 +108,7 @@ class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelete
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    #[Groups(['read:Gare', 'read:User', 'read:Courrier', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation'])]
+    #[Groups(['read:Gare', 'read:User', 'read:Courrier', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation', 'read:Depense'])]
     private ?int $id = null;
 
     #[ORM\Column(length: 255)]
@@ -128,7 +128,7 @@ class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelete
     private ?Ville $ville = null;
 
     #[ORM\Column(length: 255)]
-    #[Groups(['read:Gare', 'write:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation'])]
+    #[Groups(['read:Gare', 'write:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation', 'read:Depense'])]
     #[Assert\NotBlank]
     #[Assert\Length(min: 2)]
     private ?string $libelle = null;
@@ -217,7 +217,7 @@ class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelete
      * tous les consommateurs (templates/React) qui lisaient 'ville' en texte. Reprend exactement les
      * groupes de lecture de l'ancien champ texte.
      */
-    #[Groups(['read:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation'])]
+    #[Groups(['read:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation', 'read:Depense'])]
     #[SerializedName('ville')]
     public function getVilleNom(): ?string
     {

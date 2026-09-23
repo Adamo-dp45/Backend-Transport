@@ -122,6 +122,7 @@ final class GareSuiviController extends AbstractController
         return [
             'voyageId' => $voyage->getId(),
             'codevoyage' => $voyage->getCodevoyage(),
+            'numerodepart' => $voyage->getNumerodepart(),
             'ligne' => $voyage->getLigne()?->getLibelle(),
             'provenance' => $voyage->getProvenance(),
             'destination' => $voyage->getDestination(),

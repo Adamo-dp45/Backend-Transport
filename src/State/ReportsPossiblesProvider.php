@@ -82,6 +82,7 @@ final class ReportsPossiblesProvider implements ProviderInterface
             $reports[] = new ReportPossibleDto(
                 voyageId: (int) $cible->getId(),
                 codevoyage: $cible->getCodevoyage(),
+                numerodepart: $cible->getNumerodepart(),
                 provenance: $cible->getProvenance(),
                 destination: $cible->getDestination(),
                 heurepassage: $this->echeance->heurePassage($cible, $reservation->getGare())?->format(\DateTimeInterface::ATOM),

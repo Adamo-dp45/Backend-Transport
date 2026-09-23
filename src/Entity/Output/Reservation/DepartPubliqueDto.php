@@ -8,6 +8,8 @@ final class DepartPubliqueDto
     public function __construct(
         public readonly int $voyageId,
         public readonly ?string $codevoyage,
+        /** Numéro de départ DU JOUR, tel qu'imprimé sur le billet (« DÉPART 4 »). */
+        public readonly ?int $numerodepart,
         /*
             Heure attendue du car À LA GARE DE MONTÉE demandée — c'est l'heure qui concerne le client,
             et celle sur laquelle son échéance est calée. Sur Abidjan → Bouaké → Korhogo, qui réserve

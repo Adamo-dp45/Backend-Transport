@@ -12,7 +12,8 @@ final class FinancierStatistiqueOutput
         public readonly float $recettesBagages,
         public readonly float $coutDepannages,
         public readonly float $coutApprovisionnements,
-        public readonly float $beneficeNet,
+        public readonly float $coutDepenses, // charges d'exploitation saisies (carburant, salaires, péage…)
+        public readonly float $beneficeNet, // recettes − dépannages − approvisionnements − dépenses
         /** @var RecetteParJourDto[] */
         public readonly array $recettesParJour,
         /** @var CoutParJourDto[] */

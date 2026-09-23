@@ -9,12 +9,14 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Service\ActiviteLogger;
 use App\Domain\Service\CapaciteService;
 use App\Domain\Service\CarStatutService;
+use App\Domain\Service\NumeroDepartService;
 use App\Domain\Service\ReaffectationSiegeService;
 use App\Domain\Service\ReservationEcheanceService;
 use App\Entity\Car;
 use App\Entity\User;
 use App\Entity\Voyage;
 use App\Security\VoyageGuard;
+use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -31,7 +33,8 @@ class VoyageProcessor implements ProcessorInterface
         private ActiviteLogger $activiteLogger,
         private ReservationEcheanceService $reservationEcheance,
         private CapaciteService $capaciteService,
-        private ReaffectationSiegeService $reaffectationSiege
+        private ReaffectationSiegeService $reaffectationSiege,
+        private NumeroDepartService $numeroDepart
     )
     {
     }
@@ -96,7 +99,27 @@ class VoyageProcessor implements ProcessorInterface
             } else {
                 $data->setPlacesTotal(0);
             }
+
+            /*
+                NUMÉRO DE DÉPART DU JOUR (« DÉPART 4 » sur le billet) : attribué SOUS VERROU sur la
+                LIGNE et écrit dans la MÊME transaction. Le verrou porte sur la ligne et non sur le
+                voyage — qui n'existe pas encore — et sérialise exactement ce qu'il faut : deux gares
+                ouvrant au même instant un départ sur la même ligne. Sans lui, toutes deux liraient
+                le même « plus haut numéro » et la seconde serait refusée par l'index unique ; le
+                verrou lui évite ce refus. La ligne n'est presque jamais écrite, l'attente est donc
+                celle d'une insertion.
+            */
+            return $this->em->wrapInTransaction(function () use ($data, $ligne, $operation, $uriVariables, $context) {
+                $this->em->lock($ligne, LockMode::PESSIMISTIC_WRITE);
+                $this->numeroDepart->attribuer($data);
+
+                return $this->processor->process($data, $operation, $uriVariables, $context);
+            });
         }
+
+        // Posé par le PATCH quand le départ change de JOUR (cf. plus bas) : le numéro est alors repris
+        // dans la journée d'accueil, sous le même verrou que la création.
+        $renumeroter = false;
 
         if($operation instanceof Patch) {
             $original = $this->em->getUnitOfWork()->getOriginalEntityData($data); /*
@@ -164,6 +187,23 @@ class VoyageProcessor implements ProcessorInterface
                     // L'ancienne date sert à détecter une AVANCE : les clients déjà payés qui ne
                     // pourront pas suivre ne seront pas pénalisés (le changement vient de nous).
                     $this->reservationEcheance->replanifierPourVoyage($data, $ancienDepart, flush: false);
+
+                    /*
+                        CHANGEMENT DE JOUR → le numéro de départ est repris dans la journée d'accueil.
+
+                        Le numéro est FIGÉ à la création, précisément pour qu'un billet déjà remis ne
+                        change jamais de départ dans le dos du client. Mais il numérote une JOURNÉE :
+                        déplacé au lendemain, « Départ 2 » désigne un car qui n'existe pas encore ce
+                        jour-là — ou pire, en désigne un autre, déjà ouvert et déjà vendu sous ce
+                        numéro. L'index unique refuserait alors l'écriture. Un simple décalage
+                        d'horaire (7 h → 9 h) ne touche à rien : seul le jour compte.
+
+                        Le billet déjà imprimé porte de toute façon une heure devenue fausse — c'est
+                        la replanification elle-même qui oblige à rappeler le client, pas ce numéro.
+                    */
+                    if ($ancienDepart->format('Y-m-d') !== $nouveauDepart->format('Y-m-d')) {
+                        $renumeroter = true;
+                    }
                 }
 
                 $oldCarId = $original['car_id'] ?? null; /*
@@ -238,6 +278,31 @@ class VoyageProcessor implements ProcessorInterface
                 */
             }
         }
+        if ($renumeroter) {
+            $ligne = $data->getLigne();
+            $ancienNumero = $data->getNumerodepart();
+
+            return $this->em->wrapInTransaction(function () use ($data, $ligne, $ancienNumero, $operation, $uriVariables, $context) {
+                $this->em->lock($ligne, LockMode::PESSIMISTIC_WRITE);
+                $nouveauNumero = $this->numeroDepart->attribuer($data);
+
+                // Audité : le numéro est imprimé sur des billets. Qui le lit après coup doit pouvoir
+                // relier le « Départ 2 » d'hier au « Départ 5 » d'aujourd'hui.
+                $this->activiteLogger->voyage(
+                    ActiviteLogger::VOYAGE_NUMERO_DEPART,
+                    sprintf(
+                        'Départ replanifié au %s : numéro %d → %d',
+                        $data->getDatedepartprevue()->format('d/m/Y'),
+                        $ancienNumero,
+                        $nouveauNumero
+                    ),
+                    $data->getId()
+                );
+
+                return $this->processor->process($data, $operation, $uriVariables, $context);
+            });
+        }
+
         return $this->processor->process($data, $operation, $uriVariables, $context);
     }
 

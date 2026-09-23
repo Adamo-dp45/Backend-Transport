@@ -104,11 +104,11 @@ class Fournisseur extends EntityBase implements EntrepriseOwnedInterface, HasSof
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    #[Groups(['read:Fournisseur', 'read:Approvisionnement'])]
+    #[Groups(['read:Fournisseur', 'read:Approvisionnement', 'read:Depense'])]
     private ?int $id = null;
 
     #[ORM\Column(length: 255)]
-    #[Groups(['read:Fournisseur', 'write:Fournisseur', 'read:Approvisionnement'])]
+    #[Groups(['read:Fournisseur', 'write:Fournisseur', 'read:Approvisionnement', 'read:Depense'])]
     #[Assert\Length(min: 1)]
     private ?string $libelle = null;
 
@@ -141,9 +141,18 @@ class Fournisseur extends EntityBase implements EntrepriseOwnedInterface, HasSof
     #[ORM\OneToMany(targetEntity: Approvisionnement::class, mappedBy: 'fournisseur')]
     private Collection $approvisionnements;
 
+    /**
+     * Un fournisseur peut aussi être le BÉNÉFICIAIRE d'une dépense (le garagiste, le bailleur) sans
+     * qu'aucun approvisionnement ne le lie à un stock.
+     * @var Collection<int, Depense>
+     */
+    #[ORM\OneToMany(targetEntity: Depense::class, mappedBy: 'fournisseur')]
+    private Collection $depenses;
+
     public function __construct()
     {
         $this->approvisionnements = new ArrayCollection();
+        $this->depenses = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -268,7 +277,49 @@ class Fournisseur extends EntityBase implements EntrepriseOwnedInterface, HasSof
             );
         }
 
+        // Les DÉPENSES comptent aussi : sans ce blocage, on mettait en corbeille un fournisseur
+        // encore désigné comme bénéficiaire de charges en cours.
+        $depensesNotDeleted = $this->depenses->filter(
+            fn(Depense $v) => $v->getDeletedAt() === null
+        );
+
+        if(!$depensesNotDeleted->isEmpty()) {
+            $errors[] = sprintf(
+                'Le fournisseur est lié à %d dépense(s) active(s).',
+                $depensesNotDeleted->count()
+            );
+        }
+
         return $errors;
+    }
+
+    /**
+     * @return Collection<int, Depense>
+     */
+    public function getDepenses(): Collection
+    {
+        return $this->depenses;
+    }
+
+    public function addDepense(Depense $depense): static
+    {
+        if (!$this->depenses->contains($depense)) {
+            $this->depenses->add($depense);
+            $depense->setFournisseur($this);
+        }
+
+        return $this;
+    }
+
+    public function removeDepense(Depense $depense): static
+    {
+        if ($this->depenses->removeElement($depense)) {
+            if ($depense->getFournisseur() === $this) {
+                $depense->setFournisseur(null);
+            }
+        }
+
+        return $this;
     }
 
     /* Le count collection et l'avantage est que 'Doctrine' ne charge pas la collection mais 'COUNT(*)'

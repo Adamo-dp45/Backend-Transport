@@ -38,6 +38,7 @@ final class ReservationPubliqueMapper
             montee: $r->getGare()?->getLibelle(),
             descente: $r->getGaredescente()?->getLibelle(),
             codevoyage: $voyage?->getCodevoyage(),
+            numerodepart: $voyage?->getNumerodepart(),
             // Heure à laquelle le car passe chez CE client, pas celle du départ du voyage.
             heurepassage: $heurePrevue?->format(\DateTimeInterface::ATOM),
             datedepartprevue: $voyage?->getDatedepartprevue()?->format(\DateTimeInterface::ATOM),

@@ -104,6 +104,21 @@ class RoleFixtures extends Fixture implements DependentFixtureInterface, Fixture
                 'Model' => ['VOIR', 'CREER'],
             ]);
 
+        /*
+            Le COMPTABLE tient les charges DU SIÈGE (loyer, salaires de la direction) : elles ne sont
+            imputées à aucune gare, personne d'autre ne peut donc les saisir. Les charges d'une gare,
+            elles, sont tenues par son propre admin sans rôle dédié ('Depense' est dans
+            'GareScopedEntities'). Il voit les fournisseurs, bénéficiaires possibles, sans pouvoir
+            les modifier.
+        */
+        $this->creerRole($manager, Refs::IRA, $iraId, 'comptable', 'Comptable', 'ENTREPRISE', null,
+            'Saisit et suit les charges d\'exploitation de la compagnie.', [
+                'Depense' => self::SAISIE,
+                'Typedepense' => ['VOIR', 'CREER'],
+                'Fournisseur' => self::LECTURE,
+                'Activite' => self::LECTURE,
+            ]);
+
         $this->creerRole($manager, Refs::IRA, $iraId, 'flotte', 'Responsable flotte', 'ENTREPRISE', null,
             'Gère les véhicules et les dépannages.', [
                 'Car' => self::SAISIE,
