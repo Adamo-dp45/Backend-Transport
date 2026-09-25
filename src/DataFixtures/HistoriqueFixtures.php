@@ -267,7 +267,20 @@ class HistoriqueFixtures extends Fixture implements DependentFixtureInterface, F
         DateTimeImmutable $jour,
         int $index
     ): void {
-        $nombre = $this->alea($index + 100, 5, 12);
+        /*
+            TAUX DE REMPLISSAGE, et non un nombre de billets tiré au hasard : les cars de
+            l'historique portent 50, 60 et 70 places, si bien que la plage précédente (5 à 12) les
+            faisait rouler à 14 % de charge. Ce seul chiffre rendait TOUS les écrans financiers
+            illisibles : une flotte de cinq cars coûte ce qu'elle coûte — pièces, dépannages,
+            carburant, salaires — et cette recette-là ne pouvait jamais la couvrir. Le jeu de
+            démonstration affichait donc un déficit structurel de sept millions, qu'on prenait pour un
+            défaut de calcul.
+
+            26 à 44 place le remplissage entre 52 % et 88 % du plus petit car, ce qui couvre les
+            charges avec une marge mince — celle d'un transporteur réel. Le plafond reste sous les
+            50 sièges de 'car5' : un billet prend le siège numéro '$i + 1', la référence doit exister.
+        */
+        $nombre = $this->alea($index + 100, 26, 44);
         $numeroBillet = 0;
 
         for ($i = 0; $i < $nombre; $i++) {

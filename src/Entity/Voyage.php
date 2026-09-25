@@ -26,6 +26,7 @@ use App\Entity\Interface\LigneGareScopedInterface;
 use App\Entity\Interface\HasSoftDeleteGuard;
 use App\Entity\Output\Bordereau\BordereauOutput;
 use App\Entity\Output\Bordereau\Chauffeur\BordereauChauffeurOutput;
+use App\Entity\Output\Exploitation\VoyageResultatDto;
 use App\Entity\Output\Reservation\VoyageReservableDto;
 use App\Filter\PersonnelFilter;
 use App\Repository\VoyageRepository;
@@ -42,10 +43,11 @@ use App\State\ReceptionnerVoyageProcessor;
 use App\State\RepartirVoyageProcessor;
 use App\State\SoftDeleteProcessor;
 use App\State\VoyageProcessor;
+use App\State\VoyageResultatProvider;
 use App\State\VoyageProvider;
 use App\State\VoyagesReservablesProvider;
-use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
+use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Criteria;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Groups;
@@ -271,6 +273,27 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 security: [['bearerAuth' => []]]
             )
         ),
+        /* Résultat du départ
+         */
+        new Get(
+            uriTemplate: '/voyages/{id}/resultat',
+            requirements: ['id' => '\d+'],
+            security: "is_granted('VOIR', 'Voyage')",
+            provider: VoyageResultatProvider::class,
+            output: VoyageResultatDto::class,
+            normalizationContext: ['groups' => []], /*
+                - Servi HORS périmètre de gare : la recette d'un départ est une propriété DU DÉPART,
+                  deux chefs de gare qui ouvrent la même fiche doivent lire le même chiffre. La fiche
+                  composait ses totaux à partir des collections d'API, que 'GareScopeExtension' filtre :
+                  38 000 chez l'un, 30 000 chez l'autre sur le même voyage (mesuré)
+                - la VISIBILITÉ du voyage reste tenue par le provider, qui rejoue la règle de ligne
+            */
+            openapi: new Operation(
+                summary: "Résultat d'un départ",
+                description: 'Recette du départ (billets, réservations payées, bagages, courriers), charges rattachées et résultat.',
+                security: [['bearerAuth' => []]]
+            )
+        ),
         /* Bordereaux
          */
         new Get(
@@ -318,6 +341,16 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
           hors de la première page et disparaissaient du sélecteur de vente.
     */
     'codevoyage' => 'partial',
+    'provenance' => 'partial',
+    'destination' => 'partial', /*
+        - DÉCLARÉS ICI et pas seulement dans l''OrderFilter' : un filtre non déclaré est IGNORÉ EN
+          SILENCE par ApiPlatform, qui répond la collection entière sans le moindre avertissement. Le
+          'SearchController' du FT cherchait précisément les voyages sur 'provenance' : '?provenance=ZZZZ'
+          rendait les mêmes 35 voyages que '?provenance=Abidjan' — un sélecteur distant où la saisie
+          ne changeait rien. Mesuré, pas deviné
+        - PARTIAL et non EXACT : ce sont des libellés de gare recopiés (« Gare d'Adjamé »), personne
+          ne tape le libellé complet dans un champ de recherche
+    */
     'ligne.id' => 'exact',
     'car.id' => 'exact',
     'datearriveereelle' => 'exact'
@@ -348,7 +381,11 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation'])]
+    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation', 'read:Depense'])] /*
+        - 'read:Depense' sur l'ID et pas seulement sur 'codevoyage' : le formulaire de MODIFICATION
+          d'une dépense doit pouvoir reposélectionner le départ déjà rattaché, et un sélecteur se
+          préremplit avec un identifiant, pas avec un libellé
+    */
     private ?int $id = null;
 
     #[ORM\Column(length: 255)]
@@ -372,7 +409,7 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
      * cible. Distinct de 'codeligne' + 'codevoyage', qui identifient le voyage pour l'exploitation.
      */
     #[ORM\Column]
-    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation'])]
+    #[Groups(['read:Voyage', 'read:Personnel', 'read:Ticket', 'read:Courrier', 'read:Bagage', 'read:Reservation', 'read:Depense'])]
     private ?int $numerodepart = null;
 
     /**
@@ -399,7 +436,11 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     // -- Exploitation : départ/arrivée PRÉVUS (saisis à la création) et RÉELS (posés à l'exécution) -- //
 
     #[ORM\Column]
-    #[Groups(['read:Voyage', 'write:Voyage', 'read:Personnel', 'read:Ticket', 'write:Voyage:update', 'read:Reservation'])]
+    #[Groups(['read:Voyage', 'write:Voyage', 'read:Personnel', 'read:Ticket', 'write:Voyage:update', 'read:Reservation', 'read:Depense'])] /*
+        - 'read:Depense' : l'étiquette d'un départ dans le sélecteur de FRAIS DE ROUTE se compose du
+          code, du numéro du jour et de l'heure. La fiche d'une dépense et le formulaire de
+          modification doivent pouvoir écrire la MÊME étiquette, sans second appel à l'API
+    */
     private ?\DateTimeImmutable $datedepartprevue = null; // départ prévu (saisi à la création)
 
     #[ORM\Column(nullable: true)]
@@ -474,15 +515,13 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
      * @var Collection<int, Detailpersonnel>
      */
     #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getDetailpersonnelsCount()
-    private Collection $detailpersonnels;
+    private Collection $detailpersonnels; // sérialisée par getDetailpersonnelsVisibles()
 
     /**
      * @var Collection<int, Ticket>
      */
     #[ORM\OneToMany(targetEntity: Ticket::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getTicketsCount()
-    private Collection $tickets;
+    private Collection $tickets; // sérialisée par getTicketsVisibles()
 
     #[ORM\Column(nullable: true)]
     #[Groups(['read:Voyage'])]
@@ -493,15 +532,13 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
      * @var Collection<int, Courrier>
      */
     #[ORM\OneToMany(targetEntity: Courrier::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getCourriersCount()
-    private Collection $courriers;
+    private Collection $courriers; // sérialisée par getCourriersVisibles()
 
     /**
      * @var Collection<int, Bagage>
      */
     #[ORM\OneToMany(targetEntity: Bagage::class, mappedBy: 'voyage')]
-    #[Groups(['read:Voyage:item'])] // fiche uniquement — la liste utilise getBagagesCount()
-    private Collection $bagages;
+    private Collection $bagages; // sérialisée par getBagagesVisibles()
 
     /**
      * Passages réels (arrivée/départ par gare). Léger (≤ nb d'arrêts) → exposé aussi en LISTE, pour que
@@ -845,6 +882,51 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
        vente PAR TRONÇON ce total peut dépasser 'placestotal' (un même siège est revendable sur des tronçons
        disjoints). La dispo réelle par tronçon = 'SiegeStateProvider'.
      */
+    /*
+        LES COLLECTIONS DE LA FICHE SONT SÉRIALISÉES FILTRÉES, jamais brutes.
+
+        !! UNE ASSOCIATION DOCTRINE NE CONNAÎT PAS LA CORBEILLE. Aucun filtre SQL de softdelete n'est
+        enregistré dans ce projet : la suppression logique est tenue par les EXTENSIONS d'API Platform,
+        qui s'appliquent aux collections de RESSOURCE et jamais à un `OneToMany` hydraté par Doctrine.
+        Exposer `$tickets` tel quel faisait donc apparaître sur la fiche d'un voyage des billets MIS À
+        LA CORBEILLE — invisibles partout ailleurs, y compris dans `getTicketsCount()` juste dessous,
+        qui filtre lui. Le même écran affichait ainsi deux nombres différents pour la même chose.
+
+        `matching(Criteria)` et non `filter()` : sur une collection non chargée, Doctrine traduit le
+        critère en SQL au lieu de tout hydrater pour jeter ensuite (même raison que les compteurs).
+
+        Les ANNULÉS, eux, RESTENT : un désistement fait partie de l'histoire d'un départ et le chef de
+        gare doit le voir. C'est à l'écran de ne pas les confondre avec des passagers — d'où le statut
+        affiché sur chaque ligne, et des totaux qui ne comptent que ce que la recette compte.
+    */
+    #[Groups(['read:Voyage:item'])]
+    #[SerializedName('tickets')]
+    public function getTicketsVisibles(): Collection
+    {
+        return $this->tickets->matching(self::critereActif());
+    }
+
+    #[Groups(['read:Voyage:item'])]
+    #[SerializedName('courriers')]
+    public function getCourriersVisibles(): Collection
+    {
+        return $this->courriers->matching(self::critereActif());
+    }
+
+    #[Groups(['read:Voyage:item'])]
+    #[SerializedName('bagages')]
+    public function getBagagesVisibles(): Collection
+    {
+        return $this->bagages->matching(self::critereActif());
+    }
+
+    #[Groups(['read:Voyage:item'])]
+    #[SerializedName('detailpersonnels')]
+    public function getDetailpersonnelsVisibles(): Collection
+    {
+        return $this->detailpersonnels->matching(self::critereActif());
+    }
+
     #[Groups(['read:Voyage'])]
     public function getTicketsCount(): int
     {

@@ -120,7 +120,16 @@ class StockFixtures extends Fixture implements DependentFixtureInterface, Fixtur
 
         $a2 = $this->creerApprovisionnement($manager, Refs::IRA, $identreprise, 'pneus-plus',
             $jour->modify('-8 days')->setTime(11, 15), [
-                ['pneu', 24, 138000],
+                /*
+                    24 pneus, c'était rechausser la flotte entière en une commande : 3,3 millions à elle
+                    seule, soit plus que le reste des achats réunis, et un poste qui écrasait tous les
+                    graphiques de coûts. 18 reste un gros achat dans le mois, sans dominer le tableau.
+                    !! LE PLANCHER EST LE SEUIL D'ALERTE, PAS LE BUDGET : 'DepannageFixtures' consomme
+                    6 pneus sur D2, et le stock final doit rester STRICTEMENT au-dessus du seuil de 6,
+                    sinon un 'STOCK_FAIBLE' de plus apparaît et le scénario d'alertes calibré là-bas
+                    (plaquettes faibles, batteries en rupture, et rien d'autre) cesse d'être vrai.
+                */
+                ['pneu', 18, 138000],
                 ['batterie', 6, 82000],
             ]);
 

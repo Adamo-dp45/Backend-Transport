@@ -2,6 +2,8 @@
 
 namespace App\Entity;
 
+use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use ApiPlatform\Metadata\ApiFilter;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
@@ -103,6 +105,20 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
         security: [['bearerAuth' => []]]
     )
 )]
+#[ApiFilter(SearchFilter::class, properties: [
+    'libelle' => 'partial',
+    'ville.id' => 'exact',
+    'statut' => 'exact'
+])] /*
+    - DÉCLARÉS PARCE QU'UN FILTRE NON DÉCLARÉ EST IGNORÉ EN SILENCE. 'Gare' n'en avait AUCUN, et le
+      sélecteur distant du FT ('SearchController', ressource 'gares') cherchait pourtant sur 'libelle' :
+      la saisie ne changeait rien à la réponse. Le défaut ne se VOYAIT pas encore — aucun écran n'est
+      branché sur cette ressource, et 'paginationEnabled: false' renvoie toutes les gares, que
+      tom-select filtre alors localement. Mais le premier sélecteur REACT ('RemoteCombobox', qui pose
+      'shouldFilter=false' et s'en remet donc au serveur) aurait affiché la liste entière à chaque
+      frappe. On ferme le piège avant qu'il ne serve
+    - 'partial' sur le libellé : personne ne tape « Gare d'Adjamé » en entier dans une recherche
+*/
 class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDeleteGuard
 {
     #[ORM\Id]

@@ -40,7 +40,7 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - Faire une mise à jour du Framework vers .. 8. et montre moi comment faire
 - Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
 - Wiki du projet
-
+- Vérifier si 2 utilisateurs de même ligne voient les même infos
 
 
 ## Points ouverts que j'ai relevés
@@ -49,6 +49,16 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - commercialflutter « à venir » : bilan de recette par période (nécessite un endpoint dédié, `/api/stats/commercial` étant admin) et fidélité à la vente.
 - Alertes : seuils encore en constantes de service, externalisation par entreprise non faite. Pas de notifications côté mobile.
 - Piste notée mais non entamée : visite interactive à la première connexion (Driver.js / Shepherd.js).
+- 
+
+- 
+Bloqué par la caisse
+
+5. La remise d'espèces du commercial à bord. Tu avais dit « plus tard, séparément ». Elle n'a de sens qu'une fois les versements posés — elle se traitera probablement comme un versement à une gare.
+
+La feuille de route, après A1
+
+Par priorité décroissante : D1 limite de débit sur la réinitialisation de mot de passe (Haute, sécurité), B2 contrôle d'embarquement par QR, C1 recherche globale opérationnelle, A2 report de masse d'un départ annulé, B1 notifications SMS, A3 e-mails asynchrones. B3 (vente en mode dégradé) est déjà traitée pour le commercial à bord ; il resterait le guichet.
 
 
 
@@ -56,513 +66,77 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 
 
 
-Vu qu'on a la notion de caisse, comment on calcule la recette
-
-Palier 3 — les sorties et le visa. Depense, remboursement du désistement, réservations, /viser, CaisseScopeExtension, CaisseGuard, permissions, audit. Vérifié : vente + annulation le même jour laissent le théorique inchangé ; un agent ne vise pas sa caisse. !!
-
-la vente du commercial — en ligne et via /sync — ne crée aucune session ; !! Mais est ce que ça entre dans la caisse de sa gare !!
 
 
-Et pourquoi il n'y a pas d'entité Caisse pour la gare ? chatgpt
-Ignore le dossier `brl/` dans `Backend-Transport/tools/`, c'est un brouillon aussi
+Les annulés restent listés — un désistement fait partie de l'histoire du départ — mais avec leur statut affiché, et les pastilles et totaux ne comptent que ce que la recette compte. Le « total bagages » sommait les annulés : corrigé aussi.
+
+* Gestion des dépenses + caisse : Vu que j'ai recettes, stock, maintenance et maintenant dépenses(la sortie d’argent globale)
 
 
+
+
+
+
+- Dans le darkMode on vas rajouter le choix du `système` aussi en plus du mode `dark` et `light`.
+- Vérifié si hors courriers est bien pris en compte dans toutes les stats
+- QRCode des tickets à redirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
+    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
+- Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
+
+- Peut t'on affichés la somme des dépenses d'un voyage sur le listing des voyages !
+- Aussi, on m'a parler d'une notion qui est : Les charges de main d'oeuvre externe de dépannage ! je me dis que ce sont des dépenses aussi ! où est ce que je me trompe ?
+
+Aussi :
+- Explique moi selon ton plan, à quel moment le solde de la gare diminue et à quel moment ça augmente, aussi pour l'entreprise
 
 Montre moi l'état de la recette actuelle 
-
-
-
-
-
-
-
-
-Je vois que fournisseur est une liste vide pour le chef de gare ! est ce que c'est voulue ?
--- La modification de dépense..
-
-Chaque gare a un solde , à la création du'une gare on crée sold initial, on pourra savoir combien la gare à vendu aujourdhui
-Aussi, on m'a parler d'un truc du genre : Chaque doit avoir un sold initial qu'on décrémente et incrémente, aussi combien la gare a vendu aujourd'hui, hier, etc.., la dépense que la gare à faite est sortir de quel recette.. etc... !
-
-
-
 # Mettre les statistiques de recettes au claire en connessant l'état actuelle et les allignés
+centralisé les statistiques de recette pour que l'admin ne se perde pas
 
-recettes − dépannages − approvisionnements − dépenses ici vu la notion de caisse je me dis que c'est caisse - 
 
-Depense n'est pas ajoutée à GareScopedEntities::ENTITIES : y figurer donnerait à tout ROLE_ADMIN_GARE un bypass d'écriture sans permission, et le droit de déléguer ces permissions. Sur une donnée qui fait sortir de l'argent, la permission reste explicite, accordée par l'admin d'entreprise — même régime que le stock.
 
-la limite du résultat par gare : les dépannages et approvisionnements n'étant rattachés à aucune gare, je ne peux pas les y déduire. Je préfère l'afficher honnêtement (« résultat d'exploitation », pas « bénéfice », plus deux totaux qui se recoupent côté entreprise) plutôt que de sortir un chiffre qui ment ;
 
 
-Deux constats de l'exploration, avant de te poser les bonnes questions :
 
-Rien n'existe pour l'argent qui sort : aucune entité, migration, route ni écran. Les seuls « coûts » modélisés sont Depannage::$couttotal et Detailapprovisionnement::$couttotal.
+- 
+Tout rembourssement sera considéré comme une dépense
 
-Le bénéfice net se calcule à un seul endroit, en dur : FinancierStatsProvider.php:59 — recettes − coutDepannages − coutApprovisionnements. C'est le point d'entrée naturel pour un troisième poste.
 
+Concernant les rembourssement, vu qu'on a maintenant la notion de dépense je me dis que les rembourssement sont des dépenses !
 
-- Aussi, peut-on connaître les dépenses éffectué lors d'un voyage
-- A la fin du voyage les péages nous ont pris combien
-- La somme net reçu sur un car dans les statistiques
-- Plus de détails sur la recette et centralisé la recette pour que l'admin ne se perde pas
-- Vérifié si hors courriers est bien pris en compte dans toutes les stats
+Un bagage ou un courrier annulé au guichet est-il remboursé au client ?
 
+On ne rembourse pas un courrier ou bagage annulé, c'est quand il y'a perte qu'on rembourse
 
-On m'a parler aussi d'une notion qui est : Les charges qui contient aussi la main d'oeuvre externe de dépannage :: Dans la création de dépannage avoir la possibilité de choisir les mains d'oeuvre :: Frais externe de main d'oeuvre == 3 chantier après frais de route
+Noté, et c'est une distinction qui compte : l'annulation ne rembourse pas, la perte oui. Le remboursement pour perte relève de B4 de ta feuille de route (réclamations et indemnisations), qui n'existe pas encore — je prévois le mécanisme sans le brancher. J'écris le plan.
 
-- RH (Charges, paie)
 
-# 8. Pourquoi lier les dépenses au voyage
 
-Très important.
+L'état actuelle du calcule des recettes
 
-Sinon :
+Les rembourssement seront considéré comme une dépense, donc ça ne sort pas dans le calcule des recettes 
+- Tout ce qui concerne l'argent on ne supprime pas, et ne rembourse que par la négocation qui rentre dans dépense (ce qui fais qu'on va enlever l'action anuuler)
 
-* impossible de calculer la rentabilité réelle.
+Centralisé le calcule des recettes
 
----
+Normalement qu'est ce qu'il ne rentre dans le calcule des recettes
 
-# 9. Exemple de calcul réel
+Je vois le filtre `deletedAt IS NULL` dans des Repository qui concerne les coût et recettes, est ce logique ?
+A quel moment un statut sort du calcule de la recette
 
-## Voyage
 
-```text id="a0n12u"
-Recettes tickets = 300000
-```
 
----
 
-## Dépenses
 
-| Type      | Montant |
-| --------- | ------- |
-| Carburant | 70000   |
-| Péage     | 10000   |
-| Chauffeur | 30000   |
-| Dépannage | 15000   |
+courrier annuler statistiques, donc perte ne sort pas de la recette il y'a une négociation qui fais que c'est une dépense, pas la somme exacte (concersation claude "courriers annulées"
+- 
 
---- Frais de route
 
 
-# 17. Ce que je te conseille maintenant
 
-Vu ton système :
 
-> la prochaine grosse brique logique est clairement :
 
-## Gestion des dépenses + caisse
-
-Parce que tu as déjà :
-
-* recettes,
-* stock,
-* maintenance.
-
-Mais il manque :
-
-* la sortie d’argent globale.
-
----
-
-Caisse journalière
-
-# A. Dépenses d’exploitation voyage
-
-Liées directement à un voyage.
-
-Exemples :
-
-* carburant,
-* péage,
-* frais chauffeur,
-* frais de route,
-* repas équipage.
-
----
-
-# B. Dépenses de maintenance
-
-Exemples :
-
-* pièces détachées,
-* réparations,
-* main d’œuvre mécanique.
-
-Tu en gères déjà une partie avec :
-
-```text id="c5wx15"
-Depannage
-```
-
----
-
-# C. Dépenses administratives
-
-Exemples :
-
-* électricité,
-* internet,
-* loyers,
-* fournitures.
-
----
-
-# D. Dépenses RH
-
-Exemples :
-
-* salaires,
-* primes,
-* avances.
-
----
-
-# 3. Le vrai principe métier
-
-Chaque dépense doit répondre à :
-
-| Question         | Exemple           |
-| ---------------- | ----------------- |
-| Qui a dépensé ?  | chauffeur         |
-| Pourquoi ?       | carburant         |
-| Pour quoi ?      | voyage V001       |
-| Combien ?        | 25 000            |
-| Quand ?          | 12 juin           |
-| Validé par qui ? | chef exploitation |
-
----
-
-# 4. Ce qu’il te manque actuellement
-
-Tu as :
-
-* approvisionnements,
-* dépannage.
-
-Mais tu n’as pas encore :
-
-> une vraie gestion générale des dépenses.
-
-Et elle devient indispensable.
-
----
-
-# 5. Ce qu’il faut créer
-
-Je te conseille fortement une entité :
-
-```text id="wnif5y"
-Depense
-```
-
----
-
-# 6. Structure recommandée
-
-```text id="bf91d6"
-Depense
-- libelle
-- montant
-- date_depense
-- categorie
-- description
-- mode_paiement
-- justificatif
-- voyage NULL
-- car NULL
-- personnel NULL
-- entreprise
-```
-
----
-
-# 7. Exemple concret
-
----
-
-## Dépense carburant
-
-```text id="kvyrk4"
-Libellé : Carburant voyage Korhogo
-Montant : 45000
-Voyage : V001
-Car : 2548AB01
-```
-
----
-
-## Dépense péage
-
-```text id="bx1mfr"
-Libellé : Péage Yamoussoukro
-Montant : 5000
-Voyage : V001
-```
-
----
-
-## Dépense administrative
-
-```text id="11p0k5"
-Libellé : Internet gare
-Montant : 30000
-```
-
----
-
-# 8. Pourquoi lier les dépenses au voyage
-
-Très important.
-
-Sinon :
-
-* impossible de calculer la rentabilité réelle.
-
----
-
-# 9. Exemple de calcul réel
-
-## Voyage
-
-```text id="a0n12u"
-Recettes tickets = 300000
-```
-
----
-
-## Dépenses
-
-| Type      | Montant |
-| --------- | ------- |
-| Carburant | 70000   |
-| Péage     | 10000   |
-| Chauffeur | 30000   |
-| Dépannage | 15000   |
-
----
-
-## Résultat
-
-```text id="e1wy04"
-Bénéfice = 175000
-```
-
----
-
-# 10. Très important : catégories de dépenses
-
-Ajoute une entité ou enum.
-
----
-
-## Exemple
-
-```php id="0d6mji"
-enum CategorieDepense
-{
-    CARBURANT,
-    PEAGE,
-    MAINTENANCE,
-    SALAIRE,
-    ADMINISTRATIF,
-    AUTRE
-}
-```
-
----
-
-# 11. Gestion des justificatifs --- Ici on a pris forfait final
-
-Très important dans les entreprises.
-
-Tu peux stocker :
-
-* facture,
-* reçu,
-* photo.
-
-Exemple :
-
-```text id="v8w72e"
-Depense
-- justificatif
-```
-
----
-
-# 12. Workflow réel souvent utilisé
-
----
-
-## Étape 1
-
-Le chauffeur reçoit une avance.
-
----
-
-## Étape 2
-
-Il dépense pendant le voyage.
-
----
-
-## Étape 3
-
-Il revient avec les justificatifs.
-
----
-
-## Étape 4
-
-Le gestionnaire valide les dépenses.
-
----
-
-# 13. Tu peux gérer les avances aussi
-
-Très utile plus tard.
-
----
-
-## Exemple
-
-```text id="g52g4m"
-AvanceVoyage
-- voyage
-- personnel
-- montant
-```
-
-Puis :
-
-* dépenses déduites de l’avance.
-
----
-
-# 14. Très important : validation
-
-Dans les vraies compagnies :
-
-> une dépense doit souvent être validée.
-
-Tu peux ajouter :
-
-```text id="1n94x0"
-Depense
-- statut
-- valide_par
-- date_validation
-```
-
----
-
-# 15. Différence avec ton module Approvisionnement
-
----
-
-## Approvisionnement
-
-Concerne :
-
-* entrée de stock.
-
-Exemple :
-
-* achat de pneus.
-
----
-
-## Dépense
-
-Concerne :
-
-* sortie d’argent.
-
-Exemple :
-
-* paiement carburant.
-
----
-
-# 16. Relation entre les deux
-
-Un approvisionnement peut :
-
-* générer automatiquement une dépense.
-
-Exemple :
-
-```text id="xop1dn"
-Approvisionnement :
-Achat pneus = 200000
-```
-
-↓
-
-```text id="n2njd5"
-Depense :
-Paiement fournisseur = 200000
-```
-
-Très professionnel.
-
-# 19. Niveau avancé futur
-
-Plus tard tu peux ajouter :
-
-* caisse journalière,
-* comptabilité,
-* budgets,
-* fournisseurs à crédit,
-* échéances,
-* dette fournisseurs,
-* rapprochement bancaire.
-
-Et là ton système deviendra un vrai ERP transport complet.
-
-
-
-
-# 2. La recette d'une gare
-
-Pour moi, la recette d'une gare est **tout ce qui a été vendu au nom de cette gare**, indépendamment du canal de paiement.
-
-Elle comprend :
-
-* ✅ Tickets vendus au guichet de la gare
-* ✅ Tickets vendus par les commerciaux rattachés à cette gare
-* ✅ Réservations initiées par cette gare (si elles sont payées)
-* ✅ Bagages enregistrés par cette gare
-* ✅ Courriers déposés dans cette gare
-
-Elle **ne dépend pas** de savoir si le paiement a été effectué :
-
-* au guichet ;
-* par un commercial ;
-* en ligne.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
 
 
 
@@ -571,212 +145,11 @@ Elle **ne dépend pas** de savoir si le paiement a été effectué :
 
 ======
 
-- Dans le darkMode on vas rajouter le choix du `système` aussi en plus du mode `dark` et `light`.
-- QRCode des tickets à redirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
-    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
+- Revoire le cas de désistement qui se fait que sur un voyage de la même ligne ! Je pense que je fais les choses bien ici => Vérifié si ça va sur un autre départ de la même ligne
+    > Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel ligne
+    > Ou.. Un client peut être reporté sur n'importe quel voyage ouvert qui dessert sa gare de départ et sa gare d'arrivée, même si ce voyage appartient à une autre ligne. Ce qui compte est la possibilité réelle d'effectuer le trajet acheté.
+- Plus d'infos sur le tableau de bord de gare concernant les filtres (voir quincaillerie)
 - Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets(aussi, courriers, bagage, bordereau..) :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
-- Revoire le cas de désistement qui se fait que sur un voyage de la même ligne !
-- Plus d'infos sur le tableau de bord de gare concernant les filtres
-
-
-Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel voyage ouvert
-
-Cela dépend de ce que tu appelles "désister", mais dans les compagnies de transport on distingue généralement :
-
-1. **Annulation simple** → remboursement ou avoir.
-2. **Report du billet** → transfert vers un autre voyage.
-
-Dans le cas du report, le nouveau voyage n'est **pas forcément sur le même voyage**, mais il doit normalement rester **compatible avec le trajet acheté**.
-
----
-
-## Cas 1 : Même ligne (le plus courant)
-
-Le client avait :
-
-```text
-Abidjan → Korhogo
-Voyage V001
-08h
-```
-
-Il ne peut plus voyager.
-
-On le reporte sur :
-
-```text
-Abidjan → Korhogo
-Voyage V002
-14h
-```
-
-C'est le cas le plus fréquent.
-
----
-
-## Cas 2 : Autre voyage de la même ligne
-
-Par exemple :
-
-```text
-Ligne : Abidjan → Korhogo
-```
-
-Voyages :
-
-```text
-V001 - 08h
-V002 - 14h
-V003 - 18h
-```
-
-Le billet est déplacé vers un autre départ.
-
-Très courant.
-
----
-
-## Cas 3 : Voyage d'une autre ligne compatible
-
-Supposons :
-
-```text
-L1 : Abidjan → Korhogo
-L2 : Abidjan → Bouaké → Korhogo
-```
-
-Le client avait acheté :
-
-```text
-Abidjan → Korhogo
-```
-
-S'il reste des places sur L2, certaines compagnies acceptent le transfert.
-
-Métierement, ce qui compte n'est pas la ligne mais :
-
-```text
-Départ
-Arrivée
-```
-
----
-
-## Cas 4 : Voyage totalement différent
-
-Exemple :
-
-```text
-Billet :
-Abidjan → Korhogo
-```
-
-et on veut le transférer vers :
-
-```text
-Abidjan → Man
-```
-
-Là, ce n'est plus un report.
-
-C'est pratiquement :
-
-* une annulation,
-* suivie d'un nouvel achat.
-
----
-
-## Dans ton système
-
-Comme tu tends vers un modèle segmenté :
-
-```text
-Ticket
-- gare_depart
-- gare_arrivee
-- voyage
-```
-
-Je te conseillerais la règle suivante :
-
-### Un report est autorisé si :
-
-```text
-nouveau voyage passe par
-gare_depart
-et
-gare_arrivee
-```
-
-et qu'il reste des places sur le segment.
-
-Ainsi :
-
-| Ancien billet     | Nouveau voyage                    | Autorisé |
-| ----------------- | --------------------------------- | -------- |
-| Abidjan → Korhogo | Autre voyage Abidjan → Korhogo    | ✅        |
-| Abidjan → Korhogo | Voyage Abidjan → Bouaké → Korhogo | ✅        |
-| Abidjan → Korhogo | Voyage Abidjan → Man              | ❌        |
-
----
-
-## Comment font les compagnies ?
-
-La plupart ont une logique proche de :
-
-```text
-Annulation
-ou
-Report vers le prochain départ disponible
-```
-
-Le plus souvent :
-
-1. Le siège est libéré sur l'ancien voyage.
-2. Un nouveau ticket est créé sur le nouveau voyage.
-3. Une éventuelle différence tarifaire est calculée.
-
----
-
-## Modélisation
-
-Je te déconseille de modifier directement le ticket existant.
-
-Il est préférable de conserver l'historique :
-
-```text
-Ticket T001
-    STATUT = REPORTE
-```
-
-et créer :
-
-```text
-Ticket T045
-    STATUT = ACTIF
-    ticket_origine = T001
-```
-
-Ainsi tu gardes une trace complète des reports.
-
-Pour ton application, la règle métier la plus réaliste est :
-
-> Un client peut être reporté sur n'importe quel voyage ouvert qui dessert sa gare de départ et sa gare d'arrivée, même si ce voyage appartient à une autre ligne. Ce qui compte est la possibilité réelle d'effectuer le trajet acheté.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 Moyen de paiement, on vas mettre plusieurs, mais on vas commencer par Stripe
 Le Mobile Money reste hors périmètre en attendant l'agrégateur
@@ -786,11 +159,8 @@ Le Mobile Money reste hors périmètre en attendant l'agrégateur
 - Prévenir les alertes via une baffe ou aussi ce qui se fait dans les aéroports qui averti le départ..
 - Auth client réservation via numéro de téléphone
 - Retour client et agent vi codeqr et peut envoyer des images, vidéos etc...
-
-- Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
 - Dépannage auto création typepanne
 
-- 
 Le voir de ceux qui en dépendent au lieu de tout comme je l'ai fais pour...
     new GetCollection(
         security: "is_granted('VOIR', 'Car') or is_granted('VOIR', 'Voyage') or is_granted('VOIR', 'Depannage')",
@@ -816,6 +186,216 @@ Annuler voyage qui annule tous les tickets, corriers etc.. au cas ou le car ne p
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+=======
+
+**Il n'existe aucune clôture de caisse.** L'application calcule la recette au franc près — `RecetteGareService` croise gare et agent, le bordereau l'imprime — mais rien ne rapproche ce chiffre de l'argent réellement remis. Aucune table, aucune entité, aucun écran. Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus coûteux : un écart ne se détecte qu'a posteriori, sans preuve opposable. C'est la seule proposition que je classe **critique**
+
+**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
+
+
+### 1. Une caisse représente quoi ?
+Dans ton application, une caisse peut être rattachée à un :(guichetier, commercial, point de vente, éventuellement une gare)
+### 2. À l'ouverture
+On peut avoir un **fonds de caisse initial**.
+Fonds initial : 50 000 FCFA
+Puis l'agent commence à vendre.
+```text
+Ticket 1     10 000
+...
+--------------------
+Ventes       30 000
+```
+S'il n'y a aucune autre opération :
+```text
+Espèces théoriques = 50 000 + 30 000 = 80 000 FCFA
+```
+
+# 3. La clôture
+À la fin de sa journée ou de son service, l'agent demande la clôture.
+Le système calcule ce qu'il **devrait avoir**.
+```text
+Fonds initial             50 000
+Ventes espèces            30 000
+Ventes Mobile Money       20 000
+--------------------------------
+Total encaissé            50 000
+```
+L'agent déclare ensuite ce qu'il possède réellement :
+```text
+Espèces physiques : 79 000 FCFA
+Mobile Money      : 20 000 FCFA
+```
+Le système compare le théorique et le réel.
+Il peut alors avoir :
+```text
+Écart : -1 000 FCFA
+```
+C'est ce qu'on appelle généralement un **écart de caisse**.
+
+# 4. Maintenant, ton problème : le hors-ligne
+Imaginons que ton commercial parte avec son téléphone.
+Avant de partir, il synchronise :
+```text
+Voyages disponibles
+Tickets disponibles
+Tarifs
+Sièges
+etc.
+```
+Puis il perd Internet.
+Il peut quand même vendre :
+```text
+Ticket T001
+Ticket T002
+Ticket T003
+```
+Ces ventes sont enregistrées **localement sur le téléphone**.
+```text
+Mobile
+
+Vente T001   SYNC = NON
+Vente T002   SYNC = NON
+Vente T003   SYNC = NON
+```
+# 5. La synchronisation
+Lorsqu'Internet revient :
+```text
+Téléphone
+    ↓
+Synchronisation
+    ↓
+Backend
+```
+Le serveur reçoit les ventes.
+Mais il faut surtout éviter de créer deux fois le même ticket.
+C'est pourquoi chaque vente hors-ligne devrait avoir un **identifiant unique généré côté mobile**, par exemple :
+```text
+offline_transaction_id
+```
+Le serveur peut ainsi dire :
+> Cette vente existe déjà, je ne la recrée pas.
+# 6. Et la clôture ?
+C'est ici que je te conseille de séparer **clôture commerciale** et **synchronisation technique**.
+Une caisse ne devrait pas être considérée comme correctement clôturée simplement parce que l'application mobile a envoyé une requête.
+```text
+OUVERTE
+   ↓
+EN_COURS
+   ↓
+CLOTURE_DEMANDEE
+   ↓
+SYNCHRONISATION
+   ↓
+CLOTUREE
+```
+Par exemple, le commercial demande la clôture à 18h.
+L'application vérifie :
+```text
+Ventes locales non synchronisées : 0
+```
+Alors :
+> ✅ Toutes les ventes ont été synchronisées.
+> Vous pouvez clôturer votre caisse.
+# 7. Mais que faire si Internet est absent au moment de clôturer ?
+C'est un cas très important.
+Supposons :
+```text
+18h00
+
+Internet ❌
+
+3 ventes non synchronisées
+```
+Je **n'autoriserais pas une clôture serveur définitive**.
+Le téléphone peut toutefois enregistrer :
+> **Clôture demandée hors-ligne**
+avec :
+```text
+date/heure
+identifiant de caisse
+montant théorique
+montant déclaré
+nombre de ventes
+```
+Puis, lorsque la connexion revient :
+```text
+Synchronisation
+       ↓
+Serveur
+       ↓
+Contrôle
+       ↓
+Clôture définitive
+```
+Cela évite de considérer comme définitivement clôturée une caisse dont le serveur ne connaît pas encore toutes les ventes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+======
+
+**La recette** : Combien l'activité a-t-elle généré ?
+**La caisse** : Combien cette caisse devait-elle encaisser et combien a-t-elle réellement encaissé ? du genre la caisse du commercial sert à contrôler l'encaissement
+
+
+# 2. La recette d'une gare
+
+Pour moi, la recette d'une gare est **tout ce qui a été vendu au nom de cette gare**, indépendamment du canal de paiement.
+
+Elle comprend :
+
+* ✅ Tickets vendus au guichet de la gare
+* ✅ Tickets vendus par les commerciaux rattachés à cette gare
+* ✅ Réservations initiées par cette gare (si elles sont payées)
+* ✅ Bagages enregistrés par cette gare
+* ✅ Courriers déposés dans cette gare
+
+Elle **ne dépend pas** de savoir si le paiement a été effectué :
+
+* au guichet ;
+* par un commercial ;
+* en ligne.
 
 
 
@@ -1012,405 +592,6 @@ Au vu de l'évolution de ton projet, je pense que le plus grand changement ne se
 Tu commences à intégrer des notions d'exploitation en temps réel (passage dans les gares, retards, suivi des cars, bordereaux, statistiques, réservations, multi-gares). À ce stade, je structurerais le projet autour de grands domaines fonctionnels (Administration, Exploitation, Billetterie, Réservations, Flotte, Stock, Comptabilité, etc.) plutôt que d'une simple organisation par entités.
 
 C'est cette organisation qui fera réellement passer ton application d'un CRUD évolué à un logiciel professionnel de gestion de compagnies de transport.
-
-
-
-
-
-
-
-
-
-Explique moi le principe de clôture de caisse dans une tel application car je veux mettre en place la fonctionnalité de vente hors-ligne via une application mobile
-
-Oui. Et avec une **vente hors-ligne sur mobile**, la clôture de caisse devient encore plus importante, parce qu'il faut distinguer **ce qui a été vendu sur le téléphone** de **ce qui a déjà été synchronisé avec le serveur**.
-
-### 1. Une caisse représente quoi ?
-
-Dans ton application, une caisse peut être rattachée à un :
-
-* guichetier ;
-* commercial ;
-* point de vente ;
-* éventuellement une gare.
-
-Exemple :
-
-```text
-Caisse C001
-Agent : Kouassi
-Gare : Bouaké
-Date : 11/09/2026
-```
-
-L'agent ouvre sa caisse avant de commencer ses ventes.
-
----
-
-### 2. À l'ouverture
-
-On peut avoir un **fonds de caisse initial**.
-
-Exemple :
-
-```text
-Fonds initial : 50 000 FCFA
-```
-
-Puis l'agent commence à vendre.
-
-```text
-Ticket 1     10 000
-Ticket 2      8 000
-Bagage        2 000
-Ticket 3     10 000
---------------------
-Ventes       30 000
-```
-
-S'il n'y a aucune autre opération :
-
-```text
-Espèces théoriques = 50 000 + 30 000
-                   = 80 000 FCFA
-```
-
----
-
-# 3. La clôture
-
-À la fin de sa journée ou de son service, l'agent demande la clôture.
-
-Le système calcule ce qu'il **devrait avoir**.
-
-Par exemple :
-
-```text
-Fonds initial             50 000
-Ventes espèces            30 000
-Ventes Mobile Money       20 000
---------------------------------
-Total encaissé            50 000
-```
-
-L'agent déclare ensuite ce qu'il possède réellement :
-
-```text
-Espèces physiques : 79 000 FCFA
-Mobile Money      : 20 000 FCFA
-```
-
-Le système compare le théorique et le réel.
-
-Il peut alors avoir :
-
-```text
-Écart : -1 000 FCFA
-```
-
-C'est ce qu'on appelle généralement un **écart de caisse**.
-
----
-
-# 4. Maintenant, ton problème : le hors-ligne
-
-Imaginons que ton commercial parte avec son téléphone.
-
-Avant de partir, il synchronise :
-
-```text
-Voyages disponibles
-Tickets disponibles
-Tarifs
-Sièges
-etc.
-```
-
-Puis il perd Internet.
-
-Il peut quand même vendre :
-
-```text
-Ticket T001
-Ticket T002
-Ticket T003
-```
-
-Ces ventes sont enregistrées **localement sur le téléphone**.
-
-Par exemple :
-
-```text
-Mobile
-
-Vente T001   SYNC = NON
-Vente T002   SYNC = NON
-Vente T003   SYNC = NON
-```
-
----
-
-# 5. La synchronisation
-
-Lorsqu'Internet revient :
-
-```text
-Téléphone
-    ↓
-Synchronisation
-    ↓
-Backend
-```
-
-Le serveur reçoit les ventes.
-
-Mais il faut surtout éviter de créer deux fois le même ticket.
-
-C'est pourquoi chaque vente hors-ligne devrait avoir un **identifiant unique généré côté mobile**, par exemple :
-
-```text
-offline_transaction_id
-```
-
-Le serveur peut ainsi dire :
-
-> Cette vente existe déjà, je ne la recrée pas.
-
----
-
-# 6. Et la clôture ?
-
-C'est ici que je te conseille de séparer **clôture commerciale** et **synchronisation technique**.
-
-Une caisse ne devrait pas être considérée comme correctement clôturée simplement parce que l'application mobile a envoyé une requête.
-
-Je verrais plutôt :
-
-```text
-OUVERTE
-   ↓
-EN_COURS
-   ↓
-CLOTURE_DEMANDEE
-   ↓
-SYNCHRONISATION
-   ↓
-CLOTUREE
-```
-
-Par exemple, le commercial demande la clôture à 18h.
-
-L'application vérifie :
-
-```text
-Ventes locales non synchronisées : 0
-```
-
-Alors :
-
-> ✅ Toutes les ventes ont été synchronisées.
-> Vous pouvez clôturer votre caisse.
-
----
-
-# 7. Mais que faire si Internet est absent au moment de clôturer ?
-
-C'est un cas très important.
-
-Supposons :
-
-```text
-18h00
-
-Internet ❌
-
-3 ventes non synchronisées
-```
-
-Je **n'autoriserais pas une clôture serveur définitive**.
-
-Le téléphone peut toutefois enregistrer :
-
-> **Clôture demandée hors-ligne**
-
-avec :
-
-```text
-date/heure
-identifiant de caisse
-montant théorique
-montant déclaré
-nombre de ventes
-```
-
-Puis, lorsque la connexion revient :
-
-```text
-Synchronisation
-       ↓
-Serveur
-       ↓
-Contrôle
-       ↓
-Clôture définitive
-```
-
-Cela évite de considérer comme définitivement clôturée une caisse dont le serveur ne connaît pas encore toutes les ventes.
-
----
-
-# 8. Très important : la caisse et la recette ne sont pas la même chose
-
-C'est particulièrement important dans **ton modèle**.
-
-Tu as :
-
-```text
-Recette gare
-Recette commercial
-Recette voyage
-Recette entreprise
-```
-
-La caisse répond plutôt à :
-
-> **Combien cette caisse devait-elle encaisser et combien a-t-elle réellement encaissé ?**
-
-Alors que la recette répond à :
-
-> **Combien l'activité a-t-elle généré ?**
-
-Par exemple, un commercial rattaché à Bouaké vend :
-
-```text
-Ticket : 10 000 FCFA
-```
-
-La vente appartient à son activité commerciale et doit alimenter les statistiques de la gare selon la règle métier que tu as définie.
-
-Mais la **caisse du commercial** sert à contrôler l'encaissement.
-
----
-
-# 9. Je structurerais donc ton système ainsi
-
-```text
-                    ENTREPRISE
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-            GARE                COMMERCIAL
-              │                     │
-            CAISSE                CAISSE
-              │                     │
-              └──────────┬──────────┘
-                         │
-                       VENTES
-                         │
-              ┌──────────┼──────────┐
-              │          │          │
-            Ticket     Bagage    Courrier
-```
-
-Et chaque vente possède notamment :
-
-```text
-Vente
------
-id
-reference
-caisse
-agent
-gare
-commercial (nullable)
-voyage
-montant
-modePaiement
-dateVente
-source
-createdAt
-```
-
-Avec par exemple :
-
-```text
-source = ONLINE
-source = OFFLINE
-```
-
----
-
-# 10. Pour le mobile hors-ligne, j'ajouterais une notion essentielle
-
-Il faut distinguer :
-
-**créé localement** :
-
-```text
-LOCAL
-```
-
-**envoyé au serveur** :
-
-```text
-SYNC_EN_COURS
-```
-
-**confirmé par le serveur** :
-
-```text
-SYNCHRONISE
-```
-
-**erreur de synchronisation** :
-
-```text
-ERREUR_SYNC
-```
-
-Ainsi le commercial peut voir clairement :
-
-```text
-Aujourd'hui
-
-47 ventes
-
-45 synchronisées
-2 en attente
-
-⚠️ 2 ventes seront synchronisées dès
-que la connexion sera disponible.
-```
-
----
-
-## Le point le plus important pour ton projet
-
-Je te recommande de ne **pas concevoir la vente hors-ligne comme "le même formulaire mais sans Internet"**.
-
-Il faut la considérer comme un véritable **système de synchronisation** :
-
-```text
-              MOBILE
-                 │
-       ┌─────────┴─────────┐
-       │                   │
-    Base locale          Internet
-       │                   │
-       └───────→ Sync ←────┘
-                    │
-                 BACKEND
-                    │
-                 POSTGRES
-```
-
-Et la **clôture de caisse doit être la photographie comptable d'une session de caisse**, tandis que la synchronisation garantit que cette photographie est connue du serveur.
-
-Pour ton application, je prévoirais donc dès le départ : **session de caisse → opérations de caisse → ventes → journal hors-ligne → synchronisation idempotente → contrôle des écarts → clôture définitive**. C'est beaucoup plus solide que d'ajouter le hors-ligne après coup.
-
-
-
-
 
 
 
@@ -2381,41 +1562,6 @@ Je souhaite également que nous respections une architecture claire dès le dép
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Documents
-
-## Le constat qui domine tout le reste
-
-**Il n'existe aucune clôture de caisse.** L'application calcule la recette au franc près — `RecetteGareService` croise gare et agent, le bordereau l'imprime — mais rien ne rapproche ce chiffre de l'argent réellement remis. Aucune table, aucune entité, aucun écran. Pour une compagnie où presque tout se paie en espèces au guichet, c'est le manque le plus coûteux : un écart ne se détecte qu'a posteriori, sans preuve opposable. C'est la seule proposition que je classe **critique**.
-
-Quatre autres manques vérifiés en base ou dans les sources :
-
-- **Aucun envoi asynchrone** — `MailerService::send()` appelle le mailer dans la requête. Même défaut de conception que celui qu'on vient de corriger sur le journal : un service accessoire qui décide du sort du geste principal.
-- **Aucun SMS**, alors que le téléphone est déjà la clé d'identité client dans `ClientResolver`.
-- **`/forgot` et `/reset` sans limite de débit**, quand la connexion, elle, est protégée. C'est cette asymétrie qui signale l'oubli — et c'est le meilleur rapport valeur/effort de la liste.
-- **La recherche globale ne cherche rien** : 13 lignes qui placent le curseur. Le champ et le raccourci `Ctrl+K` existent, la promesse n'est pas tenue.
-
-## Deux dépendances qui structurent l'ordre
-
-**La vente hors-ligne (B3) ne doit pas précéder la caisse (A1).** Réconcilier des ventes faites hors connexion sans clôture pour les encadrer serait ingérable. C'est aussi la proposition la plus lourde de la liste — un projet, pas une évolution — et je la présente comme telle, avec le quota de sièges par gare comme seul mécanisme qui la rende sûre.
-
-**La tarification dynamique (E1) suppose le contrôle d'embarquement (B2).** Le surbooking est déjà assumé par le modèle, mais personne ne connaît le taux de présentation réel : le QR est généré côté frontend pour l'impression seulement, sans point de lecture ni état d'embarquement sur le billet. Sans cette donnée, toute politique de remplissage se pilote à l'aveugle.
-
-Une réserve sur B2 : le QR encode aujourd'hui le code du billet **en clair**. Il faudra le signer, sinon le contrôle validera n'importe quel code fabriqué.
-- 
 
 
 

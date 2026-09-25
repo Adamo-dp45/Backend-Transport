@@ -21,11 +21,24 @@ class CourrierRepository extends ServiceEntityRepository
      * Pilotées par le STATUT métier (et non par 'deletedAt') : la corbeille ne gère que la visibilité
      * dans les listes, pas l'historique comptable. Un courrier ANNULE ne compte jamais dans la recette
      * (les volets « réception » exigent déjà LIVRE, qui exclut de fait ANNULE).
+     *
+     * !! LA RECETTE D'UN COURRIER, C'EST 'montant' PLUS 'fraissuivi'. Le premier est la somme des
+     * taxes des colis, le second le frais de suivi SMS — deux lignes distinctes sur le reçu du client
+     * (cf. 'mails/courrier/ticket.html.twig'), deux encaissements bien réels. Or 'fraissuivi'
+     * n'entrait dans AUCUN total : les recettes courrier étaient incomplètes, EN MOINS, depuis
+     * l'origine. D'où le 'COALESCE(c.fraissuivi, 0)' répété dans chaque somme ci-dessous — la colonne
+     * est nullable, et un 'NULL' aurait annulé toute l'addition de la ligne.
+     *
+     * Les annulations et suppressions par agent le comptent AUSSI : elles mesurent la recette qui
+     * disparaît du livre, elles doivent donc se lire dans la même unité que la recette.
+     *
+     * Seul 'findByVoyage' garde 'montant' seul : le bordereau chauffeur reprend ligne à ligne la
+     * mention « FRAIS » du reçu, il n'additionne aucune recette.
      */
     public function recettesTotales(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): float
     {
         $row = $this->createQueryBuilder('c')
-            ->select('COALESCE(SUM(c.montant), 0) AS total')
+            ->select('COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS total')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
             // Paiement à l'envoi dans ce déploiement : recette comptabilisée à la création.
@@ -58,7 +71,7 @@ class CourrierRepository extends ServiceEntityRepository
     {
         // Paiement à l'envoi : recette par agent comptabilisée à la création (createdBy).
         $envois = $this->createQueryBuilder('c')
-            ->select('c.createdBy AS agentid, COALESCE(SUM(c.montant), 0) AS montant, COUNT(c.id) AS nbcourriers')
+            ->select('c.createdBy AS agentid, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
             // ->andWhere('c.modepaiement = :envoi') -- modepaiement désactivé (paiement à l'envoi)
             ->andWhere('c.createdAt >= :debut')
@@ -74,7 +87,7 @@ class CourrierRepository extends ServiceEntityRepository
 
         /* -- Volet 'réception' (paiement à la livraison) — désactivé (paiement à l'envoi) :
         $receptions = $this->createQueryBuilder('c')
-            ->select('c.updatedBy AS agentid, COALESCE(SUM(c.montant), 0) AS montant, COUNT(c.id) AS nbcourriers')
+            ->select('c.updatedBy AS agentid, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
             ->andWhere('c.modepaiement = :reception')
             ->andWhere('c.statut = :livre')
@@ -117,7 +130,7 @@ class CourrierRepository extends ServiceEntityRepository
     {
         // Paiement à l'envoi : recette par jour comptabilisée à la création.
         $envois = $this->createQueryBuilder('c')
-            ->select('DATE(c.createdAt) AS label, COALESCE(SUM(c.montant), 0) AS montant, COUNT(c.id) AS nbcourriers')
+            ->select('DATE(c.createdAt) AS label, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
             // ->andWhere('c.modepaiement = :envoi') -- modepaiement désactivé (paiement à l'envoi)
             ->andWhere('c.createdAt >= :debut')
@@ -135,7 +148,7 @@ class CourrierRepository extends ServiceEntityRepository
         */
         /* -- Volet 'réception' (paiement à la livraison) — désactivé (paiement à l'envoi) :
         $receptions = $this->createQueryBuilder('c')
-            ->select('DATE(c.datepaiement) AS label, COALESCE(SUM(c.montant), 0) AS montant, COUNT(c.id) AS nbcourriers')
+            ->select('DATE(c.datepaiement) AS label, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
             ->andWhere('c.modepaiement = :reception')
             ->andWhere('c.statut = :livre')
@@ -185,6 +198,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->andWhere('c.identreprise = :ide')
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
+            // !! s
             ->setParameter('ide', $identreprise)
             ->setParameter('debut', $debut)
             ->setParameter('fin', $fin)
@@ -210,7 +224,7 @@ class CourrierRepository extends ServiceEntityRepository
                 // gd.ville / ga.ville sont des RELATIONS (entité Ville) → interdit en select DQL scalaire.
                 // On utilise le libellé de la gare (scalaire), cohérent avec les autres stats par gare.
                 'CONCAT(gd.libelle, \' → \', ga.libelle) AS trajet',
-                'COALESCE(SUM(c.montant), 0) AS montant',
+                'COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant',
                 'COUNT(c.id) AS nbcourriers',
             )
             ->join('c.garedepart', 'gd')
@@ -236,7 +250,7 @@ class CourrierRepository extends ServiceEntityRepository
     public function recetteParGare(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant), 0) AS recette')
+            ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
@@ -254,7 +268,7 @@ class CourrierRepository extends ServiceEntityRepository
     public function recetteParGareEtJour(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('g.id AS gareid, DATE(c.createdAt) AS jour, COALESCE(SUM(c.montant), 0) AS recette')
+            ->select('g.id AS gareid, DATE(c.createdAt) AS jour, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
@@ -273,7 +287,7 @@ class CourrierRepository extends ServiceEntityRepository
     public function recetteParGareEtAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('g.id AS gareid, c.createdBy AS agentid, COUNT(c.id) AS nb, COALESCE(SUM(c.montant), 0) AS recette')
+            ->select('g.id AS gareid, c.createdBy AS agentid, COUNT(c.id) AS nb, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
@@ -314,7 +328,7 @@ class CourrierRepository extends ServiceEntityRepository
     public function annulationsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('c.updatedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant), 0) AS montant')
+            ->select('c.updatedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut = 'ANNULE'")
             ->andWhere('c.updatedBy IS NOT NULL')
@@ -336,7 +350,7 @@ class CourrierRepository extends ServiceEntityRepository
     public function suppressionsParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('c.deletedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant), 0) AS montant')
+            ->select('c.deletedBy AS agentid', 'COUNT(c.id) AS nb', 'COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant')
             ->andWhere('c.identreprise = :ide')
             ->andWhere('c.deletedAt IS NOT NULL')
             ->andWhere('c.deletedBy IS NOT NULL')
@@ -419,14 +433,14 @@ class CourrierRepository extends ServiceEntityRepository
     public function recetteParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('c')
-            ->select('l.id AS ligneid, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant), 0) AS recette')
+            ->select('l.id AS ligneid, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.voyage', 'v')
             ->join('v.ligne', 'l')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
-            ->andWhere('c.deletedAt IS NULL')
+            ->andWhere('c.deletedAt IS NULL') // !!
             ->setParameter('ide', $identreprise)
             ->setParameter('debut', $debut)
             ->setParameter('fin', $fin)
@@ -532,4 +546,27 @@ class CourrierRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
+
+    /**
+     * Recette COURRIERS d'UN voyage — sans filtre de gare (cf. 'TicketRepository::recettePourVoyage').
+     *
+     * 'montant + COALESCE(fraissuivi, 0)', comme les douze autres sommes de ce repository.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function recettePourVoyage(int $voyageId, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('c')
+            ->select('COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nb')
+            ->andWhere('c.voyage = :voyage')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere("c.statut != 'ANNULE'")
+            ->andWhere('c.deletedAt IS NULL')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
+    }
 }

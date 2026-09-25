@@ -13,6 +13,7 @@ use App\Entity\Bagage;
 use App\Entity\Beneficiaire;
 use App\Entity\Car;
 use App\Entity\ConfigRemise;
+use App\Entity\Courrier;
 use App\Entity\Depense;
 use App\Entity\Entreprise;
 use App\Entity\Gare;
@@ -367,6 +368,40 @@ final class ScenarioBuilder
         $this->em->flush();
 
         return $bagage;
+    }
+
+    /**
+     * Un courrier déposé à une gare pour une autre.
+     *
+     * 'fraissuivi' est un ARGUMENT à part et vaut 'null' par défaut : c'est la valeur qui piège les
+     * sommes de recette (cf. {@see \App\Repository\CourrierRepository}), un test doit pouvoir
+     * construire les deux cas sans y penser.
+     */
+    public function courrier(
+        Reseau $reseau,
+        string $depart,
+        string $arrivee,
+        int $montant = 5000,
+        ?int $fraissuivi = null,
+        string $statut = 'EN_ATTENTE',
+    ): Courrier {
+        $courrier = (new Courrier())
+            ->setCodecourrier('CRR-TEST-' . ++$this->compteur)
+            ->setNomexpediteur('Expéditeur ' . $this->compteur)
+            ->setContactexpediteur('0700000000')
+            ->setNomdestinataire('Destinataire ' . $this->compteur)
+            ->setContactdestinataire('0700000001')
+            ->setGaredepart($reseau->gare($depart))
+            ->setGarearrivee($reseau->gare($arrivee))
+            ->setMontant($montant)
+            ->setFraissuivi($fraissuivi)
+            ->setStatut($statut)
+            ->setIdentreprise($reseau->identreprise());
+
+        $this->em->persist($courrier);
+        $this->em->flush();
+
+        return $courrier;
     }
 
     /**

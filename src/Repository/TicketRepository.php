@@ -66,7 +66,7 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.gare = :gareId')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'")
-            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.deletedAt IS NULL') // !!
             ->groupBy('d.id')
             ->addGroupBy('d.libelle')
             ->setParameter('voyageId', $voyageId)
@@ -125,7 +125,7 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.voyage = :voyageId')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
-            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.deletedAt IS NULL') // !!
             ->setParameter('voyageId', $voyageId)
             ->setParameter('ide', $identreprise)
             ->orderBy('s.numero', 'ASC')
@@ -1217,4 +1217,35 @@ class TicketRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
+
+    /**
+     * Recette BILLETS d'UN voyage — sans aucun filtre de gare.
+     *
+     * !! AUCUN PÉRIMÈTRE DE GARE ICI, et c'est tout le point. La recette d'un départ est une propriété
+     * DU DÉPART, pas de la gare qui la regarde : deux chefs de gare ouvrant la même fiche doivent lire
+     * le même chiffre. Les surfaces qui composaient cette somme à partir des collections d'API
+     * ('/api/tickets?voyage.id=') recevaient la part filtrée par 'GareScopeExtension' et affichaient
+     * donc un montant DIFFÉRENT selon le lecteur.
+     *
+     * 'reservation IS NULL' : la recette d'une réservation est reconnue À SON PAIEMENT, le billet émis
+     * ensuite ne la recompte pas (règle de 'RecetteGareService', identique à 'recettesTotales').
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function recettePourVoyage(int $voyageId, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('t')
+            ->select('COALESCE(SUM(t.prix), 0) AS montant, COUNT(t.id) AS nb')
+            ->andWhere('t.voyage = :voyage')
+            ->andWhere('t.identreprise = :ide')
+            ->andWhere("t.statut = 'VALIDE'")
+            ->andWhere('t.reservation IS NULL')
+            ->andWhere('t.deletedAt IS NULL')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
+    }
 }

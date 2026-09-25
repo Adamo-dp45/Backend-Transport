@@ -170,4 +170,55 @@ class DepenseRepository extends ServiceEntityRepository
             ->getQuery()
             ->getArrayResult();
     }
+
+    /**
+     * Les DÉPENSES rattachées à UN voyage — sans filtre de gare.
+     *
+     * !! CONTRAIREMENT AUX AUTRES MÉTHODES DE CE REPOSITORY, celle-ci ne borne PAS à une gare. Une
+     * charge rattachée à un départ (frais de route, péages, imprévus de la route) est une donnée DU
+     * DÉPART : l'agent d'une gare intermédiaire qui ouvre la fiche doit voir le même coût que la gare
+     * qui a lancé le car. L'IMPUTATION, elle, ne change pas pour autant — la charge reste portée par
+     * SA gare dans tous les résultats par gare.
+     *
+     * La permission reste requise en amont ('DEPENSE_VOIR' côté opération) : ouvrir le périmètre de
+     * GARE n'ouvre pas le droit de lire des montants à qui ne l'a pas.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function totalPourVoyage(int $voyageId, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('d')
+            ->select('COALESCE(SUM(d.montant), 0) AS montant, COUNT(d.id) AS nb')
+            ->andWhere('d.voyage = :voyage')
+            ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
+    }
+
+    /**
+     * Les LIGNES de dépense d'un voyage, pour le tableau de la fiche — même périmètre ouvert que
+     * 'totalPourVoyage', sinon le tableau et son total ne se recouperaient pas.
+     *
+     * @return list<\App\Entity\Depense>
+     */
+    public function findPourVoyage(int $voyageId, int $identreprise): array
+    {
+        return $this->createQueryBuilder('d')
+            ->leftJoin('d.typedepense', 'td')->addSelect('td')
+            ->leftJoin('d.gare', 'g')->addSelect('g')
+            ->leftJoin('d.fournisseur', 'f')->addSelect('f')
+            ->andWhere('d.voyage = :voyage')
+            ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->orderBy('d.datedepense', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
 }

@@ -533,4 +533,29 @@ class ReservationRepository extends ServiceEntityRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * Recette RÉSERVATIONS d'UN voyage — sans filtre de gare (cf. 'TicketRepository::recettePourVoyage').
+     *
+     * TOUTES les réservations PAYÉES, que le billet ait été émis ou non : la recette est reconnue au
+     * PAIEMENT, c'est la règle de 'RecetteGareService'. La pénalité de report s'y ajoute, comme dans
+     * 'recettePayeeParGare' — c'est de l'argent encaissé sur ce départ.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function recettePayeePourVoyage(int $voyageId, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('r')
+            ->select('COALESCE(SUM(r.prix + r.penalitemontant), 0) AS montant, COUNT(r.id) AS nb')
+            ->andWhere('r.voyage = :voyage')
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere("r.etatpaiement = 'PAYE'")
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
+    }
 }

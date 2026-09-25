@@ -552,4 +552,30 @@ class BagageRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
+
+    /**
+     * Recette BAGAGES d'UN voyage — sans filtre de gare (cf. 'TicketRepository::recettePourVoyage').
+     *
+     * Mêmes statuts que partout ailleurs : tout sauf ANNULE, PERDU COMPRIS. Un bagage perdu a bien été
+     * payé — l'indemnisation est une autre écriture, qui n'existe pas encore (B4 de la feuille de
+     * route). L'exclure ferait disparaître une recette réellement encaissée.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function recettePourVoyage(int $voyageId, int $identreprise): array
+    {
+        $row = $this->createQueryBuilder('b')
+            ->select('COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nb')
+            ->andWhere('b.voyage = :voyage')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.statut IN (:statuts)')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('voyage', $voyageId)
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statuts', ['ENREGISTRE', 'EMBARQUE', 'LIVRE', 'PERDU'])
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
+    }
 }

@@ -99,10 +99,21 @@ use Symfony\Component\Validator\Constraints as Assert;
             )
         ),
         new Patch(
-            security: "is_granted('ROLE_ADMIN')", /*
-                - Une sortie d'argent est un document : sa mise en corbeille est réservée à
-                  l'administrateur d'entreprise, comme pour 'Approvisionnement'. La permission
-                  'SUPPRIMER' seule ne suffit donc pas
+            security: "is_granted('ROLE_ADMIN') or is_granted('ROLE_SUPER_ADMIN') or is_granted('ROLE_ADMIN_GARE')", /*
+                - Une sortie d'argent est un document : sa mise en corbeille reste réservée aux
+                  ADMINISTRATEURS, comme pour 'Approvisionnement'. La permission 'SUPPRIMER' seule ne
+                  suffit donc pas, et un guichetier ne l'obtiendra jamais par son rôle
+                - L'ADMIN DE GARE y est ajouté : il tient les charges de sa gare sans passer par un
+                  rôle comptable, et la saisie en double était le seul geste qu'il ne pouvait pas
+                  défaire lui-même — il devait appeler un administrateur d'entreprise pendant que la
+                  ligne fantaisiste gonflait le résultat de SA gare. Le montant, lui, est déjà
+                  corrigeable par 'MODIFIER' : cette ouverture ne couvre que la ligne à effacer
+                - AUCUN filtre de gare à ajouter ici : 'GareScopeExtension' implémente aussi
+                  'QueryItemExtensionInterface', la dépense d'une autre gare est donc introuvable (404)
+                  avant même que cette expression ne soit évaluée
+                - la RESTAURATION reste 'ROLE_SUPER_ADMIN' ('Entity/Data/Corbeille.php'). Asymétrie
+                  assumée, et déjà vraie pour l'administrateur d'entreprise : effacer est un geste de
+                  gestion, revenir en arrière sur une pièce comptable en est un autre
             */
             name: 'Remove_Depense',
             uriTemplate: '/depenses/{id}/remove',
@@ -190,9 +201,13 @@ class Depense extends EntityBase implements EntrepriseOwnedInterface, GareOwnedI
     private ?Gare $gare = null;
 
     /**
-     * CROCHET des « frais de route » (forfait remis à l'équipage pour un départ) : le champ existe
-     * pour que le résultat d'un voyage se DÉRIVE un jour (ventes − dépenses du voyage), sans reprise
-     * de schéma ni double comptage. Aucun écran ne l'expose aujourd'hui.
+     * Les « FRAIS DE ROUTE » : le forfait remis à l'équipage pour un départ (ration, péages,
+     * imprévus de la route). Renseigné, il permet de DÉRIVER le résultat d'un voyage (ventes −
+     * dépenses du voyage) sans reprise de schéma ni double comptage.
+     *
+     * FACULTATIF, et qui doit le rester : loyer, salaires et gasoil du parc ne se rattachent à aucun
+     * départ, l'exiger forcerait à inventer un rattachement. Le rattachement ne change RIEN à la
+     * PORTÉE : la charge reste celle de sa gare, 'getPortee()' ne lit que 'gare'.
      */
     #[ORM\ManyToOne]
     #[Groups(['read:Depense', 'write:Depense'])]

@@ -241,7 +241,7 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
 
     #[ORM\Column(length: 255, nullable: true)]
     #[Groups(['read:Bagage', 'read:Voyage'])]
-    private ?string $statut = BagageStatus::STATUT_ENREGISTRE->value; // ENREGISTRE, EMBARQUE, LIVRE, PERDU
+    private ?string $statut = BagageStatus::STATUT_ENREGISTRE->value;
 
     #[ORM\Column(nullable: true)]
     private ?int $identreprise = null;

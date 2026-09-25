@@ -260,14 +260,20 @@ final class DepenseTest extends ApiTestCase
         );
         $id = (int) $this->reponseJson()['id'];
 
-        // Il corrige son montant lui-même : c'est la contrepartie du refus de suppression.
         $this->requete('PATCH', '/api/depenses/' . $id, $chefBouake, ['montant' => 38000]);
         $this->assertStatut(200);
         self::assertSame(38000, $this->relire(Depense::class, $id)->getMontant());
 
-        // Le bypass ne lui ouvre PAS la corbeille : elle est gardée par un rôle, pas par une permission.
+        /*
+            ET IL EFFACE SA PROPRE SAISIE. La corbeille lui est ouverte parce qu'il tient les charges
+            de sa gare sans passer par un rôle comptable : la ligne saisie en double était le seul
+            geste qu'il ne pouvait pas défaire, et elle gonflait le résultat de SA gare pendant qu'il
+            attendait un administrateur d'entreprise. La garde reste un RÔLE et non la permission
+            'SUPPRIMER' : son caissier, à qui il délègue la saisie, ne l'obtient pas pour autant.
+        */
         $this->requete('PATCH', '/api/depenses/' . $id . '/remove', $chefBouake, []);
-        $this->assertStatut(403);
+        $this->assertStatut(200);
+        self::assertNotNull($this->relire(Depense::class, $id)->getDeletedAt());
     }
 
     #[Test]
@@ -298,18 +304,75 @@ final class DepenseTest extends ApiTestCase
     }
 
     #[Test]
-    #[TestDox("Seul l'administrateur met une dépense en corbeille")]
-    public function corbeilleReserveeALAdmin(): void
+    #[TestDox('La corbeille est gardée par un RÔLE, jamais par la permission SUPPRIMER')]
+    public function corbeilleReserveeAuxAdministrateurs(): void
     {
         $depense = $this->scenario->depense($this->reseau->entreprise, 12000, $this->reseau->gare('Bouaké'));
 
-        // L'agent a pourtant la permission SUPPRIMER : une sortie d'argent est un document.
+        // L'agent a pourtant la permission SUPPRIMER : une sortie d'argent est un document, et c'est
+        // toute la raison d'être d'une garde par rôle — sinon il suffirait de déléguer la permission.
         $this->requete('PATCH', '/api/depenses/' . $depense->getId() . '/remove', $this->agentBouake, []);
         $this->assertStatut(403);
 
         $this->requete('PATCH', '/api/depenses/' . $depense->getId() . '/remove', $this->admin, []);
         $this->assertStatut(200);
         self::assertNotNull($this->relire(Depense::class, (int) $depense->getId())->getDeletedAt());
+    }
+
+    #[Test]
+    #[TestDox("L'admin de gare n'efface pas la dépense d'une autre gare")]
+    public function adminDeGareNEffacePasAilleurs(): void
+    {
+        $chefBouake = $this->scenario->utilisateur(
+            $this->reseau->entreprise,
+            gare: $this->reseau->gare('Bouaké'),
+            roles: ['ROLE_ADMIN_GARE']
+        );
+        $ailleurs = $this->scenario->depense($this->reseau->entreprise, 80000, $this->reseau->gare('Abidjan'));
+        $siege = $this->scenario->depense($this->reseau->entreprise, 500000);
+
+        /*
+            404 ET NON 403, et c'est la garantie intéressante : 'GareScopeExtension' implémente aussi
+            'QueryItemExtensionInterface', la dépense d'une autre gare n'est donc jamais CHARGÉE —
+            l'expression de sécurité n'a même pas à trancher. Ouvrir la corbeille à l'admin de gare
+            n'élargit donc rien d'autre que son propre périmètre, et la charge du SIÈGE lui reste
+            inaccessible par la même mécanique ('d.gare = :id' est faux pour NULL).
+        */
+        $this->requete('PATCH', '/api/depenses/' . $ailleurs->getId() . '/remove', $chefBouake, []);
+        $this->assertStatut(404);
+        self::assertNull($this->relire(Depense::class, (int) $ailleurs->getId())->getDeletedAt());
+
+        $this->requete('PATCH', '/api/depenses/' . $siege->getId() . '/remove', $chefBouake, []);
+        $this->assertStatut(404);
+        self::assertNull($this->relire(Depense::class, (int) $siege->getId())->getDeletedAt());
+    }
+
+    #[Test]
+    #[TestDox("Une charge peut porter les FRAIS DE ROUTE d'un départ")]
+    public function fraisDeRouteRattachesAUnDepart(): void
+    {
+        $voyage = $this->scenario->voyage($this->reseau, provenance: 'Abidjan');
+
+        $this->requete('POST', '/api/depenses', $this->admin, [
+            'datedepense' => (new DateTimeImmutable())->format(DATE_ATOM),
+            'montant' => 25000,
+            'typedepense' => '/api/typedepenses/' . $this->scenario->typedepense($this->reseau->entreprise, 'Frais de route')->getId(),
+            'gare' => '/api/gares/' . $this->reseau->gare('Abidjan')->getId(),
+            'voyage' => '/api/voyages/' . $voyage->getId(),
+            'libelle' => "Ration de l'équipage",
+        ]);
+
+        $this->assertStatut(201);
+        /*
+            L'ID DU VOYAGE doit revenir, pas seulement son code : le formulaire de modification
+            représélectionne le départ rattaché, et un sélecteur se préremplit avec un identifiant.
+            C'est la sentinelle du groupe 'read:Depense' sur 'Voyage::$id'.
+        */
+        self::assertSame($voyage->getId(), $this->reponseJson()['voyage']['id'] ?? null);
+        self::assertSame($voyage->getCodevoyage(), $this->reponseJson()['voyage']['codevoyage'] ?? null);
+
+        // Le rattachement ne change RIEN à la portée : la charge reste celle de la gare d'Abidjan.
+        self::assertSame('GARE', $this->reponseJson()['portee'] ?? null);
     }
 
     #[Test]

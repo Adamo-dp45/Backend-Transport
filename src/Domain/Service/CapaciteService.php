@@ -193,6 +193,64 @@ class CapaciteService
     }
 
     /**
+     * Occupation TRONÇON PAR TRONÇON, du plus amont au plus aval.
+     *
+     * Même source que 'occupationMaximale' — les intervalles [montée, descente) des billets et des
+     * réservations tenant une place —, donc les barres d'un écran et son pic ne peuvent plus se
+     * contredire. La fiche du voyage rebâtissait ces nombres côté frontend à partir des collections
+     * d'API, que le périmètre de gare filtre : le remplissage d'un même départ changeait selon le
+     * lecteur, exactement comme sa recette.
+     *
+     * LE TAUX PEUT DÉPASSER 100 % : le surbooking amont est assumé (l'amont sert avant l'aval). On ne
+     * le borne pas ici — c'est une information d'exploitation, des passagers ne monteront pas.
+     *
+     * @return list<array{depart: string, arrivee: string, ordre: int, occupation: int, capacite: int, taux: int}>
+     */
+    public function occupationParTroncon(Voyage $voyage, int $identreprise): array
+    {
+        $ligne = $voyage->getLigne();
+        if ($ligne === null) {
+            return [];
+        }
+
+        $arrets = [];
+        foreach ($ligne->getArrets() as $arret) {
+            $arrets[] = ['ordre' => (int) $arret->getOrdre(), 'libelle' => (string) $arret->getGare()?->getLibelle()];
+        }
+        usort($arrets, static fn (array $a, array $b): int => $a['ordre'] <=> $b['ordre']);
+
+        // La route EFFECTIVE du départ : un départ partiel ne commence pas à l'origine de la ligne, et
+        // afficher les tronçons amont donnerait des barres vides sur un trajet qui n'existe pas.
+        $origine = $voyage->getOrigineEffective();
+        $ordreParGare = [];
+        foreach ($ligne->getArrets() as $arret) {
+            $ordreParGare[$arret->getGare()?->getId()] = (int) $arret->getOrdre();
+        }
+        $ordreOrigine = $origine !== null ? ($ordreParGare[$origine->getId()] ?? 0) : 0;
+
+        $capacite = $this->capaciteEffective($voyage) ?? 0;
+        $intervalles = $this->intervallesOccupation($voyage, $identreprise, null);
+
+        $troncons = [];
+        for ($i = 0; $i < count($arrets) - 1; $i++) {
+            if ($arrets[$i]['ordre'] < $ordreOrigine) {
+                continue;
+            }
+            $occupation = $this->occupationAu($arrets[$i]['ordre'], $intervalles);
+            $troncons[] = [
+                'depart' => $arrets[$i]['libelle'],
+                'arrivee' => $arrets[$i + 1]['libelle'],
+                'ordre' => $arrets[$i]['ordre'],
+                'occupation' => $occupation,
+                'capacite' => $capacite,
+                'taux' => $capacite > 0 ? (int) round($occupation / $capacite * 100) : 0,
+            ];
+        }
+
+        return $troncons;
+    }
+
+    /**
      * Billets ÉVINCÉS : ceux dont le siège est déjà occupé, à LEUR PROPRE point de montée, par un
      * passager monté plus tôt. Le surbooking amont étant assumé, ces passagers ne monteront pas.
      *
