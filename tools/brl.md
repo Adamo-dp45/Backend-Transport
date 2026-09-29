@@ -1997,3 +1997,1326 @@ Je les note parce qu'ils feront perdre du temps à quiconque écrira le prochain
 
 - ApiUserProvider::refreshUser() relit l'utilisateur depuis la session à chaque requête. Sans les clés user/token/refresh_token, le test reçoit une redirection vers /connexion et on croit à un problème de droits.
 - Il faut passer par $client->getSession(), qui réouvre la session du cookie. Un session.factory->createSession() en crée une seconde dont le cookie écrase _security_main — même symptôme, cause inverse
+
+
+
+
+
+
+
+
+
+
+- Pourrait t'on affichés la somme des dépenses d'un voyage sur le listing des voyages ! si oui j'espère que ça ne pose pas de problème de performences !
+- Aussi, on m'a parler d'une notion qui est : Les charges de main d'oeuvre externe de dépannage (du genre lors d'un dépannage, ils peuvent prendre des mains d'oeuvres externes pour les aidés) ! je me dis que ce sont aussi des dépenses ! Où est ce que je me trompe ?
+
+
+
+
+
+
+
+Deux bonnes questions, et la seconde touche une doctrine déjà écrite. Je regarde le modèle avant de répondre.
+
+Les deux réponses sont claires. Je livre la première (elle coûte une requête par page) et je te poserai une question sur la seconde.
+
+Maintenant je mesure le coût réel — c'était ta question.
+
+La mesure brute est noyée dans le bruit (41 puis 29 : le premier appel réchauffe les caches). Je cible les requêtes qui touchent `depense`.
+
+Mesuré : **1 requête** que la page porte 1 ou 20 départs. Je vérifie que le test attrape bien un N+1.
+
+La preuve est nette : **20 requêtes au lieu de 1** avec le N+1. Maintenant la colonne côté frontend.
+
+**256 tests verts.** Voici les deux réponses.
+
+## 1 · Les dépenses sur le listing — oui, et ça coûte une requête
+
+C'est fait. La colonne « Dépenses » est sur le listing, et la performance était la bonne inquiétude : écrit naïvement, un `SUM` par ligne aurait donné **25 requêtes par page**.
+
+Le provider rassemble d'abord les identifiants de la page, puis une **seule requête groupée** ramène tous les totaux. Le champ est dérivé et posé sur les entités, comme `horaires` et `Ticket::$evince` — rien n'est stocké.
+
+**Mesuré**, parce que c'est la seule façon de le savoir :
+
+| page | requêtes sur la table `depense` |
+|---|---|
+| 1 départ | **1** |
+| 20 départs | **1** |
+| *avec le N+1 réintroduit exprès* | *20* |
+
+Un détail méthodologique qui vaut la peine d'être noté : le **total général** de requêtes ne mesure rien ici — il vaut 41 puis 29 sur deux appels identiques. Le premier appel réchauffe les caches de métadonnées, et la sérialisation charge paresseusement `ligne`/`car`/`gare` ligne à ligne — **un N+1 préexistant**, indépendant de ce champ. Le test compte donc uniquement les requêtes qui touchent `depense`.
+
+Même règle que sur la fiche : sans `DEPENSE_VOIR`, l'API répond `null` et la colonne affiche un tiret — **pas un zéro**, qui laisserait croire à un départ sans frais.
+
+Si tu veux aussi la **recette** sur le listing, c'est le même mécanisme mais 4 requêtes groupées de plus (billets, réservations, bagages, courriers). Dis-le si ça t'intéresse.
+
+## 2 · La main d'œuvre externe : tu as raison sur le fond, pas sur le tiroir
+
+**C'est bien une charge**, sans discussion : de l'argent qui sort. Là où je te contredirais, c'est sur *où l'enregistrer*.
+
+Le README pose une doctrine que tu as validée en septembre : **trois postes disjoints**, `bénéfice = recettes − dépannages − appros − dépenses`, et « un dépannage ne produit JAMAIS de dépense ». Si la main d'œuvre part dans `Depense` :
+
+- le poste « dépannages » **sous-estime** ce qu'une panne coûte réellement ;
+- la fiche du car ment : un véhicule réparé par des mains externes paraît **bon marché** ;
+- et les deux chiffres restent **individuellement corrects** — donc personne ne s'en aperçoit. C'est exactement le motif des trois pièges qu'on vient de traiter.
+
+Ma lecture : la main d'œuvre externe fait partie du **coût de l'intervention**, donc du dépannage.
+
+Une asymétrie qui semble bizarre mais qui tient : le personnel **interne** d'un dépannage (`Detailpersonnel`) ne porte aucun coût — c'est du salaire, déjà compté en `Depense` au siège. L'externe est une facture ponctuelle attachée à l'intervention. Charge fixe contre sous-traitance : c'est la distinction comptable normale.
+
+**Et un piège technique à ne pas rater.** `Depannage::$couttotal` est **recalculé depuis les pièces à chaque écriture** (`DepannageProcessor`, deux endroits) :
+
+```php
+$total += $prixunitaire * $quantite;
+$depannage->setCouttotal($total);
+```
+
+On ne peut donc pas y verser la main d'œuvre : la prochaine modification des pièces l'effacerait en silence. Il faut sa propre colonne, et `couttotal` devient `pièces + main d'œuvre`.
+
+Il me manque deux décisions avant d'écrire quoi que ce soit.
+
+
+Où enregistrer la main d'œuvre externe d'un dépannage ?
+
+Dans le dépannage (Recommandé)
+
+Quelle forme donner à la saisie ?
+
+Une liste d'intervenants
+
+
+
+Décisions notées. Je regarde le patron à suivre — `Detaildepannage` et la façon dont le processor reçoit ses lignes.
+
+Le processor n'ajoute pas les lignes à la collection — il accumule un total local. Je garde ce fonctionnement et je fais retourner leur total à chaque gestionnaire.
+
+Maintenant le processor — le point délicat : `couttotal` doit devenir pièces **plus** main d'œuvre, sans s'effacer quand on ne touche qu'à l'un des deux.
+
+Maintenant la migration et la base de test.
+
+Migration jouée. Maintenant la sentinelle qui garde la règle du coût total.
+
+`ScenarioBuilder` n'a ni `referentiel()` ni `piece()`. Je les ajoute.
+
+Les deux échecs sont une contrainte préexistante du DTO : le PATCH exige la charge utile complète, alors que le processor est écrit pour du partiel. J'adapte le test et je te le signale.
+
+6/6. Je prouve que la sentinelle attrape la faute naïve.
+
+Code rétabli, 6/6. Je lance la suite complète et je documente.
+
+**262 tests verts.** Voici les deux réponses.
+
+## 1 · Les dépenses sur le listing — oui, et le coût est mesuré
+
+La colonne « Dépenses » est là. Ton inquiétude était la bonne : écrit naïvement, un `SUM` par ligne aurait donné **25 requêtes par page**. Le provider rassemble les identifiants de la page, puis **une seule requête groupée** ramène tous les totaux.
+
+| page | requêtes sur la table `depense` |
+|---|---|
+| 1 départ | **1** |
+| 20 départs | **1** |
+| *avec le N+1 réintroduit exprès* | *20* |
+
+Un point de méthode qui vaut d'être dit : le **total général** de requêtes ne mesure rien ici — 41 puis 29 sur deux appels identiques. Le premier réchauffe les caches, et la sérialisation charge paresseusement `ligne`/`car`/`gare` ligne à ligne — **un N+1 préexistant**, indépendant de ce champ. Le test compte donc uniquement ce qui touche `depense`.
+
+Sans `DEPENSE_VOIR` la colonne affiche un tiret, pas un zéro.
+
+## 2 · La main d'œuvre externe — tu as raison, mais pas sur le tiroir
+
+**C'est bien une charge.** Là où je te contredisais, c'est sur l'endroit. Si elle part dans `Depense`, le coût d'une même panne se scinde en deux postes : les pièces sous « dépannages », la main d'œuvre sous « dépenses ». Le poste « dépannages » du bénéfice sous-estime ce qu'une panne coûte, et un car réparé par des mains externes passe pour **bon marché** — les deux chiffres restant individuellement corrects, donc invisibles.
+
+Tu as tranché : **dans le dépannage, une ligne par intervenant.** C'est livré.
+
+`Detailmaindoeuvre` porte `intervenant`, `montant` (bigint, `Assert\Positive`) et `prestation` en option. Texte libre et non un `Fournisseur` : celui-ci exige contact, adresse et pays, et imposer une fiche pour payer un soudeur au bord de la route produirait des fiches bidon — même raison que `beneficiaire` sur les dépenses.
+
+### Le piège, et il était sérieux
+
+`Depannage::$couttotal` est **recalculé à chaque écriture depuis les pièces**, à deux endroits du processor. Y verser naïvement la main d'œuvre suffisait pour qu'une simple correction de pièce l'**efface du chiffre**, sans erreur et sans trace.
+
+Chaque gestionnaire rend donc son total, et **celui qu'on n'a pas touché est relu en base**. Mesuré avec la faute réintroduite :
+
+```
+couttotal attendu  : 81 000  (3 pièces × 12 000 + 45 000 de main d'œuvre)
+couttotal obtenu   : 36 000  ← les 45 000 disparaissent en silence
+```
+
+Et une nuance dans le DTO : `null` n'est **pas** le tableau vide. `null` = « je ne touche pas à la main d'œuvre », `[]` = « supprime-la ». Sans elle, corriger une pièce effacerait les lignes.
+
+### Deux choix que je note explicitement
+
+`coutmaindoeuvre` est **dérivé** à la lecture, pas persisté : `couttotal` l'est parce que les stats de flotte en font un `SUM` SQL, ce qu'un getter PHP ne saurait servir. **Une** exception assumée à « rien de dérivable stocké », pas deux.
+
+L'asymétrie avec le personnel **interne** (`Detailpersonnel`, sans coût) est voulue : un mécanicien de la maison est un **salaire**, déjà compté en `Depense` au siège. L'externe est une facture ponctuelle attachée à l'intervention — charge fixe contre sous-traitance.
+
+## Une incohérence trouvée en passant
+
+`DepannageInput` déclare `lieudepannage` et `car` non nuls, donc un **PATCH partiel est refusé en 422** par la validation — alors que `handlePatch` est écrit pour le supporter (`$data->lieudepannage ?? $depannage->getLieudepannage()`). Le client doit renvoyer la charge complète. **Je ne l'ai pas corrigé** : ça changerait le contrat de l'opération, et ce n'est pas ce que tu m'as demandé. Dis-moi si tu veux que je m'en occupe.
+
+## Ce qui reste à faire
+
+Le **frontend du dépannage** : le formulaire n'a pas encore les lignes de main d'œuvre, et la fiche ne les affiche pas. Migration `Version20260925100000` jouée sur la base de dev, base de test à jour. Six sentinelles dans [MaindoeuvreDepannageTest.php](Backend-Transport/tests/Api/MaindoeuvreDepannageTest.php), plus `typepanne()` et `piece()` ajoutés au `ScenarioBuilder`.
+
+Je continue sur le frontend du dépannage, ou tu préfères regarder le backend d'abord ?
+
+
+
+
+
+
+
+
+
+
+
+Deux choses. D'abord l'incohérence — je regarde comment le projet gère déjà « obligatoire à la création seulement ».
+
+`ApprovisionnementInput` a exactement le même défaut — l'incohérence est un patron, pas un cas isolé. Je regarde ce que le frontend envoie réellement.
+
+Le frontend envoie toujours la charge complète — le 422 n'était donc jamais atteint en pratique. C'est un défaut de contrat d'API. Je regarde si le processor d'approvisionnement tolère le partiel.
+
+`ApprovisionnementProcessor::handlePatch` **ignore complètement** `$data->fournisseur` — il exige un champ qu'il n'utilise pas. Je mesure ça avant de conclure.
+
+Confirmé : le formulaire permet de changer le fournisseur, l'API l'ignore. C'est le même motif — l'écran promet ce que le serveur ne fait pas. Je mesure d'abord.
+
+
+
+
+La sauvegarde est en place. Je regarde la forme de la charge utile d'un approvisionnement avant d'écrire le test.
+
+Les trois défauts sont mesurés. Le changement de fournisseur est même masqué derrière le 422. Je corrige — d'abord comment le fournisseur est résolu à la création.
+
+Maintenant les opérations POST, et le fournisseur qui doit vraiment s'appliquer.
+
+6/6. Mais mon changement expose un trou préexistant : un POST **sans** la clé `details` passerait la validation. Je vérifie.
+
+Confirmé : **500** au lieu de 422. Je ferme le trou.
+
+7/7. Je lance la suite complète et j'attaque le frontend du dépannage.
+
+Le patron est clair. Je crée un partiel partagé plutôt que de dupliquer entre `new` et `edit`.
+
+Maintenant le contrôleur, qui doit construire les lignes et les envoyer.
+
+Maintenant la fiche du dépannage.
+
+Un point à corriger au passage : le pied du tableau des pièces affiche `couttotal`, qui inclut maintenant la main d'œuvre — il ne correspondrait plus à ses propres lignes.
+
+
+
+
+
+
+
+Je reprends la fiche du dépannage. Seul alias : `ui` — mes paramètres de lambda sont donc libres.
+
+Deux choses : le fichier est en CRLF, et mon écriture le convertirait en LF. Je vérifie si j'ai déjà abîmé des fins de ligne ailleurs.
+
+Pas de dégât : le dépôt stocke en LF et Git normalise — les diffs restent minimaux. Je corrige juste l'ancre de fin.
+
+Assez de Python qui écrit du Python. Je corrige le script directement.
+
+Le test PHP (qui strip les commentaires) passe : 33 verts. Maintenant je rends les trois pages dans un test — c'était tout l'objet du harnais.
+
+Le double a fait son travail : mon jeu de données est incomplet. Je relève tous les champs que la page lit.
+
+4/4. Je vérifie que le test attrape bien la régression du pied de tableau.
+
+Mon `sed` n'a rien changé — la preuve était vide. Je refais proprement.
+
+La régression était bien posée et le test est **passé quand même** — mon assertion était trop faible (`24 000` figure aussi dans la ventilation). Je la cible sur la cellule.
+
+Maintenant la vraie preuve : le test doit tomber si le pied affiche `couttotal`.
+
+La preuve est réelle cette fois. Reste les fixtures, pour que la démo le montre.
+
+269 verts. Je documente les deux correctifs de contrat.
+
+Exactement les montants attendus, et `couttotal` = pièces + main d'œuvre partout. Je contrôle les alertes calibrées.
+
+Tout est vert et rechargé. Voilà le bilan des deux chantiers.
+
+## 1 · L'incohérence — il y en avait trois, pas une
+
+Le défaut que j'avais signalé était un **patron**, pas un cas isolé. `DepannageInput` *et* `ApprovisionnementInput` déclaraient leurs champs non nuls, si bien qu'un PATCH partiel était refusé en **422 par la validation** alors que les processeurs étaient écrits pour le supporter. Le processeur acceptait ce que la validation interdisait.
+
+Les contraintes « obligatoire » vivent désormais dans un groupe **`creation`** que seul le POST active. Ce qui reste dans `Default` s'applique aux deux : une valeur **fournie** doit rester valide — d'où `NotBlank(allowNull: true)` sur le lieu, parce que l'absence veut dire « je n'y touche pas » et le vide « efface-le ».
+
+### Et un bug qui, lui, se voyait
+
+`ApprovisionnementProcessor::handlePatch` **ignorait complètement le fournisseur**. Le formulaire de modification propose de le changer, l'envoie, l'écran annonce « modifié avec succès »… et rien ne changeait. Le DTO l'**exigeait** pourtant, même en PATCH — obligatoire *et* inutilisé, ce qui rendait le défaut d'autant plus crédible.
+
+Le 422 le masquait : mon test échouait sur le statut avant même d'arriver à vérifier le fournisseur.
+
+### Deux trous découverts en chemin
+
+**`Count(min: 1)` ne rend pas un champ obligatoire.** La contrainte **ignore null** : elle refuse `[]` mais laisse passer l'absence de la clé. Un POST sans `details` répondait **500**, pas 422. Trou préexistant, rendu atteignable par mon passage en nullable — mesuré, puis fermé avec un `NotNull` dans `creation` à côté du `Count`.
+
+Et le garde-fou anti-doublon de l'approvisionnement faisait un `array_map` sur `$data->details` sans le tester : avec un PATCH partiel il recevait `null` et rendait 500.
+
+Sept sentinelles dans [ModificationPartielleTest.php](Backend-Transport/tests/Api/ModificationPartielleTest.php), toutes mesurées en échec avant correction.
+
+## 2 · Le frontend du dépannage
+
+Un **partiel partagé** — [_maindoeuvre.html.twig](Frontend-Transport/templates/depannage/_maindoeuvre.html.twig) — inclus par la création *et* la modification. Le tableau des pièces, lui, est dupliqué entre les deux gabarits ; je n'ai pas ajouté une seconde copie.
+
+La main d'œuvre est **facultative**, contrairement aux pièces : zéro ligne au départ, et la suppression peut vider le tableau. Le formulaire est autoritaire — il envoie toujours la clé, vide comprise, et côté API `[]` supprime.
+
+### Un piège que la fiche cachait
+
+Le pied du tableau des pièces affichait `couttotal`. Depuis que la main d'œuvre existe, `couttotal` la comprend : **le pied ne totalisait plus son propre tableau**. Il affiche maintenant le total des pièces, et la carte de coût porte la ventilation « Pièces X · Main d'œuvre Y ».
+
+### Une leçon sur ma propre sentinelle
+
+Ma première assertion cherchait `24 000` dans le corps de la page. J'ai réintroduit le défaut : **le test est resté vert** — le nombre figure aussi dans la ventilation du haut. Elle lit maintenant la cellule, et la preuve tient :
+
+```
+Failed asserting that 'Total des pièces 69 000 FCFA' contains "24 000"
+```
+
+Une assertion qui ne tombe pas sur le défaut qu'elle prétend garder ne garde rien. C'est noté en mémoire.
+
+## Vérification
+
+**269 tests backend, 37 frontend.** Fixtures rechargées, et mesuré sur tes données :
+
+| dépannage | pièces | main d'œuvre | `couttotal` |
+|---|---|---|---|
+| Système de freinage *(clôturé)* | 554 000 | 18 000 | **572 000** |
+| Panne moteur *(en cours)* | 1 390 000 | 95 000 | **1 485 000** |
+| Panne électrique *(annulé)* | 14 000 | 0 | 14 000 |
+
+Le poste « dépannages » passe de 1 944 000 à **2 057 000**, dont **113 000 de main d'œuvre** — les annulés restant exclus des coûts. Le bénéfice baisse donc d'exactement ces 113 000, ce qui est le propos : ce coût existait, il n'était nulle part.
+
+Et les deux alertes de stock calibrées sont intactes — batteries en rupture, plaquettes à 8 pour un seuil de 10, rien d'autre. La main d'œuvre ne touche aucun stock, mais je préférais le vérifier.
+
+Reste à voir à l'écran : `/depannage/13` pour la ventilation et la section, et `/depannage/13/modifier` pour les lignes préremplies.
+
+
+
+
+
+
+
+
+
+
+
+- Sur les formulaires de la partie approvisionnement et dépannage, indique si les champs sont requis ou optionnel
+- Dans la partie darkMode du frontend on vas ajouter le choix du `système` en plus du mode `dark` et `light` !
+- Vérifié si le hors courriers est bien pris en compte dans toutes les statistiques 
+
+Aussi, concernant la partie caisse, explique moi selon ton plan à quel moment le solde de la gare diminue et à quel moment ça augmente, aussi pour l'entreprise !
+
+
+
+
+
+
+
+
+
+
+La convention existe déjà : `*` rouge pour le requis. Je regarde si un formulaire marque aussi l'optionnel.
+
+La convention est « `*` = requis, rien = optionnel ». J'ajoute un marqueur explicite pour l'optionnel plus une légende, sans inventer un autre langage visuel.
+
+Le sélecteur de fournisseur n'a même pas de `<label>`. Je traite les quatre gabarits plus le partiel.
+
+Formulaires faits. Maintenant le thème — je regarde le dispositif actuel.
+
+Pas de `prefers-color-scheme` dans le CSS : tout passe par la classe `.dark`. Le mode système devra donc se résoudre en JS.
+
+Maintenant le bouton, qui doit porter trois états.
+
+Je vérifie le thème dans le navigateur — c'est observable, donc mesurable.
+
+La page de connexion suit désormais le système — elle l'ignorait complètement avant. Je vérifie l'inverse et les trois états.
+
+Le suivi en direct fonctionne dans les deux sens, sans rechargement. Je remets l'émulation à zéro et j'attaque l'audit.
+
+`courriersHorsCa` n'est honoré qu'à quatre endroits. Je cherche toutes les surfaces qui somment des courriers.
+
+Beaucoup de « NON » sont légitimes — un bordereau liste ce qu'il y a dans le car, pas un chiffre d'affaires. Je regarde comment les trois qui l'honorent s'y prennent.
+
+La règle est nette : la recette courrier reste affichée à part, mais **tout total composite l'exclut**. Je regarde les quatre suspects.
+
+Deux trouvailles nettes, plus la mienne. Je regarde les séries par jour et par agent des stats de gare.
+
+Confirmé : sur la même page, la somme des séries journalières ne peut pas égaler le `recetteTotale` de la gare. Je vérifie si le drapeau est actif quelque part.
+
+Le drapeau est **actif** sur l'entreprise 10 — la divergence est donc observable aujourd'hui, pas latente. Je mesure.
+
+Le drapeau est sur Sahel Voyages, qui n'a **aucun courrier** : le défaut est donc réel mais invisible sur ce jeu. Je le mesure par un test.
+
+Mesuré. La recette de gare est déjà correcte ; le résultat du voyage **inclut bien les courriers à tort** (19 500 au lieu de 15 000). Trois points à éclaircir dans mon test.
+
+Un bug préexistant, indépendant : `/api/stats/agent` **plante en 500**. Je regarde.
+
+La cause est claire : `agentId` arrive en chaîne et le DTO exige un `int`. Mais mon scénario crée des ventes **sans agent** — je le rends réaliste pour distinguer un vrai bug d'un artefact.
+
+Le 500 venait bien de mon scénario. Je vérifie quand même si une vente peut réellement n'avoir aucun agent.
+
+Zéro sur les données réelles — le 500 n'est atteignable que sans auteur de vente. Je le signalerai. Les trois divergences, elles, sont à corriger.
+
+5/5. Je lance la suite complète des deux côtés.
+
+Les trois chantiers sont livrés. Voilà le bilan, puis l'explication sur la caisse.
+
+## 1 · Requis / optionnel sur les formulaires
+
+La convention existait déjà (`*` rouge dans `bagage/_form.html.twig`) mais n'était appliquée ni au dépannage ni à l'approvisionnement — et le **sélecteur de fournisseur n'avait même aucun `<label>`**.
+
+Chaque formulaire porte désormais une légende et les deux marqueurs : `*` rouge pour l'obligatoire, `(optionnel)` en gris pour le facultatif. La colonne « Total » de l'approvisionnement ne reçoit ni l'un ni l'autre : c'est un calcul, pas un champ à remplir.
+
+Le partiel de main d'œuvre dit maintenant la nuance qui compte : **la section est facultative, mais une fois un intervenant ajouté, son nom et son montant deviennent obligatoires.**
+
+## 2 · Le thème : trois choix
+
+Un seul bouton les fait tourner — système → clair → sombre. L'icône et le libellé montrent le mode **courant** : le libellé annonçait avant la *cible* d'un clic (« Dark » quand on était en clair), ce qui laissait croire qu'on était déjà dans l'autre mode.
+
+Deux choses que j'ai corrigées dans la même passe, parce que sans elles « système » n'aurait été qu'une demi-promesse :
+
+**L'éclair de thème.** `theme.js` s'exécute au `turbo:load`, donc *après* le premier rendu : la page apparaissait en clair avant de basculer, à chaque navigation. Un partiel inline dans le `<head>` pose la classe avant le premier pixel.
+
+**La page de connexion ignorait le choix.** Le bouton ne vit que dans `base.html.twig` : on choisissait sombre, on se déconnectait, et l'application repassait en blanc. Le partiel est inclus dans les **deux** gabarits racines, comme `pwa.html.twig`.
+
+Vérifié dans le navigateur, sur la page de connexion :
+
+| situation | classe `<html>` | fond |
+|---|---|---|
+| rien en stockage, poste **sombre** | `dark` | `rgb(23,23,23)` |
+| `light` forcé, poste sombre | *(vide)* | `rgb(255,255,255)` |
+| `dark` forcé | `dark` | `rgb(23,23,23)` |
+| valeur inconnue en stockage | `dark` | repli sur système |
+
+Et la bascule du poste change la page **sans rechargement**, dans les deux sens.
+
+Un changement de comportement à assumer : le défaut passe de « clair » à « système ». Un poste en sombre verra donc l'application en sombre sans avoir rien choisi — c'est l'objet de la fonction.
+
+## 3 · Le hors-courriers : trois surfaces sur six l'ignoraient
+
+La règle est posée par `RecetteGareService` : la recette courrier reste **affichée à part** mais ne compte dans **aucun total composite**. Elle n'était appliquée qu'à moitié.
+
+| surface | défaut |
+|---|---|
+| `GareStatsController` | `recetteTotale` les excluait, mais la **série journalière** et la **ventilation par agent** les comptaient — sur le même écran, la somme de la courbe ne tombait pas sur le total affiché juste au-dessus |
+| `AgentStatsProvider` | le total d'un agent les additionnait toujours : le classement des vendeurs ne s'accordait ni avec la recette des gares ni avec le bénéfice |
+| `VoyageResultatService` | **le mien** — la recette d'un départ les comptait, donc plus généreuse que le bénéfice auquel elle contribue |
+
+**Mesuré** : 19 500 au lieu de 15 000 sur chacune des trois.
+
+Invisible sur tes données, et j'ai cherché pourquoi : le drapeau est actif sur **Sahel Voyages**, la seule compagnie qui n'a aucun courrier. Zéro d'un côté comme de l'autre. Le test monte donc le cas que les données ne montraient pas.
+
+Un point de méthode : le test vérifie **les deux sens du drapeau**. Un correctif qui exclurait les courriers *toujours* aurait passé les quatre tests « drapeau levé » en cassant le cas par défaut.
+
+**Ne sont pas concernés**, et c'est vérifié, pas supposé : les bordereaux et le manifeste (ils listent ce qui est chargé), les écrans propres au module Courrier (les exclure y serait absurde), les alertes, et `GareDashboardController` qui prend son total au service.
+
+### Une fragilité que je n'ai pas corrigée
+
+`AgentPerformanceDto` déclare `int $id` alors que `created_by` est **nullable** : une vente sans auteur fait répondre **500** à `/api/stats/agent`. Mesuré : zéro vente sans auteur en base, le chemin n'est pas atteignable aujourd'hui. Mais une écriture automatique — synchronisation hors ligne, réservation publique — pourrait en créer. Dis-moi si tu veux que je la blinde.
+
+**274 tests backend, 37 frontend.**
+
+---
+
+## La caisse : quand le solde monte, quand il descend
+
+Trois choses ne bougent **jamais** le solde, et c'est ce qui surprend le plus : l'ouverture d'une caisse, la clôture sans écart, et une dépense payée autrement qu'en espèces.
+
+### Le solde d'une GARE
+
+```
+solde gare = Gare.soldeinitial
+           + Σ montantcompte des sessions CLOTURÉES
+           − Σ fondsouverture des sessions encore OUVERTES
+           − Σ Depense (gare, ESPÈCES)
+           − Σ Versement (ÉMIS ou ACCEPTÉ)
+```
+
+**Il MONTE** — une seule fois : à la **clôture** d'un guichet, quand l'agent remet son tiroir. Le montant compté rentre au coffre.
+
+**Il DESCEND** dans trois cas :
+
+| geste | effet |
+|---|---|
+| Le chef **avance un fonds** à un guichet qui ouvre | l'argent quitte le coffre… mais reste dans la gare |
+| Une **dépense en espèces** | elle sort du coffre du chef |
+| Un **versement émis** vers le siège | dès l'émission, pas à l'acceptation |
+
+**Il ne bouge PAS** quand un client achète un billet. C'est le point le plus contre-intuitif du dispositif : la vente entre dans le **tiroir de l'agent**, et le solde de la gare ne l'enregistre qu'au moment de la clôture. Le solde affiché est celui de la gare entière — coffre plus tiroirs en cours — parce que la question posée est « combien la gare détient-elle ? ».
+
+C'est d'ailleurs pourquoi les deux lignes de `fondsouverture` de mon plan se simplifient en une seule : ce que le chef a avancé aux guichets ouverts n'est plus dans le coffre, mais il est toujours dans la gare.
+
+### Le solde de l'ENTREPRISE
+
+```
+solde entreprise = Entreprise.soldeinitial
+                 + Σ Versement.montantrecu (ACCEPTÉ)
+                 − Σ Depense (siège, ESPÈCES)
+```
+
+**Il MONTE** à l'**acceptation** d'un versement, jamais à son émission. **Il DESCEND** sur une dépense du siège en espèces.
+
+### Le trou entre les deux — et c'est voulu
+
+Entre l'émission et l'acceptation, l'argent est **parti de la gare** et **pas encore arrivé au siège**. Il n'est chez personne :
+
+```
+en transit = Σ Versement (ÉMIS)
+```
+
+Créditer le siège d'office lui ferait afficher un solde qu'il ne détient pas — et le montant en transit est précisément ce qu'on veut voir. C'est là qu'un sac d'argent se perd.
+
+### Ce que le solde n'est pas
+
+Une **vente** monte la recette, pas le solde. Un **versement** baisse le solde d'une gare sans toucher à sa recette. Un **écart de caisse** ne se soustrait d'aucun bénéfice — la caisse ne crée ni recette ni charge, elle **rapproche**.
+
+Et un dernier point, celui que ta question sur le mode de règlement avait soulevé : une dépense par **virement** baisse le résultat du montant plein mais ne touche pas le solde, parce qu'elle sort d'un compte en banque que l'application ne suit pas. C'est le point que nous avons laissé ouvert pour le Mobile Money.
+
+
+
+
+
+
+
+
+
+
+
+
+
+- Blinde la fragilité de `/api/stats/agent`.
+
+Lors d'une discussion avec un autre développeur, voici son explication ou sa logique concernant la partie solde :
+
+```
+Solde de la gare :
+- Ce qui incrémente : tickets, bagages, courriers, réservations payé, etc...
+- Ce qui décrémente : toutes les dépenses de la gare (tout ce qui fait sortir de l'argent décrémente)
+
+Solde de l'entreprise :
+- Ce qui incrémente : versement venant des gares accepté..
+- Ce qui décrémente : toutes les dépenses de l'entreprise, approvisionnement, dépannages, etc... (tout ce qui fait sortir de l'argent décrémente)
+```
+
+Analyse pour voir si c'est cohérent et logique, aussi si c'est la meilleur façon de procédé !
+
+
+
+
+
+
+
+
+
+Deux choses. D'abord le blindage — je reproduis le 500 avant de le corriger.
+
+Le `INNER JOIN` protège les billets, mais courriers et bagages lisent `createdBy` directement. Je regarde ce que renvoie le fournisseur.
+
+Le `(int)` des actions critiques transformerait aussi un `null` en **agent n° 0** — un vendeur fantôme dans un tableau anti-fraude. Je reproduis les deux.
+
+Reproduit : **500, TypeError sur `$id`**. Je corrige les deux, et je rends visible ce qui serait sinon jeté en silence.
+
+3/3 passent, mais trois dépréciations subsistent : le même défaut une couche plus bas, dans le repository.
+
+Plus de dépréciation. Je vérifie que le test attrape bien la régression.
+
+La garde est bien ce qui tient. Je surface le montant côté écran, sinon il reste silencieux pour l'utilisateur.
+
+277 verts. Maintenant l'analyse du modèle de solde — je vérifie deux choses dans le code avant de me prononcer.
+
+## 1 · `/api/stats/agent` blindé
+
+J'ai d'abord **reproduit** le 500 : un courrier sans `created_by` suffit.
+
+```
+AgentPerformanceDto::__construct(): Argument #1 ($id) must be of type int, string given
+```
+
+La mécanique : `null` en clé de tableau devient la **chaîne vide** en PHP, et le DTO exige un `int`. Tout l'écran des agents tombait pour une seule ligne mal attribuée.
+
+Les billets y échappaient **par accident** — leur requête passe par un `INNER JOIN` sur `User`, qui écarte les lignes sans auteur. Ce n'est pas une protection, c'est un effet de bord, et il ne couvrait ni les courriers ni les bagages.
+
+J'ai trouvé un second piège du même sang : les sept boucles du tableau **anti-fraude** faisaient `(int) $r['agentid']`, et `(int) null` vaut **0** — un vendeur fantôme nommé « — » avec des annulations à son nom. Dans un écran qui sert à repérer les abus, c'est la dernière chose à inventer.
+
+**Trois correctifs :**
+
+| | |
+|---|---|
+| Une garde nommée `$agentValide` | écarte `null`, `''` et `0` des dix boucles |
+| `CourrierRepository` | n'indexe plus sur `null` (c'était la source des dépréciations) |
+| `recetteNonAttribuee` | le montant écarté est **servi et affiché**, pas jeté |
+
+Ce dernier point est volontaire : écarter du classement une vente sans auteur est juste, mais la faire disparaître sans un mot reproduirait exactement le défaut que cette série de correctifs traque — un total qui ne totalise pas ce qu'il annonce. Le bloc n'apparaît que si le montant est non nul, et il dit quoi en faire.
+
+**277 tests backend, 37 frontend.** Régression vérifiée : désactiver la garde fait tomber le test.
+
+---
+
+## 2 · Son modèle de solde : l'analyse
+
+### Ce qu'il voit et que mon plan avait manqué
+
+**Il a raison sur les approvisionnements et les dépannages.** Mon plan ne soustrayait du solde de l'entreprise que les `Depense` du siège. Or un lot de pneus et une facture de garage font bel et bien sortir de l'argent. C'est un trou dans mon plan, pas dans le sien.
+
+**Et son solde de gare bouge immédiatement.** Le mien n'avance qu'à la clôture : à 15 h, il sous-estime ce que la gare détient de toute la journée de vente. C'est une faiblesse réelle de ma proposition.
+
+**Son invariant est le bon** : « tout ce qui fait sortir de l'argent décrémente ». C'est exactement ce qu'un solde doit respecter.
+
+### Ce qui ne tient pas
+
+**Il oublie les versements côté gare.** Son énumération les met en incrément de l'entreprise, jamais en décrément de la gare. Le même argent existerait donc **deux fois**. Son principe le couvre, sa liste non — c'est un oubli d'énumération, pas de raisonnement.
+
+**Les réservations payées ne sont pas de l'argent de la gare.** Vérifié dans le code : le paiement est **en ligne**, par webhook du prestataire (`ReservationConfirmationService`), et le bon payé reste distinct du billet émis plus tard au guichet. Cet argent est sur le compte d'un prestataire Mobile Money — il n'est jamais entré dans un tiroir. L'inclure gonflerait le solde d'une gare d'un cash qu'elle n'a jamais vu.
+
+**Les ventes du commercial à bord posent le même problème.** `RecetteGareService` les fond dans la recette de sa gare d'affectation. Son modèle créditerait donc la gare d'un argent encore dans la poche du commercial, jusqu'à sa remise — que mon plan a explicitement mise hors périmètre.
+
+**Appros et dépannages n'ont aucun mode de règlement.** Vérifié : zéro occurrence de `modereglement` sur les deux entités. Les décompter en bloc, c'est traiter un virement de 3 M de pneus comme un retrait du coffre. Le principe est juste, la **donnée manque**.
+
+### Le point qui décide
+
+En incrémentant à la vente, son solde devient `recette − dépenses` — c'est-à-dire un **résultat**, pas un solde. Deux conséquences :
+
+- il ne peut plus être rapproché d'un **comptage physique** ;
+- **l'écart de caisse devient indétectable** — ce qui est le but même de A1.
+
+C'est le retour exact de la confusion flux / stock qu'on avait démêlée : son modèle mesure ce que la gare **devrait** détenir, le mien ce qu'elle **détient**.
+
+### La meilleure façon de procéder : ni l'un ni l'autre seul
+
+**Deux soldes, nommés, et leur écart.**
+
+```
+solde THÉORIQUE  = soldeinitial + ventes espèces − sorties espèces   ← son modèle, corrigé
+solde CONSTATÉ   = soldeinitial + Σ comptages − sorties espèces      ← le mien
+écart cumulé     = constaté − théorique                              ← le manquant
+```
+
+Le théorique répond « combien devrait-il y avoir, là, maintenant ? » — immédiat, sans attendre une clôture. Le constaté répond « combien y a-t-il eu, vérifié ? ». **Leur différence est le chiffre que personne ne peut produire aujourd'hui**, et c'est celui qui attrape un agent qui se sert.
+
+Et la règle qui tranche tous les cas litigieux, y compris le Mobile Money resté ouvert :
+
+> **Un mouvement n'entre dans un solde que si l'argent a physiquement changé de coffre.**
+
+Elle range d'elle-même les trois cas douteux : la réservation payée en ligne entre dans une **troisième poche** (le compte du prestataire) et dans aucun solde de gare ; la remise du commercial entre au moment de la remise, pas de la vente ; un appro ne sort du coffre que s'il est payé en espèces.
+
+Deux décisions m'arrêtent avant de reprendre le plan.
+
+
+
+Faut-il les DEUX soldes, ou un seul ?
+
+On vas resté sur ton plan, mais ferme le trou du approvisionnements et les dépannages que tu as contacté, etc...
+
+Comment traiter les sorties d'argent qui n'ont pas de mode de règlement (appros, dépannages) ?
+
+Au faite, concernant le solde, il n'y a pas de modes de règlement spécifique pour faire le baisser car le solde n'est pas forcement un coffre, ça peut être un compte etc... ! Quelque soit d'où l'argent est sorti ! donc toutes les dépenses d'une gare ou d'une entreprise sortent de leur solde
+
+
+
+Ta seconde réponse change le cadre, et pour le mieux : **l'axe n'est pas espèces contre non-espèces, c'est « à qui appartient cet argent »**. Je regarde ce que ça invalide dans le plan et dans le code.
+
+Le premier des trois textes est corrigé. Les deux autres, côté frontend.
+
+Deux textes à corriger, via `sed`/python en ligne :
+
+Les trois textes sont corrigés. Avant de réécrire les formules du plan, je vérifie les faits qu'elles vont affirmer — statuts et imputation des approvisionnements et dépannages, et le canal de paiement des réservations.
+
+Un point important : l'approvisionnement n'a **pas** de `couttotal` sur l'entête — il est sur les détails. Je lis les deux agrégats existants pour reprendre leurs règles exactes.
+
+Les deux règles canoniques sont : `statut != 'ANNULE'`, et **aucun** filtre sur la corbeille. Maintenant le point de symétrie — comment une réservation est-elle payée ?
+
+Il existe bien un canal `source = GUICHET | MOBILE`. Reste à savoir si une réservation mobile est **payée en ligne** ou payée au guichet au retrait — c'est tout l'enjeu du point de symétrie.
+
+Le champ décisif : `// -- Paiement (en ligne, simulé pour l'instant) --` avec `etatpaiement`/`referencepaiement`, et un commentaire qui parle de « prélèvement **chez le prestataire** ». Je mesure ce que ça représente dans les données, plutôt que de le déduire.
+
+Mesuré : **2 réservations MOBILE payées, 30 000 FCFA** — dont une `A_REGULARISER`. Ce n'est pas un cas théorique. Je vérifie si la recette d'une gare les compte déjà, ce qui rendrait le déséquilibre visible à l'écran.
+
+`recettePayeeParGare` filtre sur `etatpaiement = PAYE` **sans regarder la source** : ces 30 000 sont donc déjà comptés dans la recette d'une gare. Je regarde laquelle, pour chiffrer l'écart.
+
+Les deux trous sont chiffrés. Avant d'écrire les formules, je vérifie le point qui peut les invalider : les trois postes de charges sont-ils bien disjoints (pas d'appro déjà saisi comme dépense) ?
+
+Les trois postes sont disjoints, écrit noir sur blanc : `Depense` ne porte que les charges saisies. Soustraire les trois est donc légitime. Dernier point avant d'écrire — la corbeille, côté dépenses :
+
+Une asymétrie réelle à consigner : `Depense` exclut la corbeille de ses totaux, `Approvisionnement`/`Depannage` non (ils ont un `ANNULE` dédié). Je lis l'argument exact avant de l'inscrire au plan.
+
+Tout est vérifié. J'écris la mise à jour du plan — formules, décision sur le mode de règlement, et les règles d'exclusion qui diffèrent d'un poste à l'autre.
+
+Le heredoc a été coupé. J'écris le script dans le scratchpad et je l'exécute.
+
+Aucun filtre `ESPECES` ne subsiste dans une formule ; les mentions restantes sont du contexte ou les explications neuves. Reste à inscrire le point de symétrie que sa propre définition fait apparaître.
+
+Le plan est complet. Je vérifie que les trois textes n'ont rien cassé — un test pourrait asserter un libellé. Séquentiellement, jamais deux suites phpunit en parallèle.
+
+Tout est vert : **277 tests backend, 37 frontend** (les `[error]` sont les journaux de refus attendus par les tests). Je vérifie qu'une mémoire existante ne porte pas l'ancienne règle.
+
+Cette mémoire porte trois affirmations que le plan a depuis invalidées (le crochet `ESPECES`, une FK de session sur `Depense`, un visa). Je la corrige.
+
+Les deux décisions sont appliquées, et vérifiées sur les données.
+
+## Le trou fermé — chiffré
+
+Ta correction sur les approvisionnements et les dépannages valait plus que je ne pensais. Mesuré en base :
+
+| entreprise | approvisionnements | dépannages | **ignoré par l'ancien plan** |
+|---|---|---|---|
+| IRA Transport | 4 966 000 | 2 289 200 | **7 255 200 FCFA** |
+| Sahel Voyages | 126 000 | 0 | 126 000 |
+
+Un détail qui aurait fait échouer la première implémentation : **l'approvisionnement n'a aucun champ de montant sur son entête**. Le coût est sur ses détails — `SUM(da.couttotal)` avec une jointure. Le dépannage, lui, porte bien `couttotal` (main d'œuvre externe comprise). Le plan l'écrit maintenant.
+
+Et une asymétrie que j'ai trouvée en vérifiant : **les trois postes n'excluent pas par le même champ**. `Depense` filtre `deletedAt IS NULL` (sa corbeille *est* son annulation), tandis qu'`Approvisionnement` et `Depannage` filtrent `statut != 'ANNULE'` et ignorent la corbeille. Un `SoldeService` qui uniformiserait ferait diverger le solde du bénéfice sur les mêmes données.
+
+## Le filtre `ESPECES` retiré
+
+Ta seconde réponse referme d'un cran plus haut le « point laissé ouvert » que le plan portait : je m'inquiétais d'un Mobile Money payé avec l'argent du tiroir et proposais d'allonger la liste des modes qui sortent du coffre. Si aucun mode ne sort du lot, il n'y a plus de liste à calibrer — et le jour où la compagnie encaisse par un moyen qui n'existe pas encore dans l'enum, le solde est déjà juste.
+
+Trois textes annonçaient l'inverse, corrigés : le docblock de [Modereglement.php](../Backend-Transport/src/Domain/Enum/Modereglement.php) (qui présentait `ESPECES` comme « le crochet de la future caisse »), l'aide du [formulaire de dépense](../Frontend-Transport/src/Form/DepenseFormType.php:73) et la note sous la ventilation par mode. La sentinelle n° 6 du plan boucle désormais sur les **quatre** modes : écrite sur `ESPECES` seul, elle resterait verte avec le défaut réintroduit.
+
+277 tests backend, 37 frontend, tous verts.
+
+## Ce que ta définition fait apparaître en face — à trancher
+
+Si un solde suit l'argent où qu'il soit, il doit aussi suivre l'argent qui **arrive ailleurs qu'à un guichet**. `Reservation` porte un bloc « Paiement (en ligne, simulé pour l'instant) », et le commentaire du hold de paiement parle de « prélèvement **chez le prestataire** ». Cet argent n'a jamais vu un tiroir.
+
+Mesuré : **2 réservations mobiles payées, 30 000 FCFA** sur la Gare d'Adjamé — contre une seule réservation guichet à 8 000. Mes formules ne les créditent nulle part : pas de session de caisse (normal, aucun agent ne les a encaissées), et le solde de l'entreprise ne monte que par les versements des gares.
+
+Ce qui rend la chose visible : `recettePayeeParGare()` filtre sur `etatpaiement = PAYE` **sans regarder `source`**. Ces 30 000 sont donc déjà dans la recette d'Adjamé. Dès le palier 1, la même gare afficherait une recette qui les contient et un solde qui ne peut pas les contenir.
+
+Je ne l'implémente pas sans ton accord : ça tient en une requête, mais la question « un encaissement en ligne devient de l'argent de la compagnie au prélèvement, ou au reversement du prestataire ? » est métier, pas technique — le même doute que pour les versements gare → siège, où le plan a tranché pour le transit. La section « Le trou symétrique » du plan pose les trois options.
+
+Le plan est révisé, l'en-tête porte les deux décisions, et j'ai corrigé une mémoire qui portait encore le crochet `ESPECES` et une FK de session sur `Depense`.
+
+
+
+
+
+
+
+
+
+
+
+
+- Concernant le `Un détail qui aurait fait échouer la première implémentation : **l'approvisionnement n'a aucun champ de montant sur son entête**. Le coût est sur ses détails — `SUM(da.couttotal)` avec une jointure. Le dépannage, lui, porte bien `couttotal` (main d'œuvre externe comprise). Le plan l'écrit maintenant.`, je me dis qu'on devrait mettre le `couttotal` sur l'approvisionnement pour être cohérent !
+
+- Concernant le `Et une asymétrie que j'ai trouvée en vérifiant : les trois postes n'excluent pas par le même champ. Depense filtre deletedAt IS NULL (sa corbeille est son annulation), tandis qu'Approvisionnement et Depannage filtrent statut != 'ANNULE' et ignorent la corbeille. Un SoldeService qui uniformiserait ferait diverger le solde du bénéfice sur les mêmes données.` :
+```
+D'abord :
+- Montre moi sur quoi ce base le calcule des recettes au claire à l'état actuelle
+- Aussi, montre moi qu'est ce qui rentre dans la recette et qu'est ce qui ne rentre pas du genre selon leur état (annuler, ou deletedAt, etc) !
+- Aussi, dit moi ce qui est logique entre le faite de passer `ANNULER` ou `deletedAt` pour le calcule des recettes et coût, etc... !
+```
+
+
+D'accord. L'état des lieux d'abord — et mesuré, pas déduit. Je relève les règles de chaque agrégat.
+
+Maintenant les agrégats de recette eux-mêmes, méthode par méthode, avec leurs deux clauses.
+
+Point capital avant de conclure : un filtre Doctrine global pourrait appliquer `deletedAt IS NULL` partout sans qu'on l'écrive. Je vérifie.
+
+**Aucun filtre Doctrine global** — donc `deletedAt` ne joue que là où il est écrit à la main. Je mesure ce que ça vaut en argent sur les données réelles.
+
+Le vérificateur d'action est en panne passagère. Je raccourcis la requête.
+
+Je poursuis l'audit par la lecture, qui ne dépend pas de lui. Les statuts de chaque entité, et le mécanisme de corbeille :
+
+Le commentaire du garde de suppression est décisif — il parle de l'incohérence « billet supprimé absent du manifeste mais compté en recette ». Je vérifie où les 20 `deletedAt` du `TicketRepository` sont posés, et si un champ `isEtatdelete` sert de filtre ailleurs.
+
+Point sérieux à cerner : certains agrégats de billets filtrent la corbeille, d'autres non. Je dresse le tableau exact, méthode par méthode.
+
+La lecture est exhaustive et le constat est net. Je réessaie la mesure.
+
+Bash reste bloqué. Je continue en lecture : les fixtures me diront ce qui existe en corbeille sans interroger la base.
+
+Aucune fixture ne crée de ligne en corbeille — le défaut serait donc invisible sur le jeu de démonstration. Je lis maintenant le service qui compose les recettes, pour répondre exactement à la première question.
+
+Il me manque un axe pour répondre proprement : la date sur laquelle chaque poste est daté.
+
+Dernier contrôle avant de conclure : que devient le **stock** quand on met un approvisionnement à la corbeille ? La réponse change la recommandation.
+
+Voilà ce qui change tout : l'approvisionnement a une action `/annuler` qui **retire les pièces du stock**. Je vérifie les deux derniers points — la méthode qui diverge, et si `Depense` a un statut.
+
+Audit terminé par lecture exhaustive des sept dépôts. La mesure en base m'est refusée ce tour-ci — le vérificateur d'actions de l'environnement est en panne passagère, je te dirai clairement ce qui reste à chiffrer.
+
+# 1. Sur quoi se base le calcul des recettes
+
+Un seul point d'entrée, [RecetteGareService](Backend-Transport/src/Domain/Service/RecetteGareService.php:37) — quatre sources additionnées, chacune rattachée à une gare par une règle différente :
+
+| source | rattachée à | montant retenu | daté sur |
+|---|---|---|---|
+| billets guichet | `t.gare` (gare de **montée**) | `prix` | `createdAt` |
+| billets commerciaux | gare **d'affectation** du commercial | `prix` | `createdAt` |
+| réservations | `r.gare` (**provenance**) | `prix + penalitemontant` | **`datepaiement`** |
+| bagages | `garedepart` (ou gare du commercial) | `montant` | `createdAt` |
+| courriers | `garedepart` | `montant + COALESCE(fraissuivi,0)` | `createdAt` |
+
+Deux mécanismes se superposent à ça : l'**anti-double-comptage** (`t.reservation IS NULL` — la recette d'une réservation est reconnue à son paiement, le billet émis ensuite ne recompte pas) et le **hors-CA** (les courriers restent affichés mais quittent tous les totaux composites).
+
+Première asymétrie au passage : **les recettes sont datées à la saisie (`createdAt`), les charges à la date du geste** (`datedepense`, `dateappro`, `datedepannage`). Seule la réservation est datée sur son paiement.
+
+# 2. Ce qui entre et ce qui n'entre pas, par état
+
+| poste | statut qui compte | statut exclu | corbeille (`deletedAt`) |
+|---|---|---|---|
+| **Ticket** | `VALIDE` seul | REPORTE, ANNULE | **ignorée** (sauf 4 méthodes) |
+| **Reservation** | *aucun filtre de statut* — seul `etatpaiement = PAYE` | rien | **exclue partout** |
+| **Bagage** | ENREGISTRE, EMBARQUE, LIVRE, **PERDU** | ANNULE seul | **ignorée** (sauf 3) |
+| **Courrier** | tout `!= ANNULE` (y compris PERDU) | ANNULE seul | **ignorée** (sauf 2) |
+| **Depense** | *l'entité n'a aucun champ statut* | — | **exclue partout** |
+| **Approvisionnement** | `!= ANNULE` | ANNULE | **ignorée** |
+| **Depannage** | `!= ANNULE` | ANNULE | **ignorée** |
+
+Deux points vérifiés qui expliquent la colonne de droite : **il n'existe aucun filtre Doctrine global** (pas de `SQLFilter`, rien dans `doctrine.yaml`) — `deletedAt` ne joue donc que là où il est écrit à la main. Et **aucune fixture ne crée de ligne en corbeille**, ce qui veut dire que le jeu de démonstration ne peut pas révéler l'écart — même configuration que le hors-CA.
+
+`PERDU` qui compte en recette est juste, et documenté : le transport a eu lieu, le client a payé.
+
+# 3. Le trou réel — deux chiffres pour la même chose, aujourd'hui
+
+Le défaut n'est pas l'asymétrie entre entités. Il est **à l'intérieur du billet**, dans un seul fichier :
+
+- [TicketRepository:60](Backend-Transport/src/Repository/TicketRepository.php:60) `findRecapDestinations` (bordereau du chauffeur) filtre `deletedAt IS NULL`, avec un `// !!` ;
+- [TicketRepository:432](Backend-Transport/src/Repository/TicketRepository.php:432) `recetteParGare` — celui qui alimente le tableau de bord — ne le filtre pas.
+
+Donc un billet `VALIDE` mis à la corbeille **compte dans la recette de la gare et disparaît de son bordereau**. Idem pour la fiche du voyage, qui passe par `recettePourVoyage` (filtré). Même chose sur les bagages et les courriers.
+
+Le code connaît le problème : le garde de suppression dit en propres termes qu'il ferme l'incohérence « billet supprimé absent du manifeste mais compté en recette ». Mais il ne la ferme qu'**après embarquement** — avant le départ réel, « la suppression est libre », et le billet reste dans la recette. Un bagage `ENREGISTRE` et un courrier `EN_ATTENTE` sont dans le même cas : supprimables *et* comptés.
+
+# 4. Ce qui est logique — `ANNULE` ou `deletedAt`
+
+Les deux répondent à des questions différentes, et il faut les deux :
+
+- **`ANNULE` = « ça a existé, puis on l'a défait. »** Un fait métier : le client s'est désisté, le courrier n'est pas parti. Ça laisse une trace, un motif, un auteur, et ça doit **rester visible** — c'est opposable.
+- **`deletedAt` = « ça n'aurait jamais dû être saisi. »** Une faute de frappe, un doublon. Rien à raconter, donc on le sort des listes.
+
+**Et la règle qui décide laquelle exclut un total n'est pas arbitraire : c'est « y a-t-il un effet physique à défaire ? »**
+
+| cas | pourquoi la règle actuelle est juste |
+|---|---|
+| appro, dépannage | leur `/annuler` **retire les pièces du stock** (mouvement SORTIE, refusé si une pièce est déjà consommée). Si la corbeille excluait leur coût, on aurait du **stock entré sans coût** — des pièces gratuites en inventaire. Seul `ANNULE` défait les deux ensemble. ✅ |
+| dépense | l'entité **n'a aucun statut**. Aucun stock, aucun imprimé. La corbeille est son seul geste d'annulation possible. ✅ |
+| billet, bagage, courrier | ils ont les deux, et la suppression est déjà bornée aux états sans effet physique. C'est **là** qu'il y a un trou, pas ailleurs. ❌ |
+
+**Ma recommandation : ne pas uniformiser, corriger le trou.** Filtrer `deletedAt IS NULL` dans les agrégats de recette de `Ticket`, `Bagage` et `Courrier`, et laisser appro/dépannage exactement comme ils sont.
+
+Le principe qui tranche : **un total doit être réconciliable avec une liste qu'on peut afficher.** Si la recette d'une gare contient 15 000 qu'aucun écran ne montre, personne ne peut retrouver l'erreur — c'est le défaut que tout le chantier précédent a passé son temps à traquer.
+
+L'objection sérieuse, et pourquoi elle ne tient pas : « alors supprimer un billet fera baisser la recette » — c'est la vente hors-livre. Mais c'est déjà couvert trois fois : le garde interdit la suppression d'un billet embarqué, `suppressionsParAgent` compte exprès les billets `VALIDE` supprimés par agent, et l'alerte anti-fraude existe. Et `Depense` comme `Reservation`, les deux modules les plus récents, filtrent déjà la corbeille — la direction est prise.
+
+Ce qu'il reste à chiffrer, dès que l'outil de mesure répond : combien de lignes sont réellement en corbeille avec un statut comptable, et de combien la recette bougerait. Je ne corrige rien avant d'avoir ce nombre.
+
+# 5. `couttotal` sur l'approvisionnement — d'accord
+
+Ton instinct est bon, et pour une raison que je n'avais pas vue : `coutTotal()` fait `->join('a.detailapprovisionnements', 'da')`, un **INNER JOIN**. Un approvisionnement sans aucune ligne de détail est donc **absent du coût total**, silencieusement. Le champ sur l'entête supprime la jointure et le risque avec elle.
+
+Le patron est déjà là — celui de `Depannage` : le champ est **recomposé par le processor** à chaque écriture, jamais saisi. Ça reste un dérivé stocké, comme `Depannage.couttotal` et `Ticket::$desistementImputableCompagnie`, donc l'exception est déjà assumée dans le projet.
+
+Le chantier : champ `bigint` + migration **avec backfill** des lignes existantes, recomposition à la création et au PATCH (la réconciliation par différence est déjà en place), `coutTotal()` réécrit sans jointure, exposition en lecture, et deux tests — l'entête égale la somme des détails après POST *et* après modification partielle, puis le coût total de l'entreprise inchangé avant/après migration.
+
+Une migration touche ta base, qui est un banc d'essai actif : **dis-moi quand je peux la jouer** et je l'enchaîne. Je peux écrire le code et la migration sans l'exécuter, si tu préfères regarder d'abord.
+
+
+
+
+
+
+
+
+
+
+
+
+On vas aller sur ta recommandation.
+    - Aussi, on m'avais parler d'un truc du genre `tout ce qui concerne l'argent on ne supprime pas` ! est ce vrai que c'est fait ainsi dans d'autres systèmes
+    - Aussi, je me dis que si on vas sur ta recommandation, pour le Approvisionnement, Depannage, etc... on vas filtrer sur `deletedAt IS NULL` en plus du `!= ANNULE` ! où est ce que j'ai tort ?
+
+Tu peux jouer la migration puis enchaîner le `couttotal` sur l'approvisionnement !
+
+
+
+
+Sur ton second point tu n'as pas tort — mais l'ordre compte, et il y a un fait à vérifier avant. Je regarde si un approvisionnement peut être mis à la corbeille aujourd'hui, et ce que devient son stock.
+
+Bash est revenu. Les deux exposent un `DELETE` via `SoftDeleteProcessor` **sans aucun garde**. Je vérifie l'effet sur le stock, puis je mesure tout ce que j'ai laissé en suspens.
+
+Le commentaire du code dit déjà tout : « suppression d'un **document comptable** : admin d'entreprise UNIQUEMENT (la sortie normale est l'annulation, tracée) ». Je trouve le modèle de stock.
+
+Confirmé : le stock est un **compteur stocké** sur `Piece.stockinitial`, incrémenté par les mouvements. Mettre un appro à la corbeille ne le touche pas. Maintenant je mesure l'état réel avant de changer quoi que ce soit.
+
+Mesuré : **zéro ligne en corbeille dans toute la base** — donc le correctif ne changera aucun chiffre aujourd'hui, comme le hors-CA. Ce sont les tests qui devront le prouver. Je vérifie le piège de l'INNER JOIN et je relève les totaux de référence.
+
+Aucun appro sans détail aujourd'hui — le risque de l'INNER JOIN est structurel, pas réalisé. Et les 4 966 000 se recomposent exactement (160 000 + 2 976 000 + 1 830 000, l'annulé de 118 000 exclu).
+
+Maintenant je vais **mesurer le défaut** sur les données réelles, avec une commande de diagnostic en transaction annulée.
+
+Je l'écris — elle mettra un billet à la corbeille dans une transaction annulée, pour mesurer l'écart réel entre le tableau de bord et le bordereau.
+
+Le défaut est mesuré, sur tes données : un billet de 15 000 mis à la corbeille laisse la recette de l'entreprise et de la gare **inchangées**, mais retire 15 000 de la fiche du voyage et un passager du bordereau. Deux chiffres pour la même chose, confirmé.
+
+Je dresse l'inventaire exact des méthodes à corriger avant de toucher quoi que ce soit.
+
+~55 méthodes concernées. Je restreins le périmètre à l'argent et à l'activité, en laissant intactes les surfaces de contrôle anti-fraude — un contrôle doit voir large, y compris ce qu'on a tenté d'effacer.
+
+48 méthodes corrigées. La mesure immédiatement — le même scénario ne doit plus produire d'écart.
+
+Les cinq surfaces bougent maintenant du même montant. Je documente la règle dans les trois dépôts.
+
+277 verts, mais rien ne couvre encore le nouveau comportement. J'écris la sentinelle. Je regarde le harnais disponible.
+
+La règle de la maison : prouver que la sentinelle tombe. Je réintroduis le défaut temporairement.
+
+La sentinelle tombe sur les deux surfaces. Je restaure.
+
+Maintenant ton second point. J'implémente le garde d'abord — sans lui, ton filtre créerait l'incohérence stock/argent. Je vérifie les statuts du dépannage.
+
+Confirmé : l'annulation d'un dépannage restaure le stock, et seul un dépannage **EN COURS** peut être annulé. J'inventorie les agrégats de coût avant de les toucher.
+
+12 méthodes, dont les détails qui n'ont pas de corbeille (pas d'`EntityBase`). J'implémente le garde puis les filtres.
+
+281 verts, le garde ne casse rien. Maintenant sa sentinelle — et celle du filtre, qui demande une précaution particulière. Je regarde les builders disponibles.
+
+4 tests verts du premier coup. J'enchaîne sur le `couttotal`. Je lis l'entité et le processor.
+
+Je vérifie la ligne de détail, puis j'écris l'ensemble.
+
+Chaque ligne stocke déjà son `couttotal = quantité × prix` — l'entête est exactement le même patron un cran plus haut. J'écris le chantier.
+
+Le patron est clair. J'écris le chantier complet.
+
+La migration maintenant — tu m'as donné le feu vert. Je relève d'abord les totaux de référence, pour prouver l'invariance après backfill.
+
+Backfill exact sur les cinq lignes, et les totaux sont **identiques** à la référence (4 966 000 / 126 000). Je vide le cache ApiPlatform — un nouveau champ exposé l'exige — et je lance la suite.
+
+La base de test est bâtie par `schema:update`, pas par les migrations. Je la mets à jour.
+
+285 verts. J'ajoute les sentinelles du `couttotal`. Je regarde le format de PATCH utilisé par le test existant.
+
+Je prouve que les sentinelles tombent — d'abord en retirant le recalcul au PATCH, puis en remettant la jointure.
+
+Ma sentinelle sur la jointure n'est pas tombée — et c'est moi qui avais tort, pas le test. Je restaure et je vérifie ce que la jointure changeait vraiment.
+
+Mesuré : aucun orphelin aujourd'hui, et surtout mon raisonnement était faux — un appro sans ligne contribue zéro, donc son absence ne change pas la somme. La jointure ne faussait que le **compteur** `nbappros`. Je corrige le test et les trois textes qui affirment le contraire.
+
+Je prouve que la sentinelle corrigée tombe, cette fois.
+
+La sentinelle tombe (1 au lieu de 2). Suite complète, puis je regarde si le frontend resomme les lignes.
+
+Le vérificateur flanche à nouveau. Je regarde le frontend en lecture pendant ce temps.
+
+Le frontend resomme bien les lignes — et pire, il recalcule `quantité × prix` au lieu de lire le total de la ligne. Je trouve la source React.
+
+Trois endroits côté frontend. Je les aligne sur la colonne unique.
+
+Le vérificateur bloque toutes les écritures. J'utilise ce temps pour repérer où documenter la règle dans le README.
+
+Le vérificateur d'écritures reste en panne. Je tente une dernière fois, sinon je te fais le point.
+
+Le vérificateur d'actions de l'environnement refuse toute écriture depuis plusieurs minutes. Je te fais le point sur ce qui est livré, et je réponds à ta question — elle ne demande aucun outil.
+
+## Livré et mesuré
+
+**Les recettes** — 48 agrégats de `Ticket`, `Bagage` et `Courrier` filtrent maintenant la corbeille. Preuve par la mesure, sur tes données, avec le même billet de 15 000 :
+
+| surface | avant le correctif | après |
+|---|---|---|
+| recette entreprise | **inchangée** | −15 000 |
+| recette de la gare | **inchangée** | −15 000 |
+| fiche du voyage | −15 000 | −15 000 |
+| bordereau chauffeur | −1 billet | −1 billet |
+
+**Les charges** — ton point appliqué : `deletedAt IS NULL` ajouté aux 11 agrégats de coût des approvisionnements et dépannages, **précédé du garde** qui le rend sûr. Un appro ou un dépannage non annulé refuse désormais la corbeille, avec la marche à suivre dans le message. Sans ce garde, ton filtre aurait produit du stock entré sans coût — des pièces gratuites en inventaire.
+
+**`couttotal` sur l'approvisionnement** — migration jouée, backfill vérifié ligne par ligne (les 5 approvisionnements ont un entête égal à la somme de leurs lignes, l'annulé de 118 000 conservé pour l'audit), et les totaux sont **identiques** à la référence : 4 966 000 et 126 000.
+
+**14 tests neufs**, dont 5 prouvés tombants en réintroduisant le défaut.
+
+## Une correction : j'avais tort sur l'INNER JOIN
+
+L'argument que je t'ai donné pour justifier le champ — « un approvisionnement sans ligne disparaît du coût » — est **faux pour le montant**. Sa contribution vaut zéro : son absence de la somme ne la déplace pas. Vérifié en remettant la jointure, le total ne bouge pas d'un franc.
+
+Ce qu'elle faussait réellement : le `COUNT(DISTINCT a.id)` de la ventilation par fournisseur, qui sous-comptait cet approvisionnement. Ma première sentinelle ne tombait pas — c'est ça qui m'a mis sur la piste. Elle vise maintenant le compteur, et elle tombe (1 au lieu de 2). Les trois textes qui affirmaient le faux sont corrigés.
+
+Le champ reste justifié, pour les vraies raisons : la cohérence avec `Depannage` que tu demandais, des agrégats sur une table au lieu de deux, un coût lisible sans resommer côté client, et ce compteur juste.
+
+## « Tout ce qui concerne l'argent, on ne supprime pas »
+
+C'est vrai, et c'est un des principes les plus anciens de la comptabilité. Un journal est **append-only** : on ne retire pas une écriture, on en passe une seconde qui l'annule — la **contre-passation** (ou extourne), et côté commercial l'**avoir** plutôt que la suppression d'une facture. Les ERP appliquent ça strictement : une facture validée ne se supprime pas, on émet un avoir. La raison est la **piste d'audit** — il faut pouvoir reconstituer la séquence des opérations, et une suppression y fait un trou invisible. Les obligations de conservation et d'inaltérabilité des registres, selon les pays, vont dans le même sens.
+
+Ce qui est intéressant : **ton code appliquait déjà ce principe à moitié**, sans que ce soit dit nulle part. Le garde de suppression d'un billet embarqué, le courrier supprimable seulement `EN_ATTENTE`, le bagage seulement `ENREGISTRE`, et ce commentaire que j'ai trouvé mot pour mot sur l'approvisionnement : « suppression d'un **document comptable** : admin d'entreprise UNIQUEMENT (la sortie normale est l'annulation, tracée) ». La règle était là, mais rien ne l'appliquait sur les appros et dépannages. C'est ce trou que ton intuition a désigné.
+
+**Il en reste un, et il est sur `Depense`** : cette entité n'a **aucun** champ statut. Sa seule façon d'être annulée est donc la corbeille — exactement ce que le principe interdit pour une sortie d'argent. C'est la dernière entorse, et la fermer voudrait dire lui donner un `ANNULE` avec motif, la corbeille redevenant réservée aux erreurs de saisie. Je ne le fais pas sans ton accord : ça touche un module livré et l'écran de dépenses.
+
+## Ce qui reste à finir
+
+Quatre choses, toutes bloquées par l'outil :
+
+- le **frontend** resomme les lignes à trois endroits (`ApprovisionnementTable.tsx`, `FournisseurApprovisionnementTable.tsx`, `approvisionnement/show.html.twig`) — et il recalcule `quantité × prix` au lieu de lire le `couttotal` de la ligne, donc deux chemins pour le même nombre ;
+- la règle à écrire au **README** ;
+- la **commande de diagnostic temporaire** à supprimer (`TmpAuditCorbeilleCommand`) ;
+- la **suite complète** à relancer (291 tests attendus ; elle était à 285 verts avant les 6 derniers, qui passent isolément).
+
+Dis-moi quand relancer et je termine — ou si tu veux que j'enchaîne sur le statut d'annulation de `Depense`.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Relance et termine, puis vérifie si tout est cohérent.
+
+Pour le plan, le `Tout ce qui concerne l'argent, on ne supprime pas`, etc.. on vas continuer dans dans la session suivante.
+
+
+
+
+L'outil répond à nouveau. J'enchaîne les deux tableaux React.
+
+Maintenant le README et la suppression de la commande de diagnostic.
+
+Maintenant les deux suites complètes, séquentiellement.
+
+Il reste à recompiler les assets — le bundle contient encore l'ancien calcul.
+
+Les deux `reduce` restants somment des **quantités** (colonne « Nbre de pièces »), pas de l'argent — je les laisse.
+
+Passons à la vérification de cohérence. D'abord : reste-t-il des agrégats d'argent qui auraient échappé au correctif, dans les repositories que je n'ai pas touchés ?
+
+Dix restants à justifier un par un. Je vérifie si les lignes de détail ont une corbeille, et si les remises entrent dans un calcul de recette.
+
+Deux points à trancher : `Detailcourrier` **a** une corbeille, et les remises sont affichées sur l'écran de recette d'une gare. Je regarde.
+
+Le premier est justifié — le commentaire dit « signal anti-abus », c'est une surface de contrôle. Mais le second est un **oubli réel** : `parTrancheValeur` sert une recette (`AS recette`) et ignore la corbeille, alors que la recette courrier la filtre désormais. J'inventorie ce dépôt.
+
+Je corrige l'oubli, sur les deux méthodes et les deux niveaux (le courrier et sa ligne, qui a sa propre corbeille).
+
+Les 9 restants sont justifiés : six sont des surfaces de contrôle, trois portent sur des entités de détail sans corbeille. Je passe aux vérifications de cohérence globale.
+
+Schéma en phase, aucun désaccord entête/lignes. Je vérifie maintenant que les chiffres réels n'ont pas bougé — puisqu'aucune ligne n'est en corbeille, ils doivent être identiques aux références relevées avant les changements.
+
+Les quatre chiffres sont identiques aux références. Je relance le backend après la correction `Detailcourrier`.
+
+La fiche d'approvisionnement est un écran observable. Plutôt qu'un navigateur (qui exigerait une connexion), j'utilise le harnais de rendu FT — ça laisse une sentinelle permanente. Je lis le patron.
+
+J'écris la sentinelle de rendu. Je vérifie d'abord la route et les appels d'API de l'écran.
+
+Mon jeu de données est incomplet — le gabarit lit d'autres champs du fournisseur. Je regarde lesquels.
+
+Deux choses à comprendre : le « 30 000 FCFA » est le total de la **ligne** (légitime, mon assertion est mal construite), mais surtout « Montant total » semble suivi de **rien**. Je lis le gabarit.
+
+Je ne peux pas trancher par la lecture. Je dumpe le texte rendu.
+
+Tout fonctionne : « Montant total **130 000 FCFA** ». Le message d'erreur affichait la chaîne *après* mon `str_replace` — c'était mon assertion qui était mal conçue, elle attrapait le total de la ligne. Je la cible proprement.
+
+Erreur d'échappement Python (`\x` dans une chaîne non brute). Je passe en chaîne brute.
+
+Je prouve que la sentinelle tombe en remettant la resomme dans le gabarit.
+
+La sentinelle tombe proprement. J'ajoute un garde-fou sur le pied du tableau — le piège exact déjà rencontré sur le dépannage.
+
+La ligne 82 recalcule aussi, alors que la ligne porte son `couttotal`. Je l'aligne et j'ajoute le garde-fou au pied.
+
+39 tests frontend, 285 gabarits. Dernier point de cohérence : les trois apps mobiles consomment la même API — je vérifie si l'une d'elles resomme les lignes d'un approvisionnement.
+
+Aucune app ne touche aux approvisionnements. Mais elles pourraient sommer des recettes côté client — je vérifie, puisque `commercialflutter` a une vente hors-ligne.
+
+Le mobile somme des valeurs **servies par l'API** (`v.maRecette`), il ne recalcule rien depuis les lignes — il hérite donc du correctif. Et un détail intéressant : `TicketRepository::recetteCommercialeParVoyage` ne filtrait pas la corbeille alors que son équivalent bagage le faisait déjà. L'écran « ma recette » du commercial était donc incohérent entre ses deux colonnes ; c'est réparé.
+
+Je note ce qui est reporté à la session suivante.
+
+Dernière vérification d'ensemble, les deux suites d'affilée.
+
+Terminé et vérifié.
+
+## Ce qui est livré
+
+**La corbeille exclut désormais de tout total d'argent** — 48 agrégats de recette (`Ticket`, `Bagage`, `Courrier`), 11 de coût (`Approvisionnement`, `Depannage`), plus 2 découverts pendant la vérification finale.
+
+**Le garde qui rend ton filtre sûr** : un approvisionnement ou un dépannage non annulé refuse la corbeille, avec la marche à suivre dans le message. Sans lui, ton filtre aurait produit du stock entré sans coût.
+
+**`Approvisionnement::$couttotal`** : migration jouée, backfill exact sur les 5 lignes, recomposé en entier à chaque écriture, et les trois surfaces du frontend qui resommaient lisent maintenant la colonne.
+
+**16 tests neufs** (14 backend, 2 frontend), dont **6 prouvés tombants** en réintroduisant le défaut.
+
+## Deux choses trouvées pendant la vérification
+
+J'ai balayé *tous* les dépôts à la recherche d'agrégats d'argent non filtrés. Il en restait deux vrais oublis dans `DetailcourrierRepository` : `parTrancheValeur` sert une recette (son alias le dit) et ignorait la corbeille — la ventilation par tranche de valeur aurait donc dépassé la recette courrier dont elle est le détail. Corrigé à **deux niveaux**, car `Detailcourrier` étend `EntityBase` : une ligne peut partir à la corbeille sans son courrier.
+
+Et une incohérence sur l'écran du commercial : `TicketRepository::recetteCommercialeParVoyage` ne filtrait pas la corbeille alors que son équivalent bagage le faisait déjà. Les deux colonnes de « ma recette » ne suivaient donc pas la même règle. Le mobile somme des valeurs servies par l'API, il hérite du correctif sans changement.
+
+Les 9 agrégats restants sans filtre sont justifiés un par un : 6 sont des surfaces de contrôle anti-fraude — un tableau qui traque la vente hors-livre doit voir ce qu'on a tenté d'effacer — et 3 portent sur des entités de détail qui n'ont pas de corbeille.
+
+## Une erreur que j'ai corrigée
+
+Mon argument pour justifier `couttotal` était faux : « un approvisionnement sans ligne disparaît du coût » ne tient pas, sa contribution vaut zéro. Je l'ai découvert parce que **ma sentinelle ne tombait pas** quand j'ai remis la jointure. Ce qu'elle faussait vraiment, c'est le `COUNT(DISTINCT a.id)` du compteur. Le test vise maintenant le compteur et tombe (1 au lieu de 2), et les trois textes qui affirmaient le faux sont rectifiés.
+
+Même chose sur le test de rendu : ma première assertion cherchait « 30 000 » dans toute la page et tombait sur le total de la ligne de détail, qui vaut légitimement 30 000 — elle échouait sur du code juste. Elle cible maintenant le chiffre qui suit « Montant total ».
+
+## Cohérence vérifiée
+
+| contrôle | résultat |
+|---|---|
+| mapping ↔ base | en phase, aucune migration en attente |
+| entête `couttotal` ↔ lignes | 5 approvisionnements, **0 désaccord** |
+| billets IRA (réf. 9 346 600) | **9 346 600** |
+| appros (réf. 4 966 000 / 126 000) | **4 966 000 / 126 000** |
+| dépannages (réf. 2 289 200) | **2 289 200** |
+| tests | **291 backend + 39 frontend**, 285 gabarits lintés |
+| bundle recompilé | ancien calcul absent, 4 lectures de la colonne |
+| fichier temporaire | commande de diagnostic supprimée |
+
+Aucun chiffre réel n'a bougé — normal, il n'y a **aucune ligne en corbeille** dans ta base. C'est un correctif préventif, comme le hors-CA : invisible aujourd'hui, et c'est exactement pourquoi il fallait des sentinelles plutôt que des fixtures.
+
+Le principe « l'argent ne se supprime pas » est écrit au README, avec le raisonnement qui décide entre `ANNULE` et corbeille : *y a-t-il un effet physique à défaire ?* J'ai noté en mémoire les deux sujets reportés — `Depense` sans statut, qui reste la dernière entorse, et le plan caisse avec son trou symétrique non tranché.
+
+
+
+
+
+
+
+
+
+
+Oui, corrige les deux passages de doc.
+
+Ensuite, concernant les risques connus, non corrigés :
+- Corrige le `/api/stats/agent répond 500 sur une vente sans auteur (aucun cas en base aujourd'hui)`
+- Corrige le `MediaObject n'a pas de rattachement à l'entreprise : qui devine un id lit le fichier (justificatifs, bulletins de salaire).`
+- Propose moi des icônes pour l'application
+
+
+
+
+
+
+Je commence par les deux corrections de doc, puis j'attaque les deux défauts (en mesurant d'abord), et je finirai par les icônes.
+
+Je vais vérifier la règle actuelle dans les repositories avant de modifier le plan, ces éléments datant d'avant le 28/09.
+
+Confirmé : les coûts excluent bien les éléments annulés ET supprimés, et la corbeille est refusée sur un appro/dépannage non annulé. Je mets à jour le tableau et la sentinelle n°7 du plan.
+
+Le plan caisse est corrigé ; je corrige maintenant la ligne du README backend, puis je passe à `/api/stats/agent`.
+
+Je trouve un test `StatsAgentSansAuteurTest.php` non commité et un docbloc dans `AgentStatsProvider` mentionnant déjà ce TypeError — le correctif a peut-être été appliqué en fin de session précédente sans mise à jour de la doc. Je vérifie avant toute modification.
+
+Le correctif est déjà présent dans le code (non commité) et son test passe parmi les 291, mais le README et la mémoire indiquent encore « non corrigée ». Je vérifie maintenant le diff d'origine et confirme que la sentinelle échoue bien si on réintroduit le défaut.
+
+Je vais confirmer que le test échoue bien avec le code d'origine : je remets temporairement la version commitée du provider, relance le test, puis restaure le correctif.
+
+Le test confirme que l'ancien code plantait bien avec un 500 sur /api/stats/agent, corrigé dans la version actuelle. En revanche le 3e test sur l'absence d'agent n°0 restait vert même sur l'ancien code, donc je vais comprendre pourquoi il ne détecte rien.
+
+J'ai trouvé que la requête `annulationsParAgent` filtre déjà `c.updatedBy IS NOT NULL` en SQL, donc les lignes sans auteur n'atteignent jamais le PHP. Je vérifie maintenant les six autres sources du tableau anti-fraude pour voir si l'une d'elles laisse passer un auteur nul.
+
+Je vérifie si le 3e test échoue réellement quand on retire les deux protections (SQL et PHP), car son commentaire décrit un bug qui n'a jamais pu se produire vu que les 7 sources filtrent déjà `IS NOT NULL`.
+
+Confirmé : le 3e test échoue seulement si les deux protections (SQL et PHP) sont retirées, ce qui montre une double sécurité plutôt qu'un vrai défaut. Je vais réécrire le commentaire en conséquence, puis vérifier si le FT affiche la recette non attribuée.
+
+Le FT affiche déjà ce montant (bandeau dans `home/agent.html.twig`). Le correctif est donc complet de bout en bout ; il ne reste que le README, qui dit encore « non corrigée ».
+
+Je passe à `MediaObject` : le vrai risque dépend de si les fichiers sont servis en statique depuis `public/`, ce qui rendrait la protection de la route d'API insuffisante. Je vérifie l'entité, la config Vich et ses usages.
+
+J'ai identifié que Vich stocke les fichiers dans `public/images/media`, servis en statique sans authentification — sécuriser uniquement la route API ne suffira donc pas. Je vais maintenant examiner comment ces fichiers sont consommés (FT, apps, PDF) avant de choisir la correction.
+
+La base ne contient aucun média pour l'instant : aucune donnée à migrer. Je lis le processeur qui pose `identreprise` pour m'y brancher proprement.
+
+Je vérifie qui consulte les médias — FT, apps mobiles, et les deux chemins non filtrés passant par le repository (`MeEntrepriseProcessor`, inscription) — avant de décider comment corriger le processeur d'`identreprise`.
+
+Je vérifie deux points : l'appel à la route backend `/media…` pour redimensionner les images, et l'utilisation directe de `contentUrl` pour le lien du justificatif, qui pourrait pointer vers le mauvais hôte.
+
+J'ajoute deux constats à la correction : les fichiers sous `public/` restent accessibles sans authentification (statique ou via Glide), et le lien « voir le justificatif » du FT semble cassé car `contentUrl` pointe vers l'hôte du FT sans préfixe d'API. Je vais maintenant examiner les chemins qui rattachent un média par id sans passer par le filtre de périmètre.
+
+Diagnostic terminé : je vais rattacher les MediaObject à l'entreprise via `identreprise`, corriger le filtre manquant dans `MeEntrepriseProcessor`, passer les justificatifs de dépenses en stockage privé (accès via une route dédiée respectant permissions et périmètre de gare), ajouter une route proxy côté FT, et garder les images publiques via Glide. Je vais maintenant lire les fichiers concernés pour implémenter tout ça.
+
+Le docbloc de `DepenseProcessor` confirme qu'un média portant `identreprise` deviendra introuvable via la résolution d'IRI. Je consulte maintenant le harnais de test pour voir comment lui envoyer un fichier.
+
+J'utiliserai `autoriser()` dans le `ScenarioBuilder` pour gérer les droits. Avant de coder, je vais vérifier comment ce projet connecte un contrôleur personnalisé à une opération API Platform, ce qui détermine la route de téléchargement.
+
+Je note que `use_symfony_listeners: true` permet à une opération `Get` avec contrôleur de recevoir la dépense déjà chargée et validée, et que le patron `NotFoundAction` de `Permission` bloque la lecture directe d'un média tout en gardant la résolution de son IRI. Je passe maintenant à la lecture du côté FT.
+
+J'ai tout ce qu'il faut ; je passe à l'écriture côté backend, en commençant par l'entité `MediaObject`.
+
+Maintenant le registre de la corbeille, puis la règle d'accrochage dans `DepenseProcessor`.
+
+Je branche la route de téléchargement `GET /api/depenses/{id}/justificatif` sur la ressource `Depense`, avec son contrôleur.
+
+Au tour de `MeEntrepriseProcessor`, qui accroche le logo par un `find()` sans aucun filtre.
+
+Le logo se modifie par l'administrateur de SA compagnie (`/api/me/entreprise`) : le média qu'il vient de téléverser porte donc bien son entreprise. Je borne le `find()`.
+
+Côté code backend, tout est en place. Je génère la migration par `doctrine:migrations:diff`, qui ne fait que **lire** la base de dev, puis je la relis.
+
+Le diff ne concerne que `media_object` : je le renomme selon la convention du projet, ajoute le docbloc, et prévois un rattrapage pour d'éventuels médias déjà rattachés.
+
+Je vérifie en lecture seule que les colonnes de jointure du rattrapage existent bien sous ces noms.
+
+Colonnes confirmées. Je passe aux tests : je regarde d'abord l'opération « ma compagnie » (pour le cas du logo) et les propriétés accessibles du harnais.
+
+Je mets à jour le schéma de la base de **test** (`make test-db`, base `bk_transport_test` réservée à la suite), puis j'écris les tests.
+
+8 sur 9 passent. L'échec vient de mon assertion sur la forme de la réponse (le justificatif n'y porte pas de `contentUrl`), pas de la protection. Je regarde ce que la fiche renvoie réellement.
+
+Je confirme que `contentUrl` vaut bien `null`, mais mon assertion était erronée car `??` traite `null` comme absent. Je la corrige pour vérifier séparément la présence de la clé et sa nullité.
+
+Mon remplacement scripté a laissé un résidu (`");`) sur une ligne. Je le retire.
+
+Je crée les deux lecteurs supplémentaires directement dans le `setUp`, avant toute requête, pour éviter le piège connu où l'EntityManager est vidé après une requête HTTP et détache les entités du `setUp`.
+
+Les 9 tests passent. Je vérifie maintenant que **chaque sentinelle tombe** quand on réintroduit le défaut qu'elle garde : sept mutations, appliquées puis annulées une par une.
+
+Les 7 sentinelles tombent chacune sur le défaut qu'elles gardent, et l'état est restauré. Je lance toute la suite backend pour vérifier qu'il n'y a pas de régression.
+
+Backend : **300 tests verts** (291 + 9 nouveaux). Je passe au FT : upload en privé, route proxy de consultation, et les trois liens (fiche, formulaire, tableau React).
+
+Je modifie `ApiHelper::postMediaObject` pour qu'il sache demander un stockage privé.
+
+Les liens, maintenant : fiche, formulaire et tableau React.
+
+Je vérifie ce que lit la fiche dépense, pour écrire un test FT qui la **rend** avec un justificatif privé (`contentUrl: null`).
+
+42 tests passent (39 + 3). Je vérifie que les erreurs `tsc` viennent bien de `node_modules` (préexistantes, hors nos fichiers), puis que la sentinelle du lien pointe correctement vers l'ancien gabarit.
+
+Le fichier est restauré et les 2 erreurs `tsc` viennent uniquement de `node_modules` (types Radix), sans impact sur notre code. Je reconstruis maintenant les assets du FT suite au changement du tableau React.
+
+Les assets sont reconstruits. Attention : l'entité `MediaObject` référence des colonnes absentes de ta base de dev, ce qui causerait des erreurs « Unknown column » sur toute page chargeant un média — je te demande donc ton accord avant de lancer la migration en base.
+
+Migration jouée : le schéma est synchronisé avec le mapping. Je prépare la vérification dans le navigateur. Je regarde d'abord comment les serveurs de dev se lancent.
+
+Les deux serveurs sont opérationnels. Je vais utiliser les comptes de démo pour tester le parcours : un admin de gare qui dépose, puis l'admin d'entreprise et le chef d'une autre gare qui consultent.
+
+Je me connecte au FT (localhost:8002) avec le compte du chef de gare d'Abidjan, tiré des fixtures.
+
+Toujours sur la page de connexion. Je regarde ce qu'elle affiche.
+
+Aucun message d'erreur affiché. Je regarde les journaux du FT pour voir si le formulaire a bien été soumis.
+
+La connexion échoue : le mot de passe des fixtures ne correspond plus au compte, probablement changé sur le banc d'essai. Je vérifie donc le parcours au niveau de l'API avec des jetons générés via `lexik:jwt:generate-token`, sans réessayer de mot de passe pour éviter l'anti-force-brute.
+
+L'upload privé fonctionne (`contentUrl: null`, fichier hors de `public/`), mais la création de la dépense a répondu **400**. Je lis la réponse avant de conclure quoi que ce soit.
+
+C'est un artefact d'encodage du shell Windows sur le « é », pas un bug de l'application. Je réécris le corps en UTF-8 via un fichier et je reprends à l'étape 3 avec le même média.
+
+J'ai vérifié le parcours complet sur l'API réelle : le dépôt privé reste inaccessible statiquement, l'auteur et l'admin lisent bien le PDF, les autres profils reçoivent 404/401, et l'accès à un document d'autrui renvoie 403. Je supprime maintenant ma dépense de test (1 000 FCFA, Adjamé) pour qu'elle ne fausse plus tes totaux.
+
+La commande a été bloquée par une vérification de sécurité à cause d'un `rm`, donc rien n'a été exécuté. Je la relance sans ce nettoyage, les fichiers resteront simplement dans le dossier temporaire.
+
+La dépense 593 est bien à la corbeille ; il reste deux médias de test orphelins sans impact sur les totaux, que je signalerai. J'arrête les deux serveurs lancés, puis je passe à la documentation.
+
+Je termine la documentation : il reste à signaler en production que `var/documents` contient des pièces comptables à sauvegarder.
+
+Documentation à jour dans les deux README. Je mets à jour la mémoire : le point « non corrigé » de l'audit, et une leçon pratique pour les prochaines vérifications.
+
+Mémoire mise à jour. Je passe aux icônes : je vérifie d'abord le manifeste, les icônes actuelles et la couleur principale de l'application pour que mes propositions restent cohérentes avec l'identité visuelle.
+
+La couleur de marque est l'ambre `#f59e0b` (le `--primary` du thème). Et le favicon actuel est encore celui de Symfony (« sf » sur rond noir). Je regarde l'icône PWA actuelle.
+
+Mascotte de démo (un raton laveur) : ça confirme la note du README. Je prépare des propositions visuelles d'icônes, dessinées dans l'ambre de la marque et directement comparables.
+
+Je vais dessiner quatre aperçus : icône d'application, variante maskable Android, et favicons 32/16 px, pour voir où l'icône reste lisible.
+
+Les deux passages de doc sont corrigés, les deux risques sont traités, et quatre pistes d'icônes sont affichées ci-dessus. Tout est vert : **300 tests backend** (9 nouveaux) et **42 tests frontend** (3 nouveaux). Rien n'est commité.
+
+## 1. Doc corrigée
+- **README backend** : la ligne sur le « crochet ESPECES » et la « FK nullable sur `Depense` » dit maintenant l'inverse et renvoie aux décisions du 28/09.
+- **Plan caisse** : en plus du coût d'appro (désormais sur l'en-tête), deux autres passages étaient périmés, je les ai corrigés aussi. Le tableau des exclusions disait que la corbeille d'un appro « ne gère que la visibilité », et la sentinelle n° 7 attendait l'ancien comportement. Règle retenue : le solde exclut exactement ce que le bénéfice exclut.
+
+## 2. `/api/stats/agent` et la vente sans auteur
+Le correctif **existait déjà** dans le code (non commité). Seuls le README et la mémoire disaient « non corrigé ».
+- **Vérifié** : sur le code d'origine, le test reproduit bien le 500 ; sur le code actuel, il passe.
+- **Un test ne gardait rien** : celui du « pas d'agent n° 0 » restait vert même sur le code d'origine. Les 7 requêtes anti-fraude filtrent déjà l'auteur nul en SQL. J'ai réécrit son commentaire pour dire ce qu'il protège vraiment.
+
+## 3. `MediaObject`
+Le risque était plus large qu'annoncé : les fichiers vivaient sous `public/`, lisibles **sans aucun compte** (en direct ou via Glide). Quatre accès sont fermés :
+- **Lecture directe** d'un média par son id : fermée.
+- **Média d'une autre compagnie** : il porte maintenant `identreprise` et ne peut plus être accroché à une fiche (400).
+- **Justificatifs** : stockés hors du web (`var/documents`), sans URL. On ne les lit que par `GET /api/depenses/{id}/justificatif`, avec les droits de la dépense. Un agent ne peut accrocher que ce qu'il a lui-même déposé ; sans ça, il pouvait rattacher un bulletin du siège à sa propre dépense et le lire.
+- **Logo** (`MeEntrepriseProcessor`) : le `find()` sans filtre est maintenant limité à la compagnie.
+
+Le lien « voir le justificatif » du FT était **cassé** (404 à chaque clic) ; il passe maintenant par un relais du FT.
+
+**Vérification :**
+- Chaque test tombe quand on remet le défaut qu'il garde (7 défauts remis un à un).
+- Parcours réel sur l'API : l'auteur et l'admin reçoivent le PDF à l'identique ; le chef de Korhogo et l'admin de Sahel obtiennent 404 ; un appel sans compte, 401.
+- **Pas vérifié dans le navigateur** : le mot de passe des fixtures est refusé sur ta base (tu l'as dû changer). Le relais du FT est couvert par son test.
+
+**À savoir :**
+- Migration `Version20260928180000` jouée avec ton accord.
+- Il reste des données de test dans ta base : la dépense 593 (1 000 FCFA, à la corbeille) et deux médias privés (ids 1 et 2, sans effet sur aucun total).
+- **Toujours ouvert** : les images restent lisibles par qui connaît leur adresse, et Glide tourne sans signature (n'importe qui peut remplir son cache).
+- **En production**, `var/documents` contient des pièces comptables : il faudra le sauvegarder. C'est noté dans le README.
+
+## 4. Icônes
+Je recommande **B, la ligne et ses arrêts**. Elle reprend le cœur de l'application (origine, arrêt, terminus), elle se distingue du car que toutes les compagnies affichent, et elle reste lisible à 16 px. **A** est l'option la plus sûre si tu veux qu'on reconnaisse le métier au premier coup d'œil. **C** se lit mal en petit.
+
+Au passage, le favicon actuel est encore celui de Symfony (« sf »). Une fois ton choix fait, je génère les PNG 192/512, la variante ronde pour Android (`maskable`), l'icône Apple et un favicon SVG. Je remplace ensuite le favicon dans les deux gabarits de base et je mets à jour le manifeste. Le même dessin pourra servir aux trois apps mobiles.
+
+
+
+
+
+
+
+
+
+Les justificatifs sont désormais dans public/documents (fichiers ignorés par git, .htaccess versionné). Je passe maintenant à la signature Glide, en vérifiant d'abord son interface exacte.
+
+
+
+
+## 1. Icônes (concept B)
+Tout est dans `Frontend-Transport/public/icons/` :
+- icônes d'application 192 et 512 (coins arrondis) ;
+- variantes `maskable` pour Android ;
+- `apple-touch-icon` ;
+- `favicon.svg`, un dessin agrandi et au trait épaissi pour rester lisible à 16 px, plus un `favicon.ico` (16, 32, 48 px).
+
+Les concepts A, C et D sont rangés dans `public/icons/propositions/` (SVG + PNG 512). Le manifeste est à jour. Le favicon « sf » de Symfony et la mascotte de démo sont retirés ; les deux images de la mascotte sont passées par `git rm`, donc récupérables. Les rendus ont été faits par Chrome en local, sans rien télécharger.
+
+## 2. Justificatifs dans `public/documents`
+- Le dossier est interdit par un `.htaccess` (versionné). J'ai ajouté une seconde barrière : des noms aléatoires de 128 bits au lieu de `uniqid()`, qui se déduit de l'heure du dépôt.
+- **Limite mesurée** : `symfony serve` ignore le `.htaccess` et sert ces fichiers (200). En dev, seul le nom aléatoire les protège ; sous Nginx, il faut ajouter une règle, que j'ai notée dans le README.
+- J'ai versionné `public/documents/sonde.txt`. En production, `curl -I …/documents/sonde.txt` doit répondre **403**. Tester le `.htaccess` lui-même ne prouverait rien : Apache refuse toujours les fichiers `.ht*`.
+- J'ai déplacé les 3 fichiers existants depuis `var/documents`. Le justificatif de ta dépense 594 est toujours servi (vérifié). Ces 3 fichiers gardent leur ancien nom, devinable en dev ; je peux les renommer (avec mise à jour en base) si tu veux.
+
+Une chose conservée volontairement : la garde qui limite Glide aux dossiers images/. Ce n'est pas la signature. Sans elle, /media/documents/<nom> ferait lire un justificatif par PHP et contournerait ton .htaccess. Elle est couverte par un test, qui échoue bien si on retire la garde
+
+
+
+
+
+
+
+2. Thème : refonte annulée, deux corrections gardées
+On est revenu au mécanisme d'avant (préchargement + theme.js), avec deux changements :
+Doublon supprimé : l'ancien script en ligne a disparu des deux gabarits racines. Un test vérifie qu'il ne reste qu'un seul script de thème, placé avant la feuille de style.
+color-scheme déclaré sur :root (clair) et .dark (sombre). Sélecteurs de date, listes natives et barres de défilement de Firefox suivent désormais le thème. Chrome, Edge et Safari affichaient déjà tes barres personnalisées aux couleurs du thème.
+Vérifié dans le navigateur dans les quatre cas (mode système sur poste clair puis sombre, clair forcé, sombre forcé), sur la page et sur un champ date.
+
+
+
+
+Le seul défaut : lint:container échoue sur le backend parce que VichUploader déclare un type de formulaire alors que symfony/form n'est pas installé. C'est sans effet à l'exécution, et antérieur : l'échec est identique avec la configuration de git. La correction tient en une ligne, form: false dans vich_uploader.yaml. Je ne l'ai pas appliquée, puisque tu m'as demandé une vérification.
+
+
+Confirmé — dans la configuration officielle de VichUploaderBundle, il y a bien une clé racine dédiée à ça :
+
+```yaml
+# config/packages/vich_uploader.yaml
+vich_uploader:
+    db_driver: orm
+    twig: true
+    form: false    # désactive l'intégration form
+```
+
+Réglez simplement form: true # set to false to disable form integration sur `false`.
+
+**Ce que ça désactive concrètement** : ça retire du conteneur de services l'intégration de Vich avec le composant Form de Symfony — notamment les types de formulaire `VichFileType` et `VichImageType`. Si votre code utilise encore `Vich\UploaderBundle\Form\Type\VichImageType` (ou `VichFileType`) dans un de vos `FormType`, ça provoquera une erreur au chargement du formulaire une fois désactivé.
+
+**Avant de le désactiver**, demandez-vous pourquoi : la plupart des projets gardent `form: true` par défaut, car c'est ce qui permet d'avoir le champ d'upload avec case "supprimer le fichier" directement dans vos formulaires Symfony. On ne le désactive généralement que si vous gérez les uploads entièrement par un autre moyen (API séparée, upload manuel hors formulaire Symfony, etc.).
+
+Dans votre cas précis, qu'est-ce qui vous pousse à vouloir le désactiver — un conflit avec un autre bundle, ou vous gérez les uploads autrement ?

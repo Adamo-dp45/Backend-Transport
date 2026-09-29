@@ -221,4 +221,44 @@ class DepenseRepository extends ServiceEntityRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * Total des charges pour PLUSIEURS voyages, en UNE requête — le « par page » du listing.
+     *
+     * POURQUOI GROUPÉ : afficher la somme des dépenses sur une liste de 25 voyages appelait
+     * naturellement 25 requêtes (un N+1 classique, invisible en développement et ruineux en
+     * production). Une seule requête groupée coûte le même prix quelle que soit la taille de la page.
+     *
+     * Même périmètre OUVERT que 'totalPourVoyage' : les charges d'un départ sont des données du
+     * départ, pas de la gare qui les regarde. La PERMISSION, elle, reste vérifiée en amont.
+     *
+     * @param list<int> $voyageIds
+     * @return array<int, int> voyageId => total (les voyages SANS charge sont absents, pas à zéro :
+     *                         c'est à l'appelant de décider ce que « rien » doit afficher)
+     */
+    public function totauxParVoyages(array $voyageIds, int $identreprise): array
+    {
+        if ($voyageIds === []) {
+            return [];
+        }
+
+        $lignes = $this->createQueryBuilder('d')
+            ->select('v.id AS voyageid, COALESCE(SUM(d.montant), 0) AS montant')
+            ->join('d.voyage', 'v')
+            ->andWhere('v.id IN (:ids)')
+            ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
+            ->setParameter('ids', $voyageIds)
+            ->setParameter('ide', $identreprise)
+            ->groupBy('v.id')
+            ->getQuery()
+            ->getArrayResult();
+
+        $totaux = [];
+        foreach ($lignes as $ligne) {
+            $totaux[(int) $ligne['voyageid']] = (int) $ligne['montant'];
+        }
+
+        return $totaux;
+    }
 }

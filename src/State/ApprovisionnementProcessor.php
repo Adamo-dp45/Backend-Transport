@@ -10,10 +10,12 @@ use App\Domain\Enum\Referencetype;
 use App\Domain\Enum\Typemouvement;
 use App\Domain\Service\StockmouvementService;
 use App\Entity\Approvisionnement;
+use App\Entity\Fournisseur;
 use App\Entity\Detailapprovisionnement;
 use App\Entity\Dto\ApprovisionnementInput;
 use App\Entity\User;
 use App\Repository\ApprovisionnementRepository;
+use App\Repository\DetailapprovisionnementRepository;
 use App\Repository\FournisseurRepository;
 use App\Repository\PieceRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -28,6 +30,7 @@ class ApprovisionnementProcessor implements ProcessorInterface
         private Security $security,
         private EntityManagerInterface $em,
         private FournisseurRepository $fournisseurRepository,
+        private DetailapprovisionnementRepository $detailapprovisionnementRepository,
         private PieceRepository $pieceRepository,
         private StockmouvementService $stockmouvementService,
         private ApprovisionnementRepository $approvisionnementRepository
@@ -45,9 +48,13 @@ class ApprovisionnementProcessor implements ProcessorInterface
         $user = $this->security->getUser();
         $entrepriseId = $user->getEntreprise()->getId();
 
-        $ids = array_map(fn($d) => $d['piece'], $data->details);
-        if(count($ids) !== count(array_unique($ids))) { // Une validation anti-doublon de pièce
-            throw new BadRequestHttpException('Une pièce est en doublon dans cet approvisionnement');
+        // 'details' peut être ABSENT d'un PATCH partiel : on ne cherche un doublon que dans ce qui est
+        // fourni. Sans cette garde, 'array_map' recevait 'null' et la modification partielle rendait 500.
+        if($data->details !== null) {
+            $ids = array_map(fn($d) => $d['piece'], $data->details);
+            if(count($ids) !== count(array_unique($ids))) { // Une validation anti-doublon de pièce
+                throw new BadRequestHttpException('Une pièce est en doublon dans cet approvisionnement');
+            }
         }
         /* -- Ou
             $pieceIds = [];
@@ -71,15 +78,7 @@ class ApprovisionnementProcessor implements ProcessorInterface
 
     private function handlePost($data, $userId, $entrepriseId, $operation, $uriVariables, $context)
     {
-        $fournisseur = $this->fournisseurRepository->findOneBy([
-            'id' => $data->fournisseur,
-            'identreprise' => $entrepriseId,
-            'deletedAt' => null
-        ]);
-
-        if(!$fournisseur){
-            throw new NotFoundHttpException('Référence invalide');
-        }
+        $fournisseur = $this->fournisseurDeLEntreprise($data->fournisseur, $entrepriseId);
 
         $approvisionnement = new Approvisionnement();
         $approvisionnement
@@ -93,10 +92,30 @@ class ApprovisionnementProcessor implements ProcessorInterface
         */
 
         $this->handleDetails($approvisionnement, $data->details, $entrepriseId, $userId);
+        $this->recomposerCout($approvisionnement);
 
         return $this->processor->process($approvisionnement, $operation, $uriVariables, $context); /*
             - Pas de '->flush()' vu qu'on a le 'process'
         */
+    }
+
+    /**
+     * Le fournisseur, borné à l'entreprise de l'acteur. Un identifiant étranger est INTROUVABLE, pas
+     * « refusé » : on ne confirme pas l'existence d'une référence d'une autre compagnie.
+     */
+    private function fournisseurDeLEntreprise(int $id, int $entrepriseId): Fournisseur
+    {
+        $fournisseur = $this->fournisseurRepository->findOneBy([
+            'id' => $id,
+            'identreprise' => $entrepriseId,
+            'deletedAt' => null
+        ]);
+
+        if(!$fournisseur) {
+            throw new NotFoundHttpException('Référence invalide');
+        }
+
+        return $fournisseur;
     }
 
     private function handlePatch($data, $userId, $entrepriseId, $operation, $uriVariables, $context)
@@ -121,14 +140,46 @@ class ApprovisionnementProcessor implements ProcessorInterface
         }
         */
 
+        /*
+            LE FOURNISSEUR EST APPLIQUÉ S'IL EST FOURNI, et il ne l'était PAS. Le formulaire de
+            modification propose pourtant de le changer, l'envoie, et l'écran annonçait « modifié avec
+            succès » : on changeait de fournisseur sans rien changer. Le DTO l'exigeait même en PATCH, ce
+            qui rendait le défaut d'autant plus crédible — le champ était obligatoire ET ignoré.
+        */
+        if($data->fournisseur !== null) {
+            $approvisionnement->setFournisseur(
+                $this->fournisseurDeLEntreprise($data->fournisseur, $entrepriseId)
+            );
+        }
+
         if(!empty($data->details)) {
             $this->reconcileDetails($approvisionnement, $data->details, $entrepriseId, $userId); /*
                 - Réconciliation par différence : on ne touche au stock que pour ce qui change réellement
             */
         }
         $approvisionnement->setUpdatedBy($userId);
+        $this->recomposerCout($approvisionnement); /*
+            - Recomposé MÊME quand la charge utile ne porte pas de détails : c'est ce qui rattrape une
+              ligne créée avant l'existence du champ, ou laissée nulle par un autre chemin d'écriture.
+        */
 
         return $this->processor->process($approvisionnement, $operation, $uriVariables, $context);
+    }
+
+    /**
+     * Repose `Approvisionnement::$couttotal` depuis ses lignes, lues EN BASE.
+     *
+     * Appelé après toute écriture de détails. Le total n'est jamais additionné à la main au fil des
+     * opérations : une somme incrémentale dériverait au premier retrait de ligne, et l'écart ne se
+     * verrait sur aucun écran — c'est précisément le risque d'un dérivé stocké, et la seule façon de le
+     * tenir est de le RECALCULER en entier à chaque fois.
+     */
+    private function recomposerCout(Approvisionnement $approvisionnement): void
+    {
+        $this->em->flush(); // les lignes doivent être en base avant d'être sommées
+        $approvisionnement->setCouttotal(
+            $this->detailapprovisionnementRepository->totalPourApprovisionnement((int) $approvisionnement->getId())
+        );
     }
 
     /**

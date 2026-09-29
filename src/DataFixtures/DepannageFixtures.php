@@ -8,6 +8,7 @@ use App\Domain\Enum\Typemouvement;
 use App\Entity\Car;
 use App\Entity\Depannage;
 use App\Entity\Detaildepannage;
+use App\Entity\Detailmaindoeuvre;
 use App\Entity\Detailpersonnel;
 use App\Entity\Entreprise;
 use App\Entity\Personnel;
@@ -32,6 +33,10 @@ use Doctrine\Persistence\ObjectManager;
  * Le dépannage D2 est OUVERT DEPUIS SIX JOURS sur un car en panne : c'est la situation que guette
  * 'DEPANNAGE_OUVERT_PROLONGE'. D3 est annulé, ce qui RESTITUE le stock (mouvement ENTREE inverse)
  * tout en restant visible pour l'audit.
+ *
+ * D1 et D2 portent aussi de la MAIN D'ŒUVRE EXTERNE : sans elle, la démonstration montrerait un écran
+ * vide et l'on croirait la fonction absente. Elle ne touche à aucun stock, la calibration des alertes
+ * ci-dessus reste donc intacte — seuls les 'couttotal' montent, ce qui est le propos.
  */
 class DepannageFixtures extends Fixture implements DependentFixtureInterface, FixtureGroupInterface
 {
@@ -64,6 +69,10 @@ class DepannageFixtures extends Fixture implements DependentFixtureInterface, Fi
                 ['plaquette', 8, 45000],
                 ['filtre-huile', 2, 12000],
                 ['batterie', 2, 85000],
+            ],
+            [
+                // Un seul intervenant : le cas courant d'un entretien à l'atelier.
+                ['Garage Kouassi', 'Réglage des freins', 18000],
             ]);
 
         // ------------------------------ D2 · immobilisation EN COURS depuis 6 jours (car en panne)
@@ -76,6 +85,12 @@ class DepannageFixtures extends Fixture implements DependentFixtureInterface, Fi
                 ['batterie', 4, 85000],
                 ['pneu', 6, 145000],
                 ['plaquette', 4, 45000],
+            ],
+            [
+                // DEUX intervenants sur une casse en ligne : c'est le cas qui justifie une ligne par
+                // prestation plutôt qu'un montant global — « 95 000 de main d'œuvre » ne se relit pas.
+                ['Remorquage Traoré', 'Remorquage jusqu\'à Bouaké', 60000],
+                ['Soudeur du village', null, 35000],
             ]);
 
         // ------------------------------------------- D3 · ouvert par erreur puis annulé (stock rendu)
@@ -142,7 +157,8 @@ class DepannageFixtures extends Fixture implements DependentFixtureInterface, Fi
         DateTimeImmutable $date,
         User $auteur,
         array $equipe,
-        array $pieces
+        array $pieces,
+        array $maindoeuvres = []
     ): Depannage {
         $depannage = new Depannage();
         $depannage
@@ -167,6 +183,23 @@ class DepannageFixtures extends Fixture implements DependentFixtureInterface, Fi
             $depannage->addDetaildepannage($detail);
             $cout += $quantite * $prixUnitaire;
         }
+
+        /*
+            MAIN D'ŒUVRE EXTERNE : elle s'ajoute au coût, avec les pièces. Aucun mouvement de stock —
+            une prestation ne consomme rien de l'inventaire —, donc rien ici ne dérange la calibration
+            des alertes décrite en tête de ce fichier.
+        */
+        foreach ($maindoeuvres as [$intervenant, $prestation, $montant]) {
+            $ligne = (new Detailmaindoeuvre())
+                ->setDepannage($depannage)
+                ->setIntervenant($intervenant)
+                ->setPrestation($prestation)
+                ->setMontant($montant);
+            $manager->persist($ligne);
+            $depannage->addDetailmaindoeuvre($ligne);
+            $cout += $montant;
+        }
+
         $depannage->setCouttotal($cout);
 
         // L'affectation d'un mécanicien passe par 'Detailpersonnel', comme pour un voyage.

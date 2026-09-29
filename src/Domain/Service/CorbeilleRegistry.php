@@ -21,12 +21,16 @@ class CorbeilleRegistry
      *  - détails (cascade)      : Detailcourrier, Detailpersonnel
      *  - singletons de config   : ConfigRecette, ConfigRemise, ParametreReservation, Maintenance
      *  - dérivé / opt-in        : ProgrammeFidelite, Beneficiaire
+     *  - pièce jointe           : MediaObject — rattaché à une entreprise depuis le 28/09/2026, donc
+     *                             découvert par la règle ; mais il n'a aucune opération de suppression
+     *                             et suit la fiche qui le porte (un justificatif est une preuve)
      */
     private const EXCLUSIONS = [
         'Activite', 'Alerte', 'Inventaire',
         'Detailcourrier', 'Detailpersonnel',
         'ConfigRecette', 'ConfigRemise', 'ParametreReservation', 'Maintenance',
         'ProgrammeFidelite', 'Beneficiaire',
+        'MediaObject',
     ];
 
     private const ENTITY_NAMESPACE = 'App\\Entity\\';

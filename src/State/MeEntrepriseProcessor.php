@@ -11,6 +11,7 @@ use App\Entity\User;
 use App\Repository\EntrepriseRepository;
 use App\Repository\MediaObjectRepository;
 use Symfony\Bundle\SecurityBundle\Security;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class MeEntrepriseProcessor implements ProcessorInterface
 {
@@ -56,10 +57,23 @@ class MeEntrepriseProcessor implements ProcessorInterface
         ;
 
         if($data->image) {
-            /**
-             * @var MediaObject
-             */
-            $media = $this->mediaObjectRepository->find($data->image);
+            /*
+                !! BORNÉ À L'ENTREPRISE (28/09/2026). L'image arrive en IDENTIFIANT et non en IRI : elle
+                échappe donc à la résolution d'API Platform, et à 'EntrepriseScopeExtension' avec elle.
+                Un 'find()' nu laissait un administrateur désigner le média de N'IMPORTE QUELLE compagnie
+                comme logo — puis en lire l'URL sur sa propre fiche ('read:Entreprise'). Même trou que
+                la lecture directe d'un média, par une autre porte.
+                Un document PRIVÉ est refusé aussi : il n'a pas d'URL, un logo sans image n'a pas de sens.
+            */
+            /** @var MediaObject|null $media */
+            $media = $this->mediaObjectRepository->findOneBy([
+                'id' => $data->image,
+                'identreprise' => $entreprise->getId(),
+                'deletedAt' => null,
+            ]);
+            if($media === null || $media->isPrive()) {
+                throw new NotFoundHttpException('Cette image est introuvable dans votre entreprise.');
+            }
             $entreprise->setImage($media);
         }
 

@@ -9,6 +9,31 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Bagage>
+ *
+ * LA CORBEILLE EXCLUT DE TOUT TOTAL D'ARGENT (28/09/2026). Les agrégats de recette et les compteurs
+ * d'activité de ce fichier portent tous `b.deletedAt IS NULL`, en plus de leur filtre de statut.
+ *
+ * Ce qui se passait sans lui, MESURÉ sur les données réelles : un billet de 15 000 mis à la corbeille
+ * laissait la recette de l'entreprise et celle de la gare INCHANGÉES, tout en retirant 15 000 de la
+ * fiche du voyage et un passager du bordereau du chauffeur — parce que `findRecapDestinations` et
+ * `recettePourVoyage` filtraient la corbeille, et pas les agrégats du tableau de bord. Deux chiffres
+ * pour la même chose, sur le même écran, sans que rien ne dise lequel mentait.
+ *
+ * !! IL N'EXISTE AUCUN FILTRE DOCTRINE GLOBAL dans ce projet (pas de `SQLFilter`, rien dans
+ * `doctrine.yaml`) : `deletedAt` ne joue QUE là où il est écrit à la main. Une nouvelle requête de
+ * total qui l'oublie repart donc avec le défaut, en silence.
+ *
+ * Le principe : UN TOTAL DOIT ÊTRE RÉCONCILIABLE AVEC UNE LISTE QU'ON PEUT AFFICHER. Une recette qui
+ * contient une ligne qu'aucun écran ne montre est introuvable, donc incorrigeable.
+ *
+ * DEUX EXCEPTIONS VOULUES, à ne pas « harmoniser » :
+ *  - `suppressionsParAgent` cible `deletedAt IS NOT NULL` : c'est son objet même (vente hors-livre) ;
+ *  - les surfaces de CONTRÔLE (annulations, remises, désistements, forçages, incidents) ne filtrent
+ *    PAS la corbeille. Un tableau anti-fraude doit voir large, y compris ce qu'on a tenté d'effacer :
+ *    l'y filtrer offrirait le moyen de faire disparaître ses propres traces.
+ *
+ * Le statut, lui, garde son rôle : il dit ce qui a EXISTÉ PUIS ÉTÉ DÉFAIT (désistement, annulation) et
+ * reste visible. La corbeille dit ce qui n'aurait jamais dû être saisi.
  */
 class BagageRepository extends ServiceEntityRepository
 {
@@ -28,6 +53,7 @@ class BagageRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('b')
             ->select('COALESCE(SUM(b.montant), 0) AS total')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
@@ -49,7 +75,9 @@ class BagageRepository extends ServiceEntityRepository
     ): array
     {
         return $this->createQueryBuilder('b')
-            ->select('b.createdBy AS agentid, COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nbbagages')            ->andWhere('b.identreprise = :ide')
+            ->select('b.createdBy AS agentid, COALESCE(SUM(b.montant), 0) AS montant, COUNT(b.id) AS nbbagages')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.commercial IS NULL') // guichet : bagages enregistrés par le commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
@@ -76,7 +104,9 @@ class BagageRepository extends ServiceEntityRepository
                 'COALESCE(SUM(b.montant), 0) AS montant',
                 'COUNT(b.id) AS nbbagages',
                 'COALESCE(SUM(b.poids), 0) AS poids',
-            )            ->andWhere('b.identreprise = :ide')
+            )
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
@@ -102,6 +132,7 @@ class BagageRepository extends ServiceEntityRepository
         $rows = $this->createQueryBuilder('b')
             ->select('b.statut, COUNT(b.id) AS total')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -127,6 +158,7 @@ class BagageRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('b')
             ->select('COALESCE(SUM(b.poids), 0) AS total')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -146,7 +178,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
@@ -165,7 +199,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, DATE(b.createdAt) AS jour, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
@@ -185,7 +221,9 @@ class BagageRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('b')
             ->select('g.id AS gareid, b.createdBy AS agentid, COUNT(b.id) AS nb, COALESCE(SUM(b.montant), 0) AS recette')
-            ->join('b.garedepart', 'g')            ->andWhere('b.identreprise = :ide')
+            ->join('b.garedepart', 'g')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.commercial IS NULL') // guichet : bagages du commercial exclus (recette à part)
             ->andWhere('b.createdAt >= :debut')
@@ -287,6 +325,7 @@ class BagageRepository extends ServiceEntityRepository
             ->select('c.id AS commercialid, c.nom AS nom, c.prenom AS prenom, COUNT(b.id) AS nbbagages, COALESCE(SUM(b.montant), 0) AS recette')
             ->join('b.commercial', 'c')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
@@ -332,6 +371,7 @@ class BagageRepository extends ServiceEntityRepository
             ->join('b.commercial', 'u')
             ->join('u.gare', 'g')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
@@ -351,6 +391,7 @@ class BagageRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(b.id) AS nb, COALESCE(SUM(b.poids), 0) AS poids')
             ->join('b.garedepart', 'g')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
@@ -370,6 +411,7 @@ class BagageRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(b.id) AS nb')
             ->join('b.garedescente', 'g')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
             ->andWhere("b.statut = 'LIVRE'")
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')

@@ -10,6 +10,7 @@ use App\Entity\Output\Agent\AgentDetailVoyageDto;
 use App\Entity\Output\Agent\AgentPerformanceDto;
 use App\Entity\Output\Agent\AgentStatistiqueOutput;
 use App\Entity\User;
+use App\Domain\Service\ConfigRecetteService;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
 use App\Repository\TicketRepository;
@@ -33,7 +34,8 @@ class AgentStatsProvider implements ProviderInterface
         private TicketRepository $ticketRepository,
         private CourrierRepository $courrierRepository,
         private BagageRepository $bagageRepository,
-        private UserRepository $userRepository
+        private UserRepository $userRepository,
+        private ConfigRecetteService $configRecetteService
     )
     {
     }
@@ -52,8 +54,27 @@ class AgentStatsProvider implements ProviderInterface
 
         // Billetterie GUICHET par agent (detailParAgentEtVoyage exclut les ventes à bord/commercial), + le détail par voyage
         $agentsMap = [];
+        /*
+            `created_by` EST NULLABLE SUR TOUTES LES ÉCRITURES, et ce provider n'y était pas préparé :
+            une vente sans auteur produisait la clé de tableau `''` (PHP convertit `null` en chaîne
+            vide), et `AgentPerformanceDto` déclare `int $id` — TypeError, donc **500 sur tout l'écran**
+            pour une seule ligne mal attribuée. Les billets y échappaient par accident, leur requête
+            passant par un `INNER JOIN` sur `User` qui écarte ces lignes ; les courriers et les bagages
+            lisent `createdBy` directement.
+
+            On ne les CASTE PAS en int : `(int) null` vaut 0, ce qui inventerait un agent n° 0 nommé
+            « — ». Une écriture sans auteur n'appartient à personne, elle sort du classement — et son
+            montant est compté à part ('recetteNonAttribuee'), pour ne pas disparaître en silence.
+        */
+        $agentValide = static fn (mixed $id): bool => $id !== null && $id !== '' && (int) $id > 0;
+        $recetteNonAttribuee = 0.0;
+
         foreach ($this->ticketRepository->detailParAgentEtVoyage($dateDebut, $dateFin, $identreprise) as $row) {
-            $id = $row['agentid'];
+            if (!$agentValide($row['agentid'])) {
+                $recetteNonAttribuee += (float) $row['recette'];
+                continue;
+            }
+            $id = (int) $row['agentid'];
             $agentsMap[$id]['agentId']        = $id;
             $agentsMap[$id]['nom']            = $row['nom'];
             $agentsMap[$id]['prenom']         = $row['prenom'];
@@ -71,7 +92,11 @@ class AgentStatsProvider implements ProviderInterface
         // Courriers par agent (createdBy)
         $courriersParAgent = [];
         foreach ($this->courrierRepository->recettesParAgent($dateDebut, $dateFin, $identreprise) as $row) {
-            $id = $row['agentid'];
+            if (!$agentValide($row['agentid'])) {
+                $recetteNonAttribuee += (float) $row['montant'];
+                continue;
+            }
+            $id = (int) $row['agentid'];
             $courriersParAgent[$id]['nbcourriers']      = ($courriersParAgent[$id]['nbcourriers'] ?? 0) + (int) $row['nbcourriers'];
             $courriersParAgent[$id]['recetteCourriers'] = ($courriersParAgent[$id]['recetteCourriers'] ?? 0) + (float) $row['montant'];
         }
@@ -84,7 +109,11 @@ class AgentStatsProvider implements ProviderInterface
         // Bagages par agent (createdBy)
         $bagagesParAgent = [];
         foreach ($this->bagageRepository->recettesParAgent($dateDebut, $dateFin, $identreprise) as $row) {
-            $id = $row['agentid'];
+            if (!$agentValide($row['agentid'])) {
+                $recetteNonAttribuee += (float) $row['montant'];
+                continue;
+            }
+            $id = (int) $row['agentid'];
             $bagagesParAgent[$id]['nbbagages']      = ($bagagesParAgent[$id]['nbbagages'] ?? 0) + (int) $row['nbbagages'];
             $bagagesParAgent[$id]['recetteBagages'] = ($bagagesParAgent[$id]['recetteBagages'] ?? 0) + (float) $row['montant'];
         }
@@ -104,6 +133,9 @@ class AgentStatsProvider implements ProviderInterface
             }
         }
 
+        $courriersHorsCa = $this->configRecetteService->courriersHorsCa($identreprise);
+        $partCourriers = static fn (array $a): float => $courriersHorsCa ? 0.0 : (float) ($a['recetteCourriers'] ?? 0);
+
         $performances = array_map(fn ($a) => new AgentPerformanceDto(
             id:               $a['agentId'],
             nom:              $a['nom'],
@@ -114,7 +146,13 @@ class AgentStatsProvider implements ProviderInterface
             recetteCourriers: round($a['recetteCourriers'] ?? 0, 2),
             nbbagages:        $a['nbbagages'] ?? 0,
             recetteBagages:   round($a['recetteBagages'] ?? 0, 2),
-            recetteTotale:    round(($a['recetteTickets'] ?? 0) + ($a['recetteCourriers'] ?? 0) + ($a['recetteBagages'] ?? 0), 2),
+            /*
+                LE TOTAL D'UN AGENT SUIT LA RÈGLE DE LA COMPAGNIE. Il additionnait les courriers sans
+                condition : le classement des vendeurs ne s'accordait donc pas avec la recette des gares
+                ni avec le bénéfice, chez une compagnie qui met le fret hors chiffre d'affaires. Sa
+                recette courrier reste servie à part ('recetteCourriers'), elle ne disparaît pas.
+            */
+            recetteTotale:    round(($a['recetteTickets'] ?? 0) + $partCourriers($a) + ($a['recetteBagages'] ?? 0), 2),
             detailParVoyage:  $a['detail'] ?? [],
         ), array_values($agentsMap));
 
@@ -133,31 +171,38 @@ class AgentStatsProvider implements ProviderInterface
             ];
         };
         foreach ($this->ticketRepository->tauxAnnulationParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['ventesBillets']  = (int) $r['nbemis'];
             $crit[$id]['ventesAnnulees'] = (int) $r['nbannules'];
         }
         foreach ($this->ticketRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['annulTickets'] = (int) $r['nb'];
         }
         foreach ($this->ticketRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['supprTickets'] = (int) $r['nb'];
         }
         foreach ($this->bagageRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['annulBagages'] = (int) $r['nb'];
         }
         foreach ($this->bagageRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['supprBagages'] = (int) $r['nb'];
         }
         foreach ($this->courrierRepository->annulationsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['annulCourriers'] = (int) $r['nb'];
         }
         foreach ($this->courrierRepository->suppressionsParAgent($dateDebut, $dateFin, $identreprise) as $r) {
+            if (!$agentValide($r['agentid'])) { continue; } // pas d'agent n° 0 dans un tableau anti-fraude
             $id = (int) $r['agentid']; $ligne($id);
             $crit[$id]['supprCourriers'] = (int) $r['nb'];
         }
@@ -196,6 +241,7 @@ class AgentStatsProvider implements ProviderInterface
             agentsActifs: count($performances),
             performances: $performances,
             actionsCritiques: $actionsCritiques,
+            recetteNonAttribuee: round($recetteNonAttribuee, 2),
         );
     }
 }

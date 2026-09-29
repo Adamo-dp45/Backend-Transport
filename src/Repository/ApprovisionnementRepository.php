@@ -17,15 +17,22 @@ class ApprovisionnementRepository extends ServiceEntityRepository
     }
 
     // -- Statistiques -- //
-    // Pilotées par le STATUT métier : un approvisionnement ANNULE (stock retiré) est exclu des coûts mais reste
-    // visible pour l'audit ; la corbeille ('deletedAt') ne gère que la visibilité dans les listes.
+    // DEUX EXCLUSIONS, ET ELLES NE DISENT PAS LA MÊME CHOSE :
+    //  - 'statut != ANNULE' : l'opération a EXISTÉ puis été DÉFAITE. L'annulation est un acte tracé qui
+    //    rend le stock à son état d'avant ; la ligne reste VISIBLE pour l'audit, hors des coûts.
+    //  - 'deletedAt IS NULL' : la ligne n'aurait jamais dû être saisie. Ajouté le 28/09/2026, par
+    //    symétrie avec les recettes — un total ne doit pas contenir ce qu'aucun écran ne montre.
+    //
+    // Les deux tiennent ENSEMBLE grâce au garde de 'SoftDeleteProcessor' : depuis la même date, une
+    // ligne encore valide ne PEUT PLUS partir à la corbeille sans être annulée d'abord. Sans ce garde,
+    // ce filtre-ci ferait disparaître le coût en laissant le stock entré — des pièces gratuites.
 
     public function coutTotal(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): float
     {
         $row = $this->createQueryBuilder('a')
-            ->select('SUM(da.couttotal) AS total')
-            ->join('a.detailapprovisionnements', 'da')
+            ->select('SUM(a.couttotal) AS total')
             ->andWhere('a.identreprise = :ide')
+            ->andWhere('a.deletedAt IS NULL')
             ->andWhere('a.dateappro >= :debut')
             ->andWhere('a.dateappro <= :fin')
             ->andWhere("a.statut != 'ANNULE'") // exclut les approvisionnements annulés des coûts
@@ -42,10 +49,10 @@ class ApprovisionnementRepository extends ServiceEntityRepository
     public function achatsParFournisseur(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('a')
-            ->select('f.id AS id, f.libelle AS libelle, COUNT(DISTINCT a.id) AS nbappros, COALESCE(SUM(da.couttotal), 0) AS montant')
-            ->join('a.detailapprovisionnements', 'da')
+            ->select('f.id AS id, f.libelle AS libelle, COUNT(DISTINCT a.id) AS nbappros, COALESCE(SUM(a.couttotal), 0) AS montant')
             ->join('a.fournisseur', 'f')
             ->andWhere('a.identreprise = :ide')
+            ->andWhere('a.deletedAt IS NULL')
             ->andWhere('a.dateappro >= :debut')
             ->andWhere('a.dateappro <= :fin')
             ->andWhere("a.statut != 'ANNULE'")
@@ -61,9 +68,9 @@ class ApprovisionnementRepository extends ServiceEntityRepository
     public function coutParJour(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
     {
         return $this->createQueryBuilder('a')
-            ->select('DATE(a.dateappro) AS label, SUM(da.couttotal) AS montant')
-            ->join('a.detailapprovisionnements', 'da')
+            ->select('DATE(a.dateappro) AS label, SUM(a.couttotal) AS montant')
             ->andWhere('a.identreprise = :ide')
+            ->andWhere('a.deletedAt IS NULL')
             ->andWhere('a.dateappro >= :debut')
             ->andWhere('a.dateappro <= :fin')
             ->andWhere("a.statut != 'ANNULE'") // exclut les approvisionnements annulés des coûts

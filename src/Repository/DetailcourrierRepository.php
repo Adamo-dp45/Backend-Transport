@@ -8,6 +8,15 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Detailcourrier>
+ *
+ * LA CORBEILLE EXCLUT, À DEUX NIVEAUX (28/09/2026). Ces agrégats filtrent `c.deletedAt` ET
+ * `dc.deletedAt` : `Detailcourrier` étend `EntityBase`, une LIGNE peut donc partir à la corbeille sans
+ * son courrier.
+ *
+ * Trouvé en balayant les agrégats d'argent après le correctif général : `parTrancheValeur` sert une
+ * RECETTE (son alias le dit) et l'ignorait, alors que `CourrierRepository::recetteParGare` venait de la
+ * filtrer. La ventilation par tranche de valeur aurait donc dépassé la recette courrier dont elle est
+ * censée être le détail — le même écart que celui qu'on venait de fermer, un cran plus bas.
  */
 class DetailcourrierRepository extends ServiceEntityRepository
 {
@@ -25,6 +34,8 @@ class DetailcourrierRepository extends ServiceEntityRepository
             ->join('dc.courrier', 'c')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
+            ->andWhere('c.deletedAt IS NULL')  // le courrier en corbeille
+            ->andWhere('dc.deletedAt IS NULL') // et la LIGNE, qui a sa propre corbeille
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -52,6 +63,8 @@ class DetailcourrierRepository extends ServiceEntityRepository
             ->join('dc.courrier', 'c')
             ->andWhere('c.identreprise = :ide')
             ->andWhere("c.statut != 'ANNULE'")
+            ->andWhere('c.deletedAt IS NULL')  // le courrier en corbeille
+            ->andWhere('dc.deletedAt IS NULL') // et la LIGNE, qui a sa propre corbeille
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
             ->setParameter('ide', $identreprise)

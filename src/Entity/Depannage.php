@@ -65,6 +65,11 @@ use Symfony\Component\Serializer\Attribute\Groups;
         ),
         new Post(
             security: "is_granted('CREER', 'Depannage')",
+            validationContext: ['groups' => ['Default', 'creation']], /*
+                - 'creation' active les contraintes « obligatoire » du DTO, que le PATCH n'active pas :
+                  un PATCH doit pouvoir être PARTIEL. Sans cette séparation, la validation refusait en
+                  422 ce que le processeur savait traiter
+            */
             input: DepannageInput::class,
             processor: DepannageProcessor::class,
             denormalizationContext: ['groups' => ['write:DepannageInput']],
@@ -255,6 +260,17 @@ class Depannage extends EntityBase implements EntrepriseOwnedInterface
     private ?int $piecesQuantiteTotale = null;
 
     /**
+     * MAIN D'ŒUVRE EXTERNE de l'intervention (cf. {@see Detailmaindoeuvre}).
+     *
+     * Fiche uniquement, comme les pièces : la liste reçoit le total agrégé `coutmaindoeuvre`.
+     *
+     * @var Collection<int, Detailmaindoeuvre>
+     */
+    #[ORM\OneToMany(targetEntity: Detailmaindoeuvre::class, mappedBy: 'depannage', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    #[Groups(['read:Depannage:item'])]
+    private Collection $detailmaindoeuvres;
+
+    /**
      * @var Collection<int, Detailpersonnel>
      */
     #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'depannage')]
@@ -283,6 +299,7 @@ class Depannage extends EntityBase implements EntrepriseOwnedInterface
     {
         $this->detaildepannages = new ArrayCollection();
         $this->detailpersonnels = new ArrayCollection();
+        $this->detailmaindoeuvres = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -344,6 +361,51 @@ class Depannage extends EntityBase implements EntrepriseOwnedInterface
     public function getDetaildepannages(): Collection
     {
         return $this->detaildepannages;
+    }
+
+    /**
+     * @return Collection<int, Detailmaindoeuvre>
+     */
+    public function getDetailmaindoeuvres(): Collection
+    {
+        return $this->detailmaindoeuvres;
+    }
+
+    public function addDetailmaindoeuvre(Detailmaindoeuvre $detailmaindoeuvre): static
+    {
+        if (!$this->detailmaindoeuvres->contains($detailmaindoeuvre)) {
+            $this->detailmaindoeuvres->add($detailmaindoeuvre);
+            $detailmaindoeuvre->setDepannage($this);
+        }
+
+        return $this;
+    }
+
+    public function removeDetailmaindoeuvre(Detailmaindoeuvre $detailmaindoeuvre): static
+    {
+        $this->detailmaindoeuvres->removeElement($detailmaindoeuvre);
+
+        return $this;
+    }
+
+    /**
+     * Part de MAIN D'ŒUVRE dans le coût de l'intervention.
+     *
+     * DÉRIVÉE À LA LECTURE, jamais stockée : elle se somme depuis les lignes, contrairement à
+     * `couttotal` qui est persisté — celui-là l'est parce que les statistiques de flotte en font un
+     * `SUM` en SQL, ce qu'un getter PHP ne saurait pas servir. Une seule exception assumée, pas deux.
+     *
+     * Permet à un écran d'annoncer « 120 000 dont 45 000 de main d'œuvre » sans recalculer les pièces.
+     */
+    #[Groups(['read:Depannage:item'])]
+    public function getCoutmaindoeuvre(): int
+    {
+        $total = 0;
+        foreach ($this->detailmaindoeuvres as $ligne) {
+            $total += (int) $ligne->getMontant();
+        }
+
+        return $total;
     }
 
     public function addDetaildepannage(Detaildepannage $detaildepannage): static

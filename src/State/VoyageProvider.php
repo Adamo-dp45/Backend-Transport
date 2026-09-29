@@ -2,44 +2,107 @@
 
 namespace App\State;
 
+use ApiPlatform\Doctrine\Orm\State\CollectionProvider;
 use ApiPlatform\Doctrine\Orm\State\ItemProvider;
+use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Domain\Service\ReservationEcheanceService;
 use App\Entity\Voyage;
+use App\Repository\DepenseRepository;
+use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Lecture de la FICHE d'un voyage, enrichie de la frise des HORAIRES par gare
- * (cf. {@see Voyage::$horaires}).
+ * Lecture d'un voyage — FICHE ou LISTE —, enrichie de deux champs dérivés : la frise des HORAIRES par
+ * gare (fiche seule, cf. {@see Voyage::$horaires}) et le TOTAL DES CHARGES rattachées au départ
+ * (fiche ET liste, cf. {@see Voyage::$depensestotal}).
  *
  * On se BRANCHE au pipeline natif d'API Platform (on ne le remplace pas) : sécurité, extensions de
  * périmètre et sérialisation s'appliquent normalement — on se contente de poser un champ dérivé sur
  * l'entité renvoyée, comme le fait TicketProvider pour le repère 'evince'.
  *
- * Le calcul reprend celui du manifeste (VoyageManifesteController) : heure PRÉVUE = somme des
- * tronçons depuis l'origine effective ; heures RÉELLES = entité Passage ; retard = réel − prévu,
+ * Le calcul des horaires reprend celui du manifeste (VoyageManifesteController) : heure PRÉVUE = somme
+ * des tronçons depuis l'origine effective ; heures RÉELLES = entité Passage ; retard = réel − prévu,
  * mesuré sur l'ARRIVÉE (ou sur le départ à l'origine, qui n'a pas d'arrivée). Rien n'est stocké :
  * la frise suit d'elle-même une replanification du départ ou une correction des durées.
+ *
+ * LE TOTAL DES CHARGES COÛTE UNE REQUÊTE PAR PAGE, pas une par ligne. On rassemble les identifiants
+ * de la page, puis `DepenseRepository::totauxParVoyages()` ramène tous les totaux d'un coup. Écrire
+ * naïvement `SUM` par voyage aurait produit un N+1 de 25 requêtes — le genre de coût qu'on ne voit
+ * jamais en développement et qui se paie en production.
+ *
+ * Le paginator est renvoyé INTACT : on ne fait que poser un champ sur des entités déjà chargées, qui
+ * restent celles de l'identity map lors de la sérialisation (même procédé que TicketProvider).
  */
 final class VoyageProvider implements ProviderInterface
 {
     public function __construct(
         #[Autowire(service: ItemProvider::class)]
         private readonly ProviderInterface $itemProvider,
-        private readonly ReservationEcheanceService $echeance
+        #[Autowire(service: CollectionProvider::class)]
+        private readonly ProviderInterface $collectionProvider,
+        private readonly ReservationEcheanceService $echeance,
+        private readonly DepenseRepository $depenseRepository,
+        private readonly Security $security
     )
     {
     }
 
     public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
+        if ($operation instanceof GetCollection) {
+            $data = $this->collectionProvider->provide($operation, $uriVariables, $context);
+
+            $voyages = [];
+            foreach ($data as $voyage) {
+                if ($voyage instanceof Voyage) {
+                    $voyages[] = $voyage;
+                }
+            }
+            $this->poserLesCharges($voyages);
+
+            return $data;
+        }
+
         $voyage = $this->itemProvider->provide($operation, $uriVariables, $context);
         if ($voyage instanceof Voyage) {
             $voyage->setHoraires($this->horaires($voyage));
+            $this->poserLesCharges([$voyage]);
         }
 
         return $voyage;
+    }
+
+    /**
+     * Pose le total des charges sur un lot de voyages, en UNE requête.
+     *
+     * La permission est vérifiée une fois pour tout le lot : sans `DEPENSE_VOIR`, on ne lance même pas
+     * la requête et le champ reste NUL — « je n'ai pas le droit de savoir » et non « zéro ».
+     *
+     * @param list<Voyage> $voyages
+     */
+    private function poserLesCharges(array $voyages): void
+    {
+        if ($voyages === [] || !$this->security->isGranted('VOIR', 'Depense')) {
+            return;
+        }
+
+        $ids = [];
+        foreach ($voyages as $voyage) {
+            if ($voyage->getId() !== null) {
+                $ids[] = (int) $voyage->getId();
+            }
+        }
+
+        $identreprise = (int) ($voyages[0]->getIdentreprise() ?? 0);
+        $totaux = $this->depenseRepository->totauxParVoyages($ids, $identreprise);
+
+        foreach ($voyages as $voyage) {
+            // Le repository omet les voyages sans charge : ici, « rien » s'écrit 0 — l'acteur a le
+            // droit de savoir, et la réponse est qu'il n'y en a pas.
+            $voyage->setDepensestotal($totaux[(int) $voyage->getId()] ?? 0);
+        }
     }
 
     /** @return array<int, array<string, mixed>> */

@@ -10,10 +10,20 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class ImageController extends AbstractController
 {
+    /**
+     * !! LES SEULS DOSSIERS QUE GLIDE LIT (29/09/2026). Sa source est tout `public/`, et les JUSTIFICATIFS
+     * de dépense y vivent désormais (`public/documents`, interdit au serveur web par son `.htaccess`).
+     * Sans cette liste, `/media/documents/<nom>.png` ferait lire le fichier PAR PHP — donc par-dessus
+     * l'interdiction du `.htaccess`, qui ne s'applique qu'aux fichiers servis en statique. Le nom aléatoire
+     * reste la seconde barrière ; cette liste ferme la porte que Glide ouvrait à côté.
+     */
+    private const DOSSIERS = '#^images/(media|users)/[^/]+$#';
+
     #[Route('/media/{path}', name: 'glide', methods: ['GET'], requirements: ['path' => '.+'])]
     public function glide(
         Request $request,
@@ -21,10 +31,14 @@ final class ImageController extends AbstractController
         ParameterBagInterface $params
     )
     {
+        if(!preg_match(self::DOSSIERS, $path)) {
+            throw new NotFoundHttpException();
+        }
+
         $server = ServerFactory::create([
             'response' => new SymfonyResponseFactory(),
-            'source' => $params->get('kernel.project_dir') . '/public',
-            'cache' => $params->get('kernel.project_dir') . '/public/images/cache',
+            'source' => $params->get('glide.source'), // 'public/' ; les fichiers de test en test
+            'cache' => $params->get('glide.cache'),
             'base_url' => '/media',
             /*
                 'presets'  => [

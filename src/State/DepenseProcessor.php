@@ -10,6 +10,7 @@ use App\Domain\Service\ActiviteLogger;
 use App\Entity\Depense;
 use App\Entity\Fournisseur;
 use App\Entity\Gare;
+use App\Entity\MediaObject;
 use App\Entity\Typedepense;
 use App\Entity\User;
 use App\Entity\Voyage;
@@ -17,6 +18,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 /**
  * Écriture d'une DÉPENSE : imputation, appartenance des références, audit.
@@ -56,6 +58,7 @@ class DepenseProcessor implements ProcessorInterface
                 ->setCreatedBy($user->getId())
             ;
             $this->assertReferencesDeLEntreprise($data, $entrepriseId);
+            $this->assertJustificatifAccrochable($data->getJustificatif(), null, $user);
             $this->imputer($data, $user);
 
             $this->activiteLogger->log(
@@ -82,6 +85,7 @@ class DepenseProcessor implements ProcessorInterface
 
             $data->setUpdatedBy($user->getId());
             $this->assertReferencesDeLEntreprise($data, $entrepriseId);
+            $this->assertJustificatifAccrochable($data->getJustificatif(), $original['justificatif_id'] ?? null, $user);
 
             $nouvelleGareId = $data->getGare()?->getId();
             if($nouvelleGareId !== $ancienneGareId && !$this->imputeLibrement($user)) {
@@ -155,7 +159,7 @@ class DepenseProcessor implements ProcessorInterface
      * CEINTURE, pas bretelle : 'EntrepriseScopeExtension' s'applique déjà à la RÉSOLUTION d'un IRI,
      * si bien qu'une gare étrangère est introuvable avant même d'arriver ici (ApiPlatform répond
      * 400). Cette relecture couvre ce que la dénormalisation ne couvre pas — une référence posée par
-     * du code interne, et le jour où le périmètre de lecture changerait. Elle coûte quatre 'findOneBy'
+     * du code interne, et le jour où le périmètre de lecture changerait. Elle coûte cinq 'findOneBy'
      * sur une opération d'écriture rare.
      */
     private function assertReferencesDeLEntreprise(Depense $data, int $entrepriseId): void
@@ -165,6 +169,7 @@ class DepenseProcessor implements ProcessorInterface
             ['classe' => Gare::class,        'valeur' => $data->getGare(),        'libelle' => 'La gare'],
             ['classe' => Fournisseur::class, 'valeur' => $data->getFournisseur(), 'libelle' => 'Le fournisseur'],
             ['classe' => Voyage::class,      'valeur' => $data->getVoyage(),      'libelle' => 'Le voyage'],
+            ['classe' => MediaObject::class, 'valeur' => $data->getJustificatif(), 'libelle' => 'Le justificatif'],
         ];
 
         foreach ($references as $reference) {
@@ -181,6 +186,41 @@ class DepenseProcessor implements ProcessorInterface
             if(!$existe) {
                 throw new NotFoundHttpException($reference['libelle'] . ' est introuvable dans votre entreprise');
             }
+        }
+    }
+
+    /**
+     * Un justificatif NOUVELLEMENT accroché doit être un document PRIVÉ, téléversé PAR L'ACTEUR.
+     *
+     * Le périmètre d'entreprise ne suffit pas, et c'est tout l'objet de cette garde : la route de
+     * téléchargement sert le justificatif à quiconque peut lire LA DÉPENSE. Sans elle, un agent de
+     * Bouaké pouvait accrocher à SA dépense le média d'un bulletin de salaire saisi au siège — même
+     * compagnie, donc IRI résolu — puis le télécharger par sa propre fiche. Exiger l'auteur ferme ce
+     * détour sans rien coûter : le formulaire téléverse puis accroche dans le même geste, par la même
+     * personne.
+     *
+     * Un justificatif INCHANGÉ passe toujours : l'administrateur qui corrige le montant de la dépense
+     * d'un agent renvoie le justificatif existant, qu'il n'a pas téléversé.
+     *
+     * Et il doit être PRIVÉ : une image publique accrochée comme justificatif remettrait une pièce
+     * comptable sous `public/`, lisible sans compte.
+     */
+    private function assertJustificatifAccrochable(?MediaObject $justificatif, mixed $ancienId, User $user): void
+    {
+        if($justificatif === null || ($ancienId !== null && (int) $ancienId === $justificatif->getId())) {
+            return;
+        }
+
+        if(!$justificatif->isPrive()) {
+            throw new UnprocessableEntityHttpException(
+                'Le justificatif doit être téléversé comme document privé (prive=1) : une pièce comptable ne se range pas avec les images publiques.'
+            );
+        }
+
+        if($justificatif->getCreatedBy() !== $user->getId()) {
+            throw new AccessDeniedHttpException(
+                'Ce justificatif n\'a pas été téléversé par vous : téléversez le fichier avant de l\'accrocher.'
+            );
         }
     }
 

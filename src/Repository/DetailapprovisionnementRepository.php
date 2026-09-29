@@ -16,28 +16,22 @@ class DetailapprovisionnementRepository extends ServiceEntityRepository
         parent::__construct($registry, Detailapprovisionnement::class);
     }
 
-    //    /**
-    //     * @return Detailapprovisionnement[] Returns an array of Detailapprovisionnement objects
-    //     */
-    //    public function findByExampleField($value): array
-    //    {
-    //        return $this->createQueryBuilder('d')
-    //            ->andWhere('d.exampleField = :val')
-    //            ->setParameter('val', $value)
-    //            ->orderBy('d.id', 'ASC')
-    //            ->setMaxResults(10)
-    //            ->getQuery()
-    //            ->getResult()
-    //        ;
-    //    }
-
-    //    public function findOneBySomeField($value): ?Detailapprovisionnement
-    //    {
-    //        return $this->createQueryBuilder('d')
-    //            ->andWhere('d.exampleField = :val')
-    //            ->setParameter('val', $value)
-    //            ->getQuery()
-    //            ->getOneOrNullResult()
-    //        ;
-    //    }
+    /**
+     * Somme des lignes d'un approvisionnement — la SOURCE du recalcul de
+     * `Approvisionnement::$couttotal`.
+     *
+     * Lue en base et non depuis la collection en mémoire : après une réconciliation, la collection de
+     * l'entité peut être partiellement chargée ou porter des lignes déjà détachées, et le total
+     * recomposé serait faux sans erreur visible. Même patron que
+     * `DetailmaindoeuvreRepository::totalPourDepannage()`.
+     */
+    public function totalPourApprovisionnement(int $approvisionnementId): int
+    {
+        return (int) $this->createQueryBuilder('d')
+            ->select('COALESCE(SUM(d.couttotal), 0)')
+            ->andWhere('d.approvisionnement = :appro')
+            ->setParameter('appro', $approvisionnementId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

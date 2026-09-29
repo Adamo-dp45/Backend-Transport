@@ -5,12 +5,15 @@ namespace App\State;
 use ApiPlatform\Doctrine\Common\State\RemoveProcessor;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
+use App\Domain\Enum\ApprovisionnementStatus;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\CourrierStatus;
 use App\Domain\Enum\DepannageStatus;
 use App\Domain\Enum\TicketStatus;
 use App\Domain\Service\ActiviteLogger;
+use App\Entity\Approvisionnement;
 use App\Entity\Bagage;
+use App\Entity\Depannage;
 use App\Entity\Courrier;
 use App\Entity\Detailpersonnel;
 use App\Entity\Interface\HasLockGuard;
@@ -76,6 +79,39 @@ class SoftDeleteProcessor implements ProcessorInterface
             }
             $createur = $data->getCreatedBy() ? $this->userRepository->find($data->getCreatedBy()) : null;
             $this->gareGuard->assertEstGare($user, $createur?->getGare(), 'Seule la gare émettrice peut supprimer ce courrier');
+        }
+
+        /*
+            UN DOCUMENT COMPTABLE VIVANT NE PART PAS À LA CORBEILLE — il s'ANNULE (28/09/2026).
+
+            L'annulation d'un approvisionnement RETIRE les pièces du stock ; celle d'un dépannage les y
+            REMET. La mise en corbeille, elle, ne touche à rien : ce n'est qu'une visibilité. Tant que
+            les coûts ignoraient `deletedAt`, les deux se tenaient — stock entré, coût compté. Du jour
+            où le coût filtre la corbeille (même date), supprimer sans annuler produirait du STOCK SANS
+            COÛT : des pièces gratuites en inventaire, et un bénéfice trop beau.
+
+            D'où ce refus, qui dit la marche à suivre. La sortie normale était déjà l'annulation —
+            l'entité le documente elle-même : « suppression d'un document comptable : admin
+            d'entreprise UNIQUEMENT (la sortie normale est l'annulation, tracée) ».
+
+            !! CONSÉQUENCE ASSUMÉE : un dépannage CLOTURE ne s'annule plus (seul un EN COURS le peut),
+            il n'est donc plus supprimable du tout. C'est le comportement voulu pour une pièce dont les
+            pièces sont consommées et le coût engagé : on ne supprime pas ce qui a coûté de l'argent.
+        */
+        if($data instanceof Approvisionnement && $data->getStatut() !== ApprovisionnementStatus::ANNULE->value) {
+            throw new BadRequestHttpException(
+                'Un approvisionnement encore valide ne peut pas être supprimé : son stock resterait'
+                . ' entré sans coût. Annulez-le d\'abord, ce qui retire'
+                . ' les pièces du stock, puis supprimez-le si besoin.'
+            );
+        }
+
+        if($data instanceof Depannage && $data->getStatut() !== DepannageStatus::ANNULE->value) {
+            throw new BadRequestHttpException(
+                'Un dépannage non annulé ne peut pas être supprimé : ses pièces resteraient consommées'
+                . ' sans coût. Annulez-le d\'abord, ce qui restaure le stock.'
+                . ' Un dépannage déjà CLOTURE ne se supprime pas : son coût est engagé.'
+            );
         }
 
         if($data instanceof HasSoftDeleteGuard) { /*

@@ -53,14 +53,22 @@ class DepannageRepository extends ServiceEntityRepository
     }
 
     // -- Statistiques -- //
-    // Pilotées par le STATUT métier (et non par 'deletedAt') : un dépannage ANNULE (stock restauré) est exclu
-    // des coûts/compteurs mais reste visible pour l'audit ; la corbeille ne gère que la visibilité dans les listes.
+    // DEUX EXCLUSIONS, ET ELLES NE DISENT PAS LA MÊME CHOSE :
+    //  - 'statut != ANNULE' : l'opération a EXISTÉ puis été DÉFAITE. L'annulation est un acte tracé qui
+    //    rend le stock à son état d'avant ; la ligne reste VISIBLE pour l'audit, hors des coûts.
+    //  - 'deletedAt IS NULL' : la ligne n'aurait jamais dû être saisie. Ajouté le 28/09/2026, par
+    //    symétrie avec les recettes — un total ne doit pas contenir ce qu'aucun écran ne montre.
+    //
+    // Les deux tiennent ENSEMBLE grâce au garde de 'SoftDeleteProcessor' : depuis la même date, une
+    // ligne encore valide ne PEUT PLUS partir à la corbeille sans être annulée d'abord. Sans ce garde,
+    // ce filtre-ci ferait disparaître le coût en laissant le stock entré — des pièces gratuites.
 
     public function coutTotal(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): float
     {
         $row = $this->createQueryBuilder('d')
             ->select('SUM(d.couttotal) AS total')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'") // exclut les dépannages annulés des coûts
@@ -79,6 +87,7 @@ class DepannageRepository extends ServiceEntityRepository
         return (int) $this->createQueryBuilder('d')
             ->select('COUNT(d.id)')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'")
@@ -96,6 +105,7 @@ class DepannageRepository extends ServiceEntityRepository
             ->select('tp.libelle AS type, COUNT(d.id) AS nb, COALESCE(SUM(d.couttotal), 0) AS cout')
             ->join('d.typepanne', 'tp')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'")
@@ -116,6 +126,7 @@ class DepannageRepository extends ServiceEntityRepository
             ->join('d.detaildepannages', 'dd')
             ->join('dd.piece', 'p')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'")
@@ -134,6 +145,7 @@ class DepannageRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('d')
             ->select('DATE(d.datedepannage) AS label, SUM(d.couttotal) AS montant')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'") // exclut les dépannages annulés des coûts
@@ -153,6 +165,7 @@ class DepannageRepository extends ServiceEntityRepository
             ->select('c.matricule, COUNT(d.id) AS nbrdepannages')
             ->join('d.car', 'c')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere("d.statut != 'ANNULE'") // exclut les dépannages annulés
             ->setParameter('ide', $identreprise)
             ->groupBy('c.matricule')
@@ -168,6 +181,7 @@ class DepannageRepository extends ServiceEntityRepository
             ->select('c.matricule, SUM(d.couttotal) AS couttotal')
             ->join('d.car', 'c')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere("d.statut != 'ANNULE'") // exclut les dépannages annulés
             ->setParameter('ide', $identreprise)
             ->groupBy('c.matricule')
@@ -184,6 +198,7 @@ class DepannageRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('d')
             ->select('IDENTITY(d.car) AS carid, COUNT(d.id) AS nbdepannages')
             ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
             ->andWhere('d.datedepannage >= :debut')
             ->andWhere('d.datedepannage <= :fin')
             ->andWhere("d.statut != 'ANNULE'") // exclut les dépannages annulés

@@ -1,5 +1,6 @@
 vich_uploader:
     db_driver: orm
+    form: false # Pour désactiver l'intégration form
 
     mappings:
         media_object:
@@ -8,7 +9,33 @@ vich_uploader:
             # Will rename uploaded files using a uniqueid as a suffix.
             namer: Vich\UploaderBundle\Naming\SmartUniqueNamer
 
+        # DOCUMENTS PRIVÉS (justificatifs de dépense) — sous 'public/documents', dossier INTERDIT au serveur
+        # web par son '.htaccess' (versionné). Aucune URL ne les sert : seule
+        # 'GET /api/depenses/{id}/justificatif' les lit, après les droits de la dépense. Et Glide ne les
+        # atteint pas : il n'accepte que 'images/media' et 'images/users' ('ImageController').
+        #  - !! le '.htaccess' ne vaut que sous APACHE : 'symfony serve' et Nginx l'ignorent. D'où
+        #    'NomAleatoireNamer' — 128 bits aléatoires, jamais exposés — et non 'uniqid()', qui se déduit
+        #    de l'heure du dépôt. Sous Nginx : 'location ^~ /documents/ { deny all; }'
+        #  - ces fichiers sont des PIÈCES COMPTABLES : le dossier doit être SAUVEGARDÉ et survivre aux
+        #    déploiements (il est hors de git, sauf son '.htaccess')
+        #  - 'uri_prefix' factice : personne ne résout d'URL pour ce mapping (le normaliseur rend NULL)
+        media_prive:
+            uri_prefix: /documents-sans-url
+            upload_destination: "%kernel.project_dir%/public/documents"
+            namer: App\Infrastructure\Upload\NomAleatoireNamer
+
         users:
             uri_prefix: /images/users
             upload_destination: '%kernel.project_dir%/public/images/users'
             namer: Vich\UploaderBundle\Naming\SmartUniqueNamer
+
+# Les tests téléversent de vrais fichiers : ils ne doivent atterrir ni dans 'public/' (visibles par le
+# serveur de développement) ni dans le stockage de développement. Le sous-dossier 'images/media' reproduit
+# le chemin relatif que Glide lit, dont la source est 'var/test' en test (cf. 'services.yaml').
+when@test:
+    vich_uploader:
+        mappings:
+            media_object:
+                upload_destination: "%kernel.project_dir%/var/test/images/media"
+            media_prive:
+                upload_destination: "%kernel.project_dir%/var/test/documents"

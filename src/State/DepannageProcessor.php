@@ -14,10 +14,13 @@ use App\Domain\Service\CarStatutService;
 use App\Domain\Service\StockmouvementService;
 use App\Entity\Depannage;
 use App\Entity\Detaildepannage;
+use App\Entity\Detailmaindoeuvre;
 use App\Entity\Dto\DepannageInput;
 use App\Entity\User;
 use App\Repository\CarRepository;
 use App\Repository\DepannageRepository;
+use App\Repository\DetaildepannageRepository;
+use App\Repository\DetailmaindoeuvreRepository;
 use App\Repository\PieceRepository;
 use App\Repository\TypepanneRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -37,7 +40,9 @@ class DepannageProcessor implements ProcessorInterface
         private DepannageRepository $depannageRepository,
         private TypepanneRepository $typepanneRepository,
         private CarStatutService $carStatutService,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private DetaildepannageRepository $detaildepannageRepository,
+        private DetailmaindoeuvreRepository $detailmaindoeuvreRepository
     )
     {
     }
@@ -83,7 +88,9 @@ class DepannageProcessor implements ProcessorInterface
         $this->em->flush(); /*
             - Va être nécessaire pour avoir l'id vu qu'on utilise un 'input'
         */
-        $this->handleDetails($depannage, $data->details, $entrepriseId, $userId);
+        $totalPieces = $this->handleDetails($depannage, $data->details, $entrepriseId, $userId);
+        $totalMaindoeuvre = $this->handleMaindoeuvres($depannage, $data->maindoeuvres ?? []);
+        $depannage->setCouttotal($totalPieces + $totalMaindoeuvre);
 
         // Journal : le car passe EN PANNE — il sort de l'exploitation, c'est une immobilisation.
         $this->activiteLogger->log(
@@ -148,13 +155,84 @@ class DepannageProcessor implements ProcessorInterface
             ->setDescription($data->description ?? $depannage->getDescription())
             ->setUpdatedBy($userId);
 
-        if(!empty($data->details)) {
-            $this->reconcileDetails($depannage, $data->details, $entrepriseId, $userId); /*
+        /*
+            LE COÛT TOTAL SE RECOMPOSE DES DEUX CÔTÉS, toujours. Chaque gestionnaire rend son total, et
+            celui qu'on n'a pas touché est relu en base — ses lignes sont inchangées, la base en est
+            donc la source. Sans cela, corriger une pièce remettrait 'couttotal' à « pièces seules »
+            et EFFACERAIT la main d'œuvre du chiffre, silencieusement.
+        */
+        $idDepannage = (int) $depannage->getId();
+
+        $totalPieces = !empty($data->details)
+            ? $this->reconcileDetails($depannage, $data->details, $entrepriseId, $userId) /*
                 - Réconciliation par différence : on ne touche au stock que pour ce qui change réellement
-            */
-        }
+              */
+            : $this->detaildepannageRepository->totalPourDepannage($idDepannage);
+
+        // 'null' = « je ne touche pas à la main d'œuvre » ; '[]' = « supprime-la ». Cf. 'DepannageInput'.
+        $totalMaindoeuvre = $data->maindoeuvres !== null
+            ? $this->reconcileMaindoeuvres($depannage, $data->maindoeuvres)
+            : $this->detailmaindoeuvreRepository->totalPourDepannage($idDepannage);
+
+        $depannage->setCouttotal($totalPieces + $totalMaindoeuvre);
 
         return $this->processor->process($depannage, $operation, $uriVariables, $context);
+    }
+
+    /**
+     * Création des lignes de MAIN D'ŒUVRE EXTERNE, et leur total.
+     *
+     * Aucun mouvement de stock, aucune réservation : une prestation ne consomme rien de l'inventaire.
+     * C'est toute la différence avec les pièces, et c'est pourquoi la réconciliation est ici triviale.
+     *
+     * @param list<array<string, mixed>> $lignes
+     */
+    private function handleMaindoeuvres(Depannage $depannage, array $lignes): int
+    {
+        $total = 0;
+
+        foreach($lignes as $ligne) {
+            $montant = (int) ($ligne['montant'] ?? 0);
+            if($montant <= 0) {
+                throw new BadRequestHttpException("Le montant d'une main d'œuvre doit être supérieur à zéro");
+            }
+
+            $intervenant = trim((string) ($ligne['intervenant'] ?? ''));
+            if($intervenant === '') {
+                throw new BadRequestHttpException("L'intervenant d'une main d'œuvre est obligatoire");
+            }
+
+            $detail = (new Detailmaindoeuvre())
+                ->setDepannage($depannage)
+                ->setIntervenant($intervenant)
+                ->setPrestation(isset($ligne['prestation']) ? trim((string) $ligne['prestation']) : null)
+                ->setMontant($montant);
+
+            $this->em->persist($detail);
+            $total += $montant;
+        }
+
+        return $total;
+    }
+
+    /**
+     * Remplace la main d'œuvre d'un dépannage par celle reçue, et rend son total.
+     *
+     * ON EFFACE ET ON RÉÉCRIT, contrairement aux pièces qui sont réconciliées ligne à ligne. La raison
+     * est le STOCK : une pièce retirée doit y retourner et une quantité augmentée en sortir, ce qui
+     * interdit de tout jeter. Une prestation ne touche à rien : la réécriture est exacte et se lit d'un
+     * coup d'œil, là où une réconciliation par clé demanderait un identifiant stable que le formulaire
+     * n'a pas.
+     *
+     * @param list<array<string, mixed>> $lignes
+     */
+    private function reconcileMaindoeuvres(Depannage $depannage, array $lignes): int
+    {
+        foreach($this->detailmaindoeuvreRepository->findPourDepannage((int) $depannage->getId()) as $existant) {
+            $this->em->remove($existant);
+        }
+
+        return $this->handleMaindoeuvres($depannage, $lignes);
     }
 
     /**
@@ -167,7 +245,7 @@ class DepannageProcessor implements ProcessorInterface
      *  - pièce inchangée    → AUCUN mouvement
      * Les lignes conservées sont mises à jour en place (pas de suppression/recréation).
      */
-    private function reconcileDetails(Depannage $depannage, $details, $entrepriseId, $userId): void
+    private function reconcileDetails(Depannage $depannage, $details, $entrepriseId, $userId): int
     {
         $ids = array_map(fn($d) => $d['piece'], $details);
         if(count($ids) !== count(array_unique($ids))) {
@@ -279,7 +357,7 @@ class DepannageProcessor implements ProcessorInterface
             }
         }
 
-        $depannage->setCouttotal($total);
+        return $total;
     }
 
     private function handleDetails(Depannage $depannage, $details, $entrepriseId, $userId)
@@ -335,7 +413,8 @@ class DepannageProcessor implements ProcessorInterface
 
             $total += $prixunitaire * $quantite;
         }
-        $depannage->setCouttotal($total);
+
+        return $total;
     }
 
     private function getCar(int $carId, int $entrepriseId)

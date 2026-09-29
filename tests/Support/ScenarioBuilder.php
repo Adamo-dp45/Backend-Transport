@@ -12,20 +12,24 @@ use App\Entity\Arret;
 use App\Entity\Bagage;
 use App\Entity\Beneficiaire;
 use App\Entity\Car;
+use App\Entity\ConfigRecette;
 use App\Entity\ConfigRemise;
 use App\Entity\Courrier;
 use App\Entity\Depense;
 use App\Entity\Entreprise;
+use App\Entity\Fournisseur;
 use App\Entity\Gare;
 use App\Entity\Ligne;
 use App\Entity\ParametreReservation;
 use App\Entity\Passage;
+use App\Entity\Piece;
 use App\Entity\Permission;
 use App\Entity\Reservation;
 use App\Entity\Role;
 use App\Entity\Siege;
 use App\Entity\Tarif;
 use App\Entity\Tarifbagage;
+use App\Entity\Typepanne;
 use App\Entity\Typedepense;
 use App\Entity\Ticket;
 use App\Entity\User;
@@ -404,6 +408,63 @@ final class ScenarioBuilder
         return $courrier;
     }
 
+    /** Un FOURNISSEUR de l'entreprise. Contact, adresse et pays sont exigés par l'entité. */
+    public function fournisseur(Entreprise $entreprise, string $libelle = 'Fournisseur'): Fournisseur
+    {
+        $n = ++$this->compteur;
+        $fournisseur = (new Fournisseur())
+            ->setLibelle($libelle . ' ' . $n)
+            ->setContact('+225 27 00 00 00 ' . str_pad((string) $n, 2, '0', STR_PAD_LEFT))
+            ->setEmail(sprintf('fournisseur%d@test.ci', $n))
+            ->setAdresse('Zone industrielle')
+            ->setPays("Côte d'Ivoire")
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($fournisseur);
+        $this->em->flush();
+
+        return $fournisseur;
+    }
+
+    /**
+     * Un TYPE DE PANNE de l'entreprise. Les relations de 'Piece' vers ses référentiels étant toutes
+     * nullables, un dépannage se construit avec ce seul référentiel.
+     */
+    public function typepanne(Entreprise $entreprise, string $libelle = 'Moteur'): Typepanne
+    {
+        $type = (new Typepanne())
+            ->setLibelle($libelle . ' ' . ++$this->compteur)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($type);
+        $this->em->flush();
+
+        return $type;
+    }
+
+    /**
+     * Une PIÈCE en stock. 'typepiece', 'marquepiece' et 'model' sont NULLABLES : on ne construit pas
+     * trois référentiels pour un test qui ne parle que d'un coût.
+     */
+    public function piece(
+        Entreprise $entreprise,
+        string $libelle = 'Filtre à huile',
+        int $prixunitaire = 12000,
+        int $stockinitial = 100,
+    ): Piece {
+        $piece = (new Piece())
+            ->setLibelle($libelle . ' ' . ++$this->compteur)
+            ->setPrixunitaire($prixunitaire)
+            ->setStockinitial($stockinitial)
+            ->setSeuilstock(5)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($piece);
+        $this->em->flush();
+
+        return $piece;
+    }
+
     /**
      * Une tranche de la grille de poids des bagages. `poidsmax` nul = dernière tranche, illimitée.
      */
@@ -420,6 +481,25 @@ final class ScenarioBuilder
         $this->em->flush();
 
         return $tranche;
+    }
+
+    /**
+     * Paramétrage de recette de l'entreprise.
+     *
+     * 'courriersHorsCa' est le drapeau qui EXCLUT les courriers du chiffre d'affaires : ils restent
+     * affichés sur leur propre ligne, mais ne comptent dans AUCUN total composite. Une compagnie qui
+     * traite le fret comme une activité à part le met à vrai.
+     */
+    public function configRecette(Entreprise $entreprise, bool $courriersHorsCa): ConfigRecette
+    {
+        $config = (new ConfigRecette())
+            ->setCourriershorsca($courriersHorsCa)
+            ->setIdentreprise((int) $entreprise->getId());
+
+        $this->em->persist($config);
+        $this->em->flush();
+
+        return $config;
     }
 
     /** Plafond de remise de la compagnie (null = aucun plafond). */

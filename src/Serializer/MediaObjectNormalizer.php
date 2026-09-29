@@ -28,7 +28,12 @@ class MediaObjectNormalizer implements NormalizerInterface
     public function normalize($object, ?string $format = null, array $context = []): array|string|int|float|bool|\ArrayObject|null
     {
         $context[self::ALREADY_CALLED] = true;
-        $object->contentUrl = $this->storage->resolveUri($object, 'file');
+        /*
+            Un document PRIVÉ n'a pas d'URL : il vit dans un dossier interdit au serveur web, et ne se lit
+            que par la route de la fiche qui le porte. Écrit explicitement plutôt que de compter sur le
+            'null' que rendrait Vich pour un 'filePath' vide — c'est la règle, pas un effet de bord.
+        */
+        $object->contentUrl = $object->isPrive() ? null : $this->storage->resolveUri($object, 'file');
         return $this->normalizer->normalize($object, $format, $context);
     }
 

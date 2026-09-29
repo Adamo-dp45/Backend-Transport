@@ -52,6 +52,11 @@ use Symfony\Component\Serializer\Attribute\Groups;
         ),
         new Post(
             security: "is_granted('CREER', 'Approvisionnement')",
+            validationContext: ['groups' => ['Default', 'creation']], /*
+                - 'creation' active les contraintes « obligatoire » du DTO, que le PATCH n'active pas :
+                  un PATCH doit pouvoir être PARTIEL. Sans cette séparation, la validation refusait en
+                  422 ce que le processeur savait traiter
+            */
             input: ApprovisionnementInput::class,
             processor: ApprovisionnementProcessor::class,
             denormalizationContext: ['groups' => ['write:ApprovisionnementInput']],
@@ -189,6 +194,32 @@ class Approvisionnement extends EntityBase implements EntrepriseOwnedInterface
     #[Groups(['read:Approvisionnement'])]
     private string $statut = 'VALIDE'; // VALIDE | ANNULE (cf. App\Domain\Enum\ApprovisionnementStatus)
 
+    /**
+     * Coût total de l'approvisionnement = somme du `couttotal` de ses lignes (28/09/2026).
+     *
+     * DÉRIVÉ MAIS STOCKÉ, comme `Depannage::$couttotal` — exception assumée à la doctrine « rien de
+     * dérivable stocké », et ce n'est pas un cran de plus : chaque LIGNE stocke déjà son propre total
+     * (`quantite × prixunitaire`), l'entête n'est que la suite. Il est RECOMPOSÉ par
+     * `ApprovisionnementProcessor` à chaque écriture, jamais saisi : `ApprovisionnementInput` ne
+     * l'expose pas.
+     *
+     * CE QU'IL CHANGE, exactement — et pas ce qu'on pourrait croire. Les agrégats lisaient
+     * `SUM(da.couttotal)` derrière un `join(...)`, soit un INNER JOIN, qui écarte un approvisionnement
+     * SANS AUCUNE LIGNE. Sur le MONTANT, cela ne faussait rien : sa contribution vaut zéro, son absence
+     * de la somme ne la déplace pas — vérifié en réintroduisant la jointure, le total ne bouge pas d'un
+     * franc. Le tort portait sur les COMPTEURS : `COUNT(DISTINCT a.id) AS nbappros`
+     * (`achatsParFournisseur`) sous-comptait cet approvisionnement, qui existe pourtant.
+     *
+     * Le vrai gain du champ est donc ailleurs, et il suffit : un coût lisible sur l'entête comme pour un
+     * dépannage, des agrégats sur UNE table au lieu de deux, un client qui n'a plus à resommer les
+     * lignes, et un compteur juste.
+     *
+     * BIGINT : un total en FCFA dépasse la limite INT (~2,1 milliards) sur un gros marché de pièces.
+     */
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    #[Groups(['read:Approvisionnement', 'read:Fournisseur'])]
+    private ?int $couttotal = null;
+
     public function __construct()
     {
         $this->detailapprovisionnements = new ArrayCollection();
@@ -261,6 +292,18 @@ class Approvisionnement extends EntityBase implements EntrepriseOwnedInterface
                 $detailapprovisionnement->setApprovisionnement(null);
             }
         }
+
+        return $this;
+    }
+
+    public function getCouttotal(): ?int
+    {
+        return $this->couttotal;
+    }
+
+    public function setCouttotal(?int $couttotal): static
+    {
+        $this->couttotal = $couttotal;
 
         return $this;
     }

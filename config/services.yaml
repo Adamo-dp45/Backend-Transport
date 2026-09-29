@@ -9,6 +9,10 @@
 parameters:
     app.entity.path: '%kernel.project_dir%/src/Entity'
     glide.key: '%env(GLIDE_KEY)%'
+    # Où Glide lit les originaux et range ses vignettes. Paramétré pour que les TESTS le fassent lire leurs
+    # propres fichiers (cf. 'when@test' plus bas), jamais 'public/'.
+    glide.source: '%kernel.project_dir%/public'
+    glide.cache: '%kernel.project_dir%/public/images/cache'
     app.mailer.email: '%env(MAILER_FROM_EMAIL)%'
     app.mailer.name: '%env(MAILER_FROM_NAME)%'
 
@@ -93,4 +97,9 @@ when@dev: &fixtures
             decorates: 'doctrine.fixtures.purger.orm_purger_factory'
             arguments: ['@.inner']
 
-when@test: *fixtures
+when@test:
+    <<: *fixtures
+    # Glide lit les images téléversées PAR LES TESTS ('when@test' de 'vich_uploader.yaml'), jamais 'public/'.
+    parameters:
+        glide.source: '%kernel.project_dir%/var/test'
+        glide.cache: '%kernel.project_dir%/var/test/cache'

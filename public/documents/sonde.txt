@@ -1,0 +1,3 @@
+SONDE — si ce texte s affiche dans un navigateur, le dossier public/documents N EST PAS PROTEGE :
+les justificatifs de depense (factures, bulletins de salaire) sont lisibles par qui devine leur nom.
+Sous Apache, verifier AllowOverride ; sous Nginx, ajouter  location ^~ /documents/ { deny all; }

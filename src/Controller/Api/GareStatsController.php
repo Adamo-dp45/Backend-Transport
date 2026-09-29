@@ -3,6 +3,7 @@
 namespace App\Controller\Api;
 
 use App\Domain\Service\DepenseGareService;
+use App\Domain\Service\ConfigRecetteService;
 use App\Domain\Service\RecetteGareService;
 use App\Domain\Trait\PeriodeTrait;
 use App\Entity\User;
@@ -37,7 +38,8 @@ final class GareStatsController extends AbstractController
         CourrierRepository $courrierRepository,
         BagageRepository $bagageRepository,
         UserRepository $userRepository,
-        RecetteGareService $recetteGareService
+        RecetteGareService $recetteGareService,
+        ConfigRecetteService $configRecetteService
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN'); // analyses cross-gare réservées à l'admin entreprise
 
@@ -79,8 +81,20 @@ final class GareStatsController extends AbstractController
                 $joursSet[$jour] = true;
             }
         };
+        /*
+            LES SÉRIES ET LA VENTILATION PAR AGENT SUIVENT LA MÊME RÈGLE QUE 'recetteTotale'.
+
+            Elles fusionnaient les courriers SANS CONDITION, si bien que sur le MÊME écran le total d'une
+            gare les excluait et sa courbe du jour les comptait : la somme de la série ne tombait pas sur
+            le total affiché juste au-dessus, et rien ne signalait lequel des deux mentait. La recette
+            courrier reste lisible par gare ('recetteCourriers'), elle n'est pas perdue.
+        */
+        $courriersHorsCa = $configRecetteService->courriersHorsCa($ent);
+
         $mergeJour($ticketRepository->recetteParGareEtJour($debut, $fin, $ent));
-        $mergeJour($courrierRepository->recetteParGareEtJour($debut, $fin, $ent));
+        if (!$courriersHorsCa) {
+            $mergeJour($courrierRepository->recetteParGareEtJour($debut, $fin, $ent));
+        }
         $mergeJour($bagageRepository->recetteParGareEtJour($debut, $fin, $ent));
         $joursAxis = array_keys($joursSet);
         sort($joursAxis);
@@ -100,7 +114,9 @@ final class GareStatsController extends AbstractController
             }
         };
         $mergeAgent($ticketRepository->recetteParGareEtAgent($debut, $fin, $ent));
-        $mergeAgent($courrierRepository->recetteParGareEtAgent($debut, $fin, $ent));
+        if (!$courriersHorsCa) {
+            $mergeAgent($courrierRepository->recetteParGareEtAgent($debut, $fin, $ent));
+        }
         $mergeAgent($bagageRepository->recetteParGareEtAgent($debut, $fin, $ent));
         $noms = empty($agentIds) ? [] : $userRepository->findInfosByIds(array_keys($agentIds));
 

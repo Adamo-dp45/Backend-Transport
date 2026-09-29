@@ -40,4 +40,20 @@ class DetaildepannageRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
+
+    /**
+     * Total des PIÈCES déjà enregistrées sur un dépannage.
+     *
+     * Symétrique de 'DetailmaindoeuvreRepository::totalPourDepannage()' : sert au recalcul de
+     * 'Depannage::$couttotal' quand la modification ne touche PAS aux pièces.
+     */
+    public function totalPourDepannage(int $depannageId): int
+    {
+        return (int) $this->createQueryBuilder('d')
+            ->select('COALESCE(SUM(d.prixunitaire * d.quantite), 0)')
+            ->andWhere('d.depannage = :depannage')
+            ->setParameter('depannage', $depannageId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

@@ -1,0 +1,18 @@
+# JUSTIFICATIFS DE DÉPENSE — factures, bulletins de salaire : des PIÈCES COMPTABLES.
+#
+# Ce dossier est sous 'public/' mais NE DOIT JAMAIS être servi par le serveur web. Un justificatif se lit
+# uniquement par 'GET /api/depenses/{id}/justificatif', qui applique les droits de la dépense (voter +
+# périmètres d'entreprise et de gare). Cf. le docbloc de 'App\Entity\MediaObject'.
+#
+# !! CE FICHIER NE PROTÈGE QUE SOUS APACHE (avec 'AllowOverride', que 'symfony/apache-pack' exige déjà).
+# Le serveur de développement 'symfony serve' et Nginx l'IGNORENT. La seconde barrière est le nom des
+# fichiers, aléatoire sur 128 bits et jamais exposé ('App\Infrastructure\Upload\NomAleatoireNamer').
+# Sous Nginx, ajouter l'équivalent dans la configuration du site :  location ^~ /documents/ { deny all; }
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>

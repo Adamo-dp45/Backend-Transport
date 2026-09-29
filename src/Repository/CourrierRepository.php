@@ -9,6 +9,31 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Courrier>
+ *
+ * LA CORBEILLE EXCLUT DE TOUT TOTAL D'ARGENT (28/09/2026). Les agrégats de recette et les compteurs
+ * d'activité de ce fichier portent tous `c.deletedAt IS NULL`, en plus de leur filtre de statut.
+ *
+ * Ce qui se passait sans lui, MESURÉ sur les données réelles : un billet de 15 000 mis à la corbeille
+ * laissait la recette de l'entreprise et celle de la gare INCHANGÉES, tout en retirant 15 000 de la
+ * fiche du voyage et un passager du bordereau du chauffeur — parce que `findRecapDestinations` et
+ * `recettePourVoyage` filtraient la corbeille, et pas les agrégats du tableau de bord. Deux chiffres
+ * pour la même chose, sur le même écran, sans que rien ne dise lequel mentait.
+ *
+ * !! IL N'EXISTE AUCUN FILTRE DOCTRINE GLOBAL dans ce projet (pas de `SQLFilter`, rien dans
+ * `doctrine.yaml`) : `deletedAt` ne joue QUE là où il est écrit à la main. Une nouvelle requête de
+ * total qui l'oublie repart donc avec le défaut, en silence.
+ *
+ * Le principe : UN TOTAL DOIT ÊTRE RÉCONCILIABLE AVEC UNE LISTE QU'ON PEUT AFFICHER. Une recette qui
+ * contient une ligne qu'aucun écran ne montre est introuvable, donc incorrigeable.
+ *
+ * DEUX EXCEPTIONS VOULUES, à ne pas « harmoniser » :
+ *  - `suppressionsParAgent` cible `deletedAt IS NOT NULL` : c'est son objet même (vente hors-livre) ;
+ *  - les surfaces de CONTRÔLE (annulations, remises, désistements, forçages, incidents) ne filtrent
+ *    PAS la corbeille. Un tableau anti-fraude doit voir large, y compris ce qu'on a tenté d'effacer :
+ *    l'y filtrer offrirait le moyen de faire disparaître ses propres traces.
+ *
+ * Le statut, lui, garde son rôle : il dit ce qui a EXISTÉ PUIS ÉTÉ DÉFAIT (désistement, annulation) et
+ * reste visible. La corbeille dit ce qui n'aurait jamais dû être saisi.
  */
 class CourrierRepository extends ServiceEntityRepository
 {
@@ -40,6 +65,7 @@ class CourrierRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('c')
             ->select('COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS total')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut != 'ANNULE'")
             // Paiement à l'envoi dans ce déploiement : recette comptabilisée à la création.
             ->andWhere('c.createdAt >= :debut')
@@ -73,6 +99,7 @@ class CourrierRepository extends ServiceEntityRepository
         $envois = $this->createQueryBuilder('c')
             ->select('c.createdBy AS agentid, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             // ->andWhere('c.modepaiement = :envoi') -- modepaiement désactivé (paiement à l'envoi)
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -105,10 +132,18 @@ class CourrierRepository extends ServiceEntityRepository
 
         $index = [];
         foreach ($envois as $row) {
+            /*
+                `created_by` étant NULLABLE, 'agentid' peut valoir null — et 'null' en clé de tableau
+                devient la CHAÎNE VIDE en PHP (dépréciation à la clé, puis 'TypeError' chez l'appelant qui
+                attend un 'int'). On indexe donc sur une clé explicite et l'on garde 'agentid' TEL QUEL
+                dans la valeur : c'est à l'appelant de décider ce qu'il fait d'une vente sans auteur, pas
+                au repository de la déguiser en agent.
+            */
             $id = $row['agentid'];
-            $index[$id]['agentid']     = $id;
-            $index[$id]['nbcourriers'] = (int)$row['nbcourriers'];
-            $index[$id]['montant']     = (float)$row['montant'];
+            $cle = $id ?? 'sans-auteur';
+            $index[$cle]['agentid']     = $id;
+            $index[$cle]['nbcourriers'] = (int)$row['nbcourriers'];
+            $index[$cle]['montant']     = (float)$row['montant'];
         }
         /* -- Fusion du volet réception — désactivée :
         foreach ($receptions as $row) {
@@ -132,6 +167,7 @@ class CourrierRepository extends ServiceEntityRepository
         $envois = $this->createQueryBuilder('c')
             ->select('DATE(c.createdAt) AS label, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS montant, COUNT(c.id) AS nbcourriers')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             // ->andWhere('c.modepaiement = :envoi') -- modepaiement désactivé (paiement à l'envoi)
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -196,6 +232,7 @@ class CourrierRepository extends ServiceEntityRepository
         $rows = $this->createQueryBuilder('c')
             ->select('c.statut, COUNT(c.id) AS total')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
             // !! s
@@ -230,6 +267,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->join('c.garedepart', 'gd')
             ->join('c.garearrivee', 'ga')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
             ->andWhere("c.statut != 'ANNULE'")
@@ -253,6 +291,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(c.id) AS nbcourriers, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut != 'ANNULE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -271,6 +310,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, DATE(c.createdAt) AS jour, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut != 'ANNULE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -290,6 +330,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, c.createdBy AS agentid, COUNT(c.id) AS nb, COALESCE(SUM(c.montant + COALESCE(c.fraissuivi, 0)), 0) AS recette')
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut != 'ANNULE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -309,6 +350,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(c.id) AS nb')
             ->join('c.garearrivee', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut != 'ANNULE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -397,6 +439,7 @@ class CourrierRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(c.id) AS nb')
             ->join('c.garearrivee', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
             ->andWhere("c.statut = 'RECEPTIONNE'")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')

@@ -33,6 +33,13 @@ use App\Repository\TicketRepository;
  *  - bagages : tout sauf ANNULE, PERDU compris (il a été payé) ;
  *  - courriers : tout sauf ANNULE, `montant + fraissuivi`.
  *
+     * !! LES COURRIERS PEUVENT ÊTRE HORS CHIFFRE D'AFFAIRES (`ConfigRecette::$courriershorsca`) : une
+     * compagnie qui traite le fret comme une activité à part le met à vrai. La règle, posée par
+     * `RecetteGareService`, est que leur recette reste AFFICHÉE sur sa propre ligne mais ne compte dans
+     * AUCUN total composite. Le résultat d'un départ ne peut donc pas les compter quand la
+ * compagnie ne les compte pas : il serait plus généreux que le bénéfice auquel il contribue. La part
+ * `courriers` reste servie à part, pour que l'écran puisse la montrer sans l'additionner.
+ *
  * !! CE N'EST PAS UN BÉNÉFICE. Les charges non rattachées à ce départ — gasoil du parc, salaires,
  * dépannages, pièces — n'y sont pas, et ne peuvent pas y être sans clé de répartition inventée. On
  * écrit « résultat du départ », jamais « bénéfice », même prudence que le résultat d'exploitation
@@ -47,7 +54,8 @@ class VoyageResultatService
         private BagageRepository $bagageRepository,
         private CourrierRepository $courrierRepository,
         private DepenseRepository $depenseRepository,
-        private CapaciteService $capaciteService
+        private CapaciteService $capaciteService,
+        private ConfigRecetteService $configRecetteService
     )
     {
     }
@@ -83,7 +91,12 @@ class VoyageResultatService
         $bagages = $this->bagageRepository->recettePourVoyage($voyageId, $identreprise);
         $courriers = $this->courrierRepository->recettePourVoyage($voyageId, $identreprise);
 
-        $recette = $billets['montant'] + $reservations['montant'] + $bagages['montant'] + $courriers['montant'];
+        // Hors CA : le fret ne rejoint pas le total, mais 'courriers' reste servi pour l'affichage.
+        $courriersDansLeCa = $this->configRecetteService->courriersHorsCa($identreprise)
+            ? 0
+            : $courriers['montant'];
+
+        $recette = $billets['montant'] + $reservations['montant'] + $bagages['montant'] + $courriersDansLeCa;
 
         $capacite = $this->capaciteService->capaciteEffective($voyage) ?? 0;
         $pic = $this->capaciteService->occupationMaximale($voyage, $identreprise);

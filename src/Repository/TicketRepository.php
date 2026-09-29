@@ -10,6 +10,31 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Ticket>
+ *
+ * LA CORBEILLE EXCLUT DE TOUT TOTAL D'ARGENT (28/09/2026). Les agrégats de recette et les compteurs
+ * d'activité de ce fichier portent tous `t.deletedAt IS NULL`, en plus de leur filtre de statut.
+ *
+ * Ce qui se passait sans lui, MESURÉ sur les données réelles : un billet de 15 000 mis à la corbeille
+ * laissait la recette de l'entreprise et celle de la gare INCHANGÉES, tout en retirant 15 000 de la
+ * fiche du voyage et un passager du bordereau du chauffeur — parce que `findRecapDestinations` et
+ * `recettePourVoyage` filtraient la corbeille, et pas les agrégats du tableau de bord. Deux chiffres
+ * pour la même chose, sur le même écran, sans que rien ne dise lequel mentait.
+ *
+ * !! IL N'EXISTE AUCUN FILTRE DOCTRINE GLOBAL dans ce projet (pas de `SQLFilter`, rien dans
+ * `doctrine.yaml`) : `deletedAt` ne joue QUE là où il est écrit à la main. Une nouvelle requête de
+ * total qui l'oublie repart donc avec le défaut, en silence.
+ *
+ * Le principe : UN TOTAL DOIT ÊTRE RÉCONCILIABLE AVEC UNE LISTE QU'ON PEUT AFFICHER. Une recette qui
+ * contient une ligne qu'aucun écran ne montre est introuvable, donc incorrigeable.
+ *
+ * DEUX EXCEPTIONS VOULUES, à ne pas « harmoniser » :
+ *  - `suppressionsParAgent` cible `deletedAt IS NOT NULL` : c'est son objet même (vente hors-livre) ;
+ *  - les surfaces de CONTRÔLE (annulations, remises, désistements, forçages, incidents) ne filtrent
+ *    PAS la corbeille. Un tableau anti-fraude doit voir large, y compris ce qu'on a tenté d'effacer :
+ *    l'y filtrer offrirait le moyen de faire disparaître ses propres traces.
+ *
+ * Le statut, lui, garde son rôle : il dit ce qui a EXISTÉ PUIS ÉTÉ DÉFAIT (désistement, annulation) et
+ * reste visible. La corbeille dit ce qui n'aurait jamais dû être saisi.
  */
 class TicketRepository extends ServiceEntityRepository
 {
@@ -27,6 +52,7 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.voyage = :voyageId')
             ->andWhere('t.gare = :gareId')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->setParameter('voyageId', $voyageId)
             ->setParameter('gareId', $gareId)
@@ -66,7 +92,7 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.gare = :gareId')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'")
-            ->andWhere('t.deletedAt IS NULL') // !!
+            ->andWhere('t.deletedAt IS NULL')
             ->groupBy('d.id')
             ->addGroupBy('d.libelle')
             ->setParameter('voyageId', $voyageId)
@@ -125,7 +151,7 @@ class TicketRepository extends ServiceEntityRepository
             ->andWhere('t.voyage = :voyageId')
             ->andWhere('t.identreprise = :ide')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
-            ->andWhere('t.deletedAt IS NULL') // !!
+            ->andWhere('t.deletedAt IS NULL')
             ->setParameter('voyageId', $voyageId)
             ->setParameter('ide', $identreprise)
             ->orderBy('s.numero', 'ASC')
@@ -140,6 +166,7 @@ class TicketRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('t')
             ->select('SUM(t.prix) AS total')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.reservation IS NULL') // hors billets de réservation : leur recette est reconnue AU PAIEMENT de la réservation (anti double-comptage)
             ->andWhere('t.createdAt >= :debut')
@@ -165,6 +192,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.commercial', 'u')
             ->join('u.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -186,6 +214,7 @@ class TicketRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('t')
             ->select('SUM(t.prix) AS total')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.reservation IS NOT NULL')
             ->andWhere('t.createdAt >= :debut')
@@ -208,6 +237,7 @@ class TicketRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('t')
             ->select('SUM(t.prix) AS total')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.commercial IS NULL')
             ->andWhere('t.reservation IS NULL')
@@ -229,6 +259,7 @@ class TicketRepository extends ServiceEntityRepository
         return (int) $this->createQueryBuilder('t')
             ->select('COUNT(t.id)')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -244,6 +275,7 @@ class TicketRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('t')
             ->select('DATE(t.createdAt) AS label, SUM(t.prix) AS montant, COUNT(t.id) AS nbtickets')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.reservation IS NULL') // ventes directes : la recette résa est reconnue au paiement (hors billetterie)
             ->andWhere('t.createdAt >= :debut')
@@ -269,6 +301,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.voyage', 'v')
             ->join('v.ligne', 'l')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.reservation IS NULL') // ventes directes (hors réservation)
             ->andWhere('t.createdAt >= :debut')
@@ -289,6 +322,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.voyage', 'v')
             ->join('v.car', 'c')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.reservation IS NULL') // ventes directes (hors réservation)
             ->andWhere('t.createdAt >= :debut')
@@ -316,6 +350,7 @@ class TicketRepository extends ServiceEntityRepository
             )
             ->join(User::class, 'u', 'WITH', 'u.id = t.createdBy')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.commercial IS NULL') // performance GUICHET : la vente à bord relève de la recette commercial
             ->andWhere('t.reservation IS NULL') // et les émissions de réservation (payées sur compte admin) ne sont pas la vente de l'agent
@@ -349,6 +384,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join(User::class, 'u', 'WITH', 'u.id = t.createdBy')
             ->join('t.voyage', 'v')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.commercial IS NULL') // caisse GUICHET uniquement : les ventes à bord (commercial) ont leur propre recette
             ->andWhere('t.reservation IS NULL') // et hors billets de réservation (payés sur compte admin)
@@ -377,6 +413,7 @@ class TicketRepository extends ServiceEntityRepository
             )
             ->join('t.voyage', 'v')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'") // exclut les billets désistés (reportés/annulés) des recettes/bordereaux
             ->andWhere('t.commercial IS NULL') // caisse GUICHET (cohérent avec parGare/parAgent)
             ->andWhere('t.reservation IS NULL') // et hors billets de réservation (payés sur compte admin)
@@ -435,6 +472,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(t.id) AS nbtickets, COALESCE(SUM(t.prix), 0) AS recette')
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.commercial IS NULL') // ventes commerciales exclues : elles alimentent la recette du commercial
             ->andWhere('t.reservation IS NULL') // billets issus d'une réservation exclus : payés sur le compte admin, pas dans la caisse gare
@@ -455,6 +493,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, DATE(t.createdAt) AS jour, COALESCE(SUM(t.prix), 0) AS recette')
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.commercial IS NULL') // recette de gare = hors ventes commerciales
             ->andWhere('t.reservation IS NULL') // et hors billets de réservation (payés sur compte admin)
@@ -476,6 +515,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, t.createdBy AS agentid, COUNT(t.id) AS nb, COALESCE(SUM(t.prix), 0) AS recette')
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.commercial IS NULL') // agents de guichet uniquement (le commercial a sa propre recette)
             ->andWhere('t.reservation IS NULL') // et hors billets de réservation (payés sur compte admin)
@@ -500,6 +540,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('c.id AS commercialid, c.nom AS nom, c.prenom AS prenom, COUNT(t.id) AS nbtickets, COALESCE(SUM(t.prix), 0) AS recette')
             ->join('t.commercial', 'c') // INNER JOIN → seules les ventes commerciales (t.commercial non nul)
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -520,6 +561,7 @@ class TicketRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('t')
             ->select('IDENTITY(t.voyage) AS voyageid, COUNT(t.id) AS nbtickets, COALESCE(SUM(t.prix), 0) AS recette')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere('t.commercial = :com')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.voyage IS NOT NULL')
@@ -537,6 +579,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COUNT(t.id) AS nb')
             ->join('t.garedescente', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -556,6 +599,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.gare', 'gm')
             ->join('t.garedescente', 'gd')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -588,6 +632,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.voyage', 'v')
             ->join('v.gareprovenance', 'go')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('v.datedepartprevue >= :debut')
             ->andWhere('v.datedepartprevue <= :fin')
@@ -611,6 +656,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.gare', 'gm')
             ->join('t.garedescente', 'gd')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -641,6 +687,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('v.ligne', 'l')
             ->join('l.gareorigine', 'lo')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.reservation IS NULL') // hors billets de réservation : leur recette est ajoutée à part (au paiement) — anti double-comptage
             ->andWhere('v.datedepartprevue >= :debut')
@@ -668,6 +715,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('v.ligne', 'l')
             ->join('l.gareorigine', 'lo')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.reservation IS NULL') // hors billets de réservation : recette ajoutée à part — anti double-comptage
             ->andWhere('v.datedepartprevue >= :debut')
@@ -695,6 +743,7 @@ class TicketRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('t')
             ->select('t.statut AS statut, COUNT(t.id) AS nb')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
             ->setParameter('ide', $identreprise)
@@ -934,6 +983,7 @@ class TicketRepository extends ServiceEntityRepository
             ->join('t.gare', 'gm')
             ->join('t.garedescente', 'gd')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -952,6 +1002,7 @@ class TicketRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('t')
             ->select("DATE_FORMAT(t.createdAt, '%H') AS heure, COUNT(t.id) AS nb")
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL')
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')

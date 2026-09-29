@@ -13,6 +13,7 @@ use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation;
+use App\Controller\Api\DepenseJustificatifController;
 use App\Entity\Interface\EntrepriseOwnedInterface;
 use App\Entity\Interface\GareOwnedInterface;
 use App\Entity\Interface\HasSoftDeleteGuard;
@@ -125,6 +126,26 @@ use Symfony\Component\Validator\Constraints as Assert;
                 description: 'Permet de mettre une dépense en corbeille',
                 security: [['bearerAuth' => []]]
             )
+        ),
+        new Get(
+            /*
+                - Le SEUL chemin vers le fichier d'un justificatif, stocké dans un dossier interdit au serveur web (cf. 'MediaObject').
+                  Une opération de LA DÉPENSE et non du média : elle en hérite tout — le voter ('VOIR'),
+                  'EntrepriseScopeExtension' et 'GareScopeExtension' (404 sur la dépense d'une autre
+                  gare ou du siège pour un agent rattaché). Lire le justificatif, c'est pouvoir lire la
+                  dépense ; ni plus, ni moins
+            */
+            name: 'Justificatif_Depense',
+            uriTemplate: '/depenses/{id}/justificatif',
+            requirements: ['id' => '\d+'],
+            security: "is_granted('VOIR', object)",
+            controller: DepenseJustificatifController::class,
+            output: false,
+            openapi: new Operation(
+                summary: 'Le justificatif de la dépense',
+                description: 'Renvoie le fichier du justificatif (image ou PDF), avec les droits de la dépense',
+                security: [['bearerAuth' => []]]
+            )
         )
     ],
     openapi: new Operation(
@@ -234,7 +255,10 @@ class Depense extends EntityBase implements EntrepriseOwnedInterface, GareOwnedI
     #[Groups(['read:Depense', 'write:Depense'])]
     private ?Fournisseur $fournisseur = null;
 
-    /** Reçu ou facture. Images ET PDF (cf. la contrainte assouplie sur 'MediaObject'). */
+    /**
+     * Reçu, facture, bulletin de salaire — images ET PDF. Toujours un document PRIVÉ, téléversé par
+     * celui qui l'accroche (`DepenseProcessor`) : il ne se lit que par `GET /depenses/{id}/justificatif`.
+     */
     #[ORM\ManyToOne]
     #[Groups(['read:Depense', 'write:Depense'])]
     private ?MediaObject $justificatif = null;

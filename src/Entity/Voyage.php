@@ -81,6 +81,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
     operations: [
         new GetCollection(
             security: "is_granted('VOIR', 'Voyage') or is_granted('ROLE_USER')",
+            provider: VoyageProvider::class, /*
+                - + 'depensestotal' (dérivé) : UNE requête groupée pour toute la page, jamais une par
+                  ligne. Pipeline natif conservé — filtres, tri, pagination et extensions de périmètre
+                  s'appliquent normalement, on ne fait que poser un champ sur les entités renvoyées
+            */
             openapi: new Operation(
                 summary: 'La liste des voyages',
                 description: 'Permet de voir la liste des voyages',
@@ -562,6 +567,24 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     #[Groups(['read:Voyage:item'])]
     private array $horaires = [];
 
+    /**
+     * TOTAL DES CHARGES rattachées à ce départ (frais de route, péages, imprévus de la route).
+     *
+     * DÉRIVÉE à la lecture et posée par 'VoyageProvider', comme la frise 'horaires' et
+     * 'Ticket::$evince' : rien n'est stocké, la valeur suit d'elle-même une dépense corrigée ou mise
+     * à la corbeille.
+     *
+     * Exposée sur 'read:Voyage' — donc AUSSI EN LISTE, contrairement aux collections. Le coût le
+     * permet : 'DepenseRepository::totauxParVoyages()' ramène toute la page en UNE requête groupée,
+     * pas une par ligne.
+     *
+     * NULL = « je n'ai pas le droit de savoir », 0 = « aucune charge ». Les deux ne s'écrivent pas
+     * pareil : sans 'DEPENSE_VOIR' le champ reste nul et l'écran n'affiche RIEN, là où un zéro
+     * laisserait croire à un départ sans frais.
+     */
+    #[Groups(['read:Voyage'])]
+    private ?int $depensestotal = null;
+
     public function __construct()
     {
         $this->detailpersonnels = new ArrayCollection();
@@ -1040,6 +1063,18 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     }
 
     /** @return array<int, array<string, mixed>> */
+    public function getDepensestotal(): ?int
+    {
+        return $this->depensestotal;
+    }
+
+    public function setDepensestotal(?int $depensestotal): static
+    {
+        $this->depensestotal = $depensestotal;
+
+        return $this;
+    }
+
     public function getHoraires(): array
     {
         return $this->horaires;
