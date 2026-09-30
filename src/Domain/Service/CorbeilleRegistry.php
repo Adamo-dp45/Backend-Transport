@@ -24,6 +24,10 @@ class CorbeilleRegistry
      *  - pièce jointe           : MediaObject — rattaché à une entreprise depuis le 28/09/2026, donc
      *                             découvert par la règle ; mais il n'a aucune opération de suppression
      *                             et suit la fiche qui le porte (un justificatif est une preuve)
+     *  - preuve comptable       : Sessioncaisse — une caisse clôturée est la pièce sur laquelle un
+     *                             agent a signé son écart. L'effacer retirerait d'un contrôle la
+     *                             trace même qu'il contrôle. L'entité le refuse déjà par son
+     *                             'getSoftDeleteBlockers()' ; ici on ne la propose même pas
      */
     private const EXCLUSIONS = [
         'Activite', 'Alerte', 'Inventaire',
@@ -31,6 +35,7 @@ class CorbeilleRegistry
         'ConfigRecette', 'ConfigRemise', 'ParametreReservation', 'Maintenance',
         'ProgrammeFidelite', 'Beneficiaire',
         'MediaObject',
+        'Sessioncaisse',
     ];
 
     private const ENTITY_NAMESPACE = 'App\\Entity\\';

@@ -41,7 +41,6 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
 - Commande pour sauvagarder la bd, aussi pour vider les tables refresh etc..
 - Wiki du projet
-- Vérifier si 2 utilisateurs de même ligne voient les même infos
 
 
 ## Points ouverts que j'ai relevés
@@ -50,161 +49,53 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - commercialflutter « à venir » : bilan de recette par période (nécessite un endpoint dédié, `/api/stats/commercial` étant admin) et fidélité à la vente.
 - Alertes : seuils encore en constantes de service, externalisation par entreprise non faite. Pas de notifications côté mobile.
 - Piste notée mais non entamée : visite interactive à la première connexion (Driver.js / Shepherd.js).
+**Au déploiement en production**
+- Rendre `public/documents` inscriptible, le **sauvegarder**, et vérifier que `curl -I https://<hôte>/documents/sonde.txt` répond **403**. Sous Nginx, il faut ajouter une règle, décrite dans le README.
+- Glide tourne sans signature : c'est ton choix, et le risque d'abus de redimensionnement reste ouvert.
 - 
 
 - 
 
+- Vérifié que vendre hors caisse rentre dans la recette (admin ou utilisateur central) et aussi vérifié qu'une vente de caisse non clôturer entre dans la caisse
+- Vérifié les permissions donnée aux utilisateur en faisant les actions
+- Vérifier si 2 utilisateurs de même ligne voient les même infos
 
 
-
-
-
-
-
-
-
-
-La feuille de route, après A1
-
-Par priorité décroissante : D1 limite de débit sur la réinitialisation de mot de passe (Haute, sécurité), B2 contrôle d'embarquement par QR, C1 recherche globale opérationnelle, A2 report de masse d'un départ annulé, B1 notifications SMS, A3 e-mails asynchrones. B3 (vente en mode dégradé) est déjà traitée pour le commercial à bord ; il resterait le guichet.
-
-
-
-
-On enchaîne sur la partie caisse, 
-
-les réservations payées en ligne (30 000 FCFA mesurés) n'entrent dans aucun solde. Le plan propose trois options, dont en premier un poste d'entrée sur le solde de l'entreprise. ==> Les réservations mobile payées vont sur le compte de l'entreprise
-
+- La première vente ouvre la caisse avec un fonds à zéro et le drapeau d'ouverture automatique. Deux ventes du même agent tombent dans une seule caisse, et le bagage rejoint celle du billet — c'est la mémoïsation qui se vérifie là. Les trois exclusions passent chacune par son chemin : le commercial à bord, le billet émis depuis un bon, l'acteur sans gare.
 
 5. Bloqué par la caisse : La remise d'espèces du commercial à bord. Tu avais dit « plus tard, séparément ». Elle n'a de sens qu'une fois les versements posés — elle se traitera probablement comme un versement à une gare. => Je ne pense pas
 
 
 
-## Ce que ta définition fait apparaître en face — à trancher
-
-Si un solde suit l'argent où qu'il soit, il doit aussi suivre l'argent qui **arrive ailleurs qu'à un guichet**. `Reservation` porte un bloc « Paiement (en ligne, simulé pour l'instant) », et le commentaire du hold de paiement parle de « prélèvement **chez le prestataire** ». Cet argent n'a jamais vu un tiroir.
-
-Mesuré : **2 réservations mobiles payées, 30 000 FCFA** sur la Gare d'Adjamé — contre une seule réservation guichet à 8 000. Mes formules ne les créditent nulle part : pas de session de caisse (normal, aucun agent ne les a encaissées), et le solde de l'entreprise ne monte que par les versements des gares.
-
-Ce qui rend la chose visible : `recettePayeeParGare()` filtre sur `etatpaiement = PAYE` **sans regarder `source`**. Ces 30 000 sont donc déjà dans la recette d'Adjamé. Dès le palier 1, la même gare afficherait une recette qui les contient et un solde qui ne peut pas les contenir.
-
-Je ne l'implémente pas sans ton accord : ça tient en une requête, mais la question « un encaissement en ligne devient de l'argent de la compagnie au prélèvement, ou au reversement du prestataire ? » est métier, pas technique — le même doute que pour les versements gare → siège, où le plan a tranché pour le transit. La section « Le trou symétrique » du plan pose les trois options.
-
-Le plan est révisé, l'en-tête porte les deux décisions, et j'ai corrigé une mémoire qui portait encore le crochet `ESPECES` et une FK de session sur `Depense`.
 
 
 
+D1, B2
 
 
+On vas en rester là pour l'instant.
 
-
-
-
-
-
-
-
-
-
-
-
-
-Salut Claude Code,
-
-Dans la session précédente, on a travaillé sur l'application de compagnie de transport multi-entreprises et multi-gares, en architecture séparée :
-
-## Stack technique
-- **Backend** : Symfony, API Platform, LexikJWTAuthenticationBundle, RefreshTokenBundle
-- **Frontend** : Symfony, Twig, React (UX), Shadcn/ui, Tailwind v4
-- **Apps Mobile** : Flutter, React Native
-
-## Rappel
-- **Ignore les fichiers `brl.md`** du projet et le dossier `Backend-Transport/tools/brl/` : ce sont juste des brouillons
-
-## Ce que j'attends
-
-Analyse le projet pour :
-- te remettre à jour sur l'architecture générale et les modules existants
-- retrouver l'état d'avancement du projet
-- être prêt pour la suite des instructions que je vais te donner
-
-
-
-
-
-
-
-
-
-**Au déploiement en production**
-- Rendre `public/documents` inscriptible, le **sauvegarder**, et vérifier que `curl -I https://<hôte>/documents/sonde.txt` répond **403**. Sous Nginx, il faut ajouter une règle, décrite dans le README.
-- Glide tourne sans signature : c'est ton choix, et le risque d'abus de redimensionnement reste ouvert.
-
-**Décisions qui t'attendent**
-- **Caisse** : les réservations payées en ligne n'entrent dans aucun solde. Le plan propose trois options, dont en premier un poste d'entrée sur le solde de l'entreprise.
-4. **La caisse**, palier 1 (les soldes), une fois la question des paiements en ligne tranchée.
-
-En parallèle, si tu veux du visible et rapide : décliner l'icône B pour les trois apps mobiles, qui ont encore les icônes par défaut de Flutter et d'Expo.
-
-
-
-
-
-
-
-
-
-
-
-Main d'oeuvre externe dépannage, deletedAt sur les statistiques, identreprise sur MediaObject et documents privées, icônes, justificatif
-
-
-
-
+Aussi :
+- Dans le formualire de courrier, quand j'oublie de rentré la valeur du colis avant de soummettre je tombe sur l'erreur `La valeur d'un colis doit être supérieure à 0`, mais le soucis est que ça crée le courrier sans colis alors que le formulaire n'a pas été validé !
+    - Aussi, pour la approvisionnement quand je tombe sur `Prix unitaire invalide` !
+    - etc... vérifie pour les autres
+- On vas rendre la partie fixtures en dépendance du projet au lieu de dépendance de `dev` et `test` seulement car je vais l'utiliser en ligne
 
 
 
 
 
 - On vas centralisé les statistiques de recette pour que l'admin ne se perde pas :: Centralisé le calcule des recettes
-- QRCode des tickets à redirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)
-    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
 - Hors-ligne pour le guichet au cas ou il n'y a coupure de courant (Ici vu qu'il a TPE je me dis que ce n'est pas nécéssaire)
+- QRCode des tickets à redirigé vers une page qui montre que le ticket est toujours valide en tenant compte du périmètre entreprise (conersation claude)  :: mais met en commentaire le code existant
+    B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur
+- Des liens rapide dans l'appli du genre des raccourci
+- dédié annuler à l'admin
 
-- Concernant les rembourssement, vu qu'on a maintenant la notion de dépense je me dis que les rembourssement seront considéré comme des dépenses ! donc ça ne sort pas dans le calcule des recettes :: Pas trop sure vu qu'on a annuler ou deletedAt
-
-- Concernant ta question sur `Un bagage ou un courrier annulé au guichet est-il remboursé au client ?` et que j'ai repondu `On ne rembourse pas un courrier ou bagage annulé, c'est quand il y'a perte qu'on rembourse`..
-    Noté, et c'est une distinction qui compte : l'annulation ne rembourse pas, la perte oui. Le remboursement pour perte relève de B4 de ta feuille de route (réclamations et indemnisations), qui n'existe pas encore — je prévois le mécanisme sans le brancher
-    - courrier annuler statistiques, donc perte ne sort pas de la recette il y'a une négociation qui fais que c'est une dépense, pas la somme exacte (concersation claude "courriers annulées"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## « Tout ce qui concerne l'argent, on ne supprime pas »
-
-C'est vrai, et c'est un des principes les plus anciens de la comptabilité. Un journal est **append-only** : on ne retire pas une écriture, on en passe une seconde qui l'annule — la **contre-passation** (ou extourne), et côté commercial l'**avoir** plutôt que la suppression d'une facture. Les ERP appliquent ça strictement : une facture validée ne se supprime pas, on émet un avoir. La raison est la **piste d'audit** — il faut pouvoir reconstituer la séquence des opérations, et une suppression y fait un trou invisible. Les obligations de conservation et d'inaltérabilité des registres, selon les pays, vont dans le même sens.
 
 Ce qui est intéressant : **ton code appliquait déjà ce principe à moitié**, sans que ce soit dit nulle part. Le garde de suppression d'un billet embarqué, le courrier supprimable seulement `EN_ATTENTE`, le bagage seulement `ENREGISTRE`, et ce commentaire que j'ai trouvé mot pour mot sur l'approvisionnement : « suppression d'un **document comptable** : admin d'entreprise UNIQUEMENT (la sortie normale est l'annulation, tracée) ». La règle était là, mais rien ne l'appliquait sur les appros et dépannages. C'est ce trou que ton intuition a désigné.
 
-**Il en reste un, et il est sur `Depense`** : cette entité n'a **aucun** champ statut. Sa seule façon d'être annulée est donc la corbeille — exactement ce que le principe interdit pour une sortie d'argent. C'est la dernière entorse, et la fermer voudrait dire lui donner un `ANNULE` avec motif, la corbeille redevenant réservée aux erreurs de saisie. Je ne le fais pas sans ton accord : ça touche un module livré et l'écran de dépenses.
 
-2. **`Depense` sans statut.** C'est le dernier écart au principe « l'argent ne se supprime pas » : aujourd'hui, la corbeille est le seul moyen d'annuler une dépense. La piste est un statut `ANNULE` avec motif, à valider avant de coder.
-
-- **`Depense`** n'a pas de statut `ANNULE` : la corbeille est aujourd'hui sa seule annulation, ce qui contredit « l'argent ne se supprime pas ».
 
 - Revoire le cas de désistement qui se fait que sur un voyage de la même ligne ! Je pense que je fais les choses bien ici => Vérifié si ça va sur un autre départ de la même ligne
     > Si un client désiste pour un voyage est ce que le nouveau voyage doit être forcément sur la même ligne ou sur n'importe quel ligne

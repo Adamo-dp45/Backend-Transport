@@ -25,6 +25,9 @@ enum AlerteType: string
     case AGENT_REMISE_ELEVEE       = 'AGENT_REMISE_ELEVEE';
     case COURRIER_NON_LIVRE        = 'COURRIER_NON_LIVRE';
     case BAGAGE_NON_LIVRE          = 'BAGAGE_NON_LIVRE';
+    // Caisse
+    case CAISSE_NON_CLOTUREE       = 'CAISSE_NON_CLOTUREE';
+    case CAISSE_ECART_ELEVE        = 'CAISSE_ECART_ELEVE';
 
     public function severite(): AlerteSeverite
     {
@@ -38,7 +41,16 @@ enum AlerteType: string
             self::STOCK_FAIBLE,
             self::DEPANNAGE_OUVERT_PROLONGE,
             self::AGENT_ANNULATION_ELEVEE,
-            self::AGENT_REMISE_ELEVEE => AlerteSeverite::AVERTISSEMENT,
+            self::AGENT_REMISE_ELEVEE,
+            /*
+                Une caisse restée ouverte n'est pas une faute, c'est un agent parti sans compter :
+                son tiroir n'est plus opposable à personne, et chaque journée qui passe éloigne du
+                moment où l'on aurait pu constater l'écart.
+            */
+            self::CAISSE_NON_CLOTUREE => AlerteSeverite::AVERTISSEMENT,
+
+            // Un manquant important se traite comme une annulation anormale : vite, et en haut.
+            self::CAISSE_ECART_ELEVE => AlerteSeverite::CRITIQUE,
 
             self::NO_SHOW_A_REGULARISER,
             self::COURRIER_NON_LIVRE,
@@ -55,14 +67,27 @@ enum AlerteType: string
             self::BON_EXPIRE_BIENTOT,
             self::NO_SHOW_A_REGULARISER,
             self::COURRIER_NON_LIVRE,
-            self::BAGAGE_NON_LIVRE => AlertePortee::GARE,
+            self::BAGAGE_NON_LIVRE,
+            /*
+                PORTÉE GARE et non DIRECTION : c'est le chef de gare qui va chercher l'agent et
+                fait compter le tiroir. Une caisse oubliée est un geste d'exploitation à rattraper
+                sur place, pas une affaire de siège.
+            */
+            self::CAISSE_NON_CLOTUREE => AlertePortee::GARE,
 
             self::STOCK_FAIBLE,
             self::STOCK_RUPTURE,
             self::DEPANNAGE_OUVERT_PROLONGE => AlertePortee::ENTREPRISE,
 
             self::AGENT_ANNULATION_ELEVEE,
-            self::AGENT_REMISE_ELEVEE => AlertePortee::DIRECTION,
+            self::AGENT_REMISE_ELEVEE,
+            /*
+                PORTÉE DIRECTION, à l'inverse : un écart de caisse met en cause une personne, et la
+                première chose qu'un chef de gare ferait d'une alerte le visant, lui ou son équipe,
+                serait de la traiter avant que le siège ne la voie. Même raison que pour les
+                annulations et les remises anormales, avec lesquelles elle se lit.
+            */
+            self::CAISSE_ECART_ELEVE => AlertePortee::DIRECTION,
         };
     }
 
@@ -84,7 +109,9 @@ enum AlerteType: string
             self::AGENT_ANNULATION_ELEVEE,
             self::AGENT_REMISE_ELEVEE,
             self::COURRIER_NON_LIVRE,
-            self::BAGAGE_NON_LIVRE => 'ANTIFRAUDE',
+            self::BAGAGE_NON_LIVRE,
+            self::CAISSE_NON_CLOTUREE,
+            self::CAISSE_ECART_ELEVE => 'ANTIFRAUDE',
         };
     }
 }

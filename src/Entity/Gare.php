@@ -144,7 +144,7 @@ class Gare extends EntityBase implements EntrepriseOwnedInterface, HasSoftDelete
     private ?Ville $ville = null;
 
     #[ORM\Column(length: 255)]
-    #[Groups(['read:Gare', 'write:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation', 'read:Depense'])]
+    #[Groups(['read:Gare', 'write:Gare', 'read:Courrier', 'read:User', 'read:Ligne', 'read:Ligne:item', 'read:Voyage', 'read:Ticket', 'read:Tarif', 'read:Bagage', 'read:Role', 'read:Reservation', 'read:Depense', 'read:Sessioncaisse'])]
     #[Assert\NotBlank]
     #[Assert\Length(min: 2)]
     private ?string $libelle = null;

@@ -42,7 +42,8 @@ class DesistementProcessor implements ProcessorInterface
         private EntityManagerInterface $em,
         private ActiviteLogger $activiteLogger,
         private VoyageGuard $voyageGuard,
-        private \App\Domain\Service\CapaciteService $capaciteService
+        private \App\Domain\Service\CapaciteService $capaciteService,
+        private \App\Domain\Service\SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -133,15 +134,34 @@ class DesistementProcessor implements ProcessorInterface
             'Le car a quitté la gare de montée de ce billet : l\'annulation (remboursement) n\'est plus possible.'
         );
 
+        /*
+            LA CAISSE QUI PAIE — résolue UNE fois et partagée avec les bagages : le client repart
+            avec un seul remboursement, d'un seul tiroir, même si trois lignes le composent.
+
+            Elle est distincte de celle qui a encaissé la VENTE ('Ticket::$sessioncaisse'), et c'est
+            tout l'intérêt : la vente de lundi reste dans la caisse de lundi, déjà clôturée et
+            signée, pendant que la sortie de jeudi pèse sur la caisse de jeudi. Nulle pour un acteur
+            sans gare — l'argent sort alors du coffre, pas d'un guichet.
+        */
+        $caisse = $this->sessioncaisseService->courante($user);
+
         $ticket
             ->setStatut(TicketStatus::STATUT_ANNULE->value)
             ->setDatedesistement($now)
             ->setMotifdesistement($data->motif)
+            /*
+                LE MONTANT EST LE PRIX, toujours : on CHIFFRE la règle en vigueur (« remboursement
+                intégral implicite ») au lieu de la laisser sous-entendue. Sans cette ligne, la
+                recette baissait rétroactivement au jour de la VENTE pendant que le tiroir se vidait
+                aujourd'hui — un manquant que rien n'expliquait le soir.
+            */
+            ->setMontantrembourse($ticket->getPrix())
+            ->setSessioncaisseremboursement($caisse)
             ->setUpdatedBy($user->getId());
 
         // Le client ne part plus → ses bagages rattachés à ce billet sont annulés (ils ne partent pas).
         // On ne touche pas aux bagages déjà livrés/perdus/annulés.
-        $this->annulerBagagesDuTicket($ticket, $user);
+        $this->annulerBagagesDuTicket($ticket, $user, $caisse);
 
         $this->activiteLogger->log(
             ActiviteLogger::TICKET_ANNULE,
@@ -157,7 +177,7 @@ class DesistementProcessor implements ProcessorInterface
      * Annule en cascade les bagages liés au billet (ceux encore enregistrés / embarqués) : le passager
      * ne voyageant plus, ses bagages ne partent pas. Les entités sont managées → flushées avec le billet.
      */
-    private function annulerBagagesDuTicket(Ticket $ticket, User $user): void
+    private function annulerBagagesDuTicket(Ticket $ticket, User $user, ?\App\Entity\Sessioncaisse $caisse): void
     {
         $bagages = $this->em->getRepository(Bagage::class)->findBy([
             'ticket' => $ticket,
@@ -168,6 +188,15 @@ class DesistementProcessor implements ProcessorInterface
         foreach ($bagages as $bagage) {
             $bagage
                 ->setStatut(BagageStatus::STATUT_ANNULE->value)
+                /*
+                    LES BAGAGES SONT REMBOURSÉS EUX AUSSI (décision du 30/09/2026). Le client a payé
+                    leur transport — la recette est reconnue dès l'enregistrement — et ils ne
+                    partiront pas : les garder reviendrait à encaisser un service non rendu. Et au
+                    comptoir l'agent rend tout en une fois, si bien qu'un système qui n'en compte
+                    qu'une partie lui fabrique un manquant à chaque désistement avec bagage.
+                */
+                ->setMontantrembourse($bagage->getMontant())
+                ->setSessioncaisseremboursement($caisse)
                 ->setUpdatedBy($user->getId())
                 ->setUpdatedAt(new \DateTimeImmutable());
         }

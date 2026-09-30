@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\CourrierStatus;
 use App\Domain\Enum\DetailcourrierStatus;
+use App\Domain\Service\SessioncaisseService;
 use App\Entity\Courrier;
 use App\Entity\Detailcourrier;
 use App\Entity\Dto\CourrierInput;
@@ -31,7 +32,8 @@ class CourrierProcessor implements ProcessorInterface
         private GareRepository $gareRepository,
         private VoyageRepository $voyageRepository,
         private TarifcourrierRepository $tarifcourrierRepository,
-        private CourrierRepository $courrierRepository
+        private CourrierRepository $courrierRepository,
+        private SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -88,6 +90,13 @@ class CourrierProcessor implements ProcessorInterface
             ->setStatut($this->resoudreStatut($voyage))
             ->setMontant(0)
             ->setCodecourrier($this->generateCode($identreprise))
+            /*
+                LA CAISSE de l'agent qui encaisse. Un courrier n'a PAS de canal commercial — il se
+                dépose à un guichet, jamais à bord — donc aucun test à faire ici : le service rend
+                'null' de lui-même pour un acteur sans gare (admin, central). Le raisonnement
+                complet est sur 'Ticket::$sessioncaisse'.
+            */
+            ->setSessioncaisse($this->sessioncaisseService->courante($this->security->getUser()))
             /*
                 ->setModepaiement($data->modepaiement)
                 ->setEtatpaiement($data->modepaiement === 'RECEPTION' ? 'EN_ATTENTE_PAIEMENT' : 'PAYE')

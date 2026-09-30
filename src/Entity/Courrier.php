@@ -260,6 +260,32 @@ class Courrier extends EntityBase implements EntrepriseOwnedInterface, MultiGare
     #[Groups(['read:Courrier', 'write:Courrier'])]
     private ?Voyage $voyage = null;
 
+    /**
+     * LA CAISSE QUI A VU PASSER CET ARGENT, posée à l'écriture par le processor via
+     * 'SessioncaisseService'. NULL = HORS CAISSE (vente du commercial à bord, acteur sans gare).
+     * Aucun 'Groups' : la caisse d'un collègue n'a rien à faire dans cette charge utile — le
+     * raisonnement complet est sur 'Ticket::$sessioncaisse'.
+     */
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisse = null;
+
+    /**
+     * CE QUI EST SORTI DU TIROIR quand le client vient reprendre son colis avant le départ.
+     *
+     * Le montant couvre la taxe des colis ET les frais de suivi : le client a payé les deux, et
+     * aucun des deux services n'aura été rendu. Les frais de suivi ont leur ligne propre dans le
+     * théorique parce qu'ils sont un encaissement distinct ; en SORTIE il n'y a qu'un geste, une
+     * somme rendue d'un coup, donc une seule colonne.
+     *
+     * Aligné sur le bagage et le billet (30/09/2026) : les trois annulations rendent l'argent, et
+     * ne chiffrer que certaines ferait dépendre le remboursement du guichet où l'on se trouve.
+     */
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    private ?int $montantrembourse = null;
+
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisseremboursement = null;
+
     #[ORM\Column(nullable: true)]
     #[Groups(['read:Courrier', 'write:Courrier'])]
     private ?int $fraissuivi = null;
@@ -540,6 +566,42 @@ class Courrier extends EntityBase implements EntrepriseOwnedInterface, MultiGare
     public function setDatelivraison(?\DateTimeImmutable $datelivraison): static
     {
         $this->datelivraison = $datelivraison;
+
+        return $this;
+    }
+
+    public function getSessioncaisse(): ?Sessioncaisse
+    {
+        return $this->sessioncaisse;
+    }
+
+    public function setSessioncaisse(?Sessioncaisse $sessioncaisse): static
+    {
+        $this->sessioncaisse = $sessioncaisse;
+
+        return $this;
+    }
+
+    public function getMontantrembourse(): ?int
+    {
+        return $this->montantrembourse;
+    }
+
+    public function setMontantrembourse(?int $montantrembourse): static
+    {
+        $this->montantrembourse = $montantrembourse;
+
+        return $this;
+    }
+
+    public function getSessioncaisseremboursement(): ?Sessioncaisse
+    {
+        return $this->sessioncaisseremboursement;
+    }
+
+    public function setSessioncaisseremboursement(?Sessioncaisse $sessioncaisseremboursement): static
+    {
+        $this->sessioncaisseremboursement = $sessioncaisseremboursement;
 
         return $this;
     }

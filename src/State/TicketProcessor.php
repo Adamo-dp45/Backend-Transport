@@ -15,6 +15,7 @@ use App\Domain\Service\CapaciteService;
 use App\Domain\Service\ClientResolver;
 use App\Domain\Service\ConfigRemiseService;
 use App\Domain\Service\FideliteService;
+use App\Domain\Service\SessioncaisseService;
 use App\Repository\TarifRepository;
 use Doctrine\DBAL\LockMode;
 use App\Security\VoyageGuard;
@@ -34,7 +35,8 @@ class TicketProcessor implements ProcessorInterface
         private CapaciteService $capaciteService,
         private ActiviteLogger $activiteLogger,
         private ConfigRemiseService $configRemiseService,
-        private VoyageGuard $voyageGuard
+        private VoyageGuard $voyageGuard,
+        private SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -230,6 +232,25 @@ class TicketProcessor implements ProcessorInterface
             }
         }
         $data->setRemise($remise);
+
+        /*
+            LA CAISSE, RÉSOLUE AVANT D'ENTRER DANS LA TRANSACTION et non dedans : ce service
+            verrouille la ligne 'user', la transaction ci-dessous verrouille le VOYAGE. La résoudre à
+            l'intérieur inverserait l'ordre des verrous entre deux agents qui vendent sur le même
+            départ, ce qui est la recette d'un interblocage.
+
+            AUCUNE CAISSE pour le COMMERCIAL à bord — il n'a pas de guichet, et sa remise d'espèces
+            se traitera comme un versement —, ni pour une vente DIFFÉRÉE, qui est forcément la
+            sienne. Le billet émis depuis un BON et le billet de REPORT n'ont pas non plus de
+            session, et n'ont rien à faire ici : ils ne passent pas par ce processor
+            ('EmissionBilletService' et 'DesistementProcessor' construisent leur billet eux-mêmes).
+
+            Résolue APRÈS toutes les gardes de vente : une caisse ouverte par une vente qui part
+            ensuite en erreur resterait vide au nom d'un agent qui n'a rien encaissé.
+        */
+        $data->setSessioncaisse(
+            ($estCommercial || $differee) ? null : $this->sessioncaisseService->courante($user)
+        );
 
         // 5 + 7. Capacité par segment + code + persistance SOUS VERROU PESSIMISTE sur le voyage.
         // Sérialise les ventes concurrentes du MÊME voyage : un 2e agent qui vend au même instant

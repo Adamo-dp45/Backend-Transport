@@ -231,6 +231,37 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     #[Groups(['read:Bagage'])]
     private ?User $commercial = null;
 
+    /**
+     * LA CAISSE QUI A VU PASSER CET ARGENT, posée à l'écriture par le processor via
+     * 'SessioncaisseService'. NULL = HORS CAISSE (vente du commercial à bord, acteur sans gare).
+     * Aucun 'Groups' : la caisse d'un collègue n'a rien à faire dans cette charge utile — le
+     * raisonnement complet est sur 'Ticket::$sessioncaisse'.
+     */
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisse = null;
+
+    /**
+     * CE QUI EST SORTI DU TIROIR, et la caisse qui l'a payé — le seul poste en SORTIE d'une session.
+     *
+     * Deux colonnes et non une, parce que ce sont DEUX ÉVÉNEMENTS DISTINCTS sur la même ligne : la
+     * vente lundi, le remboursement jeudi. Les confondre ferait retomber la sortie de jeudi dans la
+     * caisse de lundi — déjà clôturée et signée — et l'agent de jeudi aurait un manquant que rien
+     * n'expliquerait.
+     *
+     * Le MONTANT vaut toujours le prix : c'est la règle en vigueur (« remboursement intégral
+     * implicite »), simplement CHIFFRÉE au lieu d'être sous-entendue. Le laisser saisir par l'agent
+     * ouvrirait la porte à qui déclare plus qu'il n'a rendu — son tiroir tomberait juste et la
+     * différence resterait dans sa poche. Une retenue sur désistement tardif serait un changement
+     * de règle MÉTIER, à décider pour elle-même.
+     *
+     * Aucun 'Groups', pour la même raison que 'sessioncaisse'.
+     */
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    private ?int $montantrembourse = null;
+
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisseremboursement = null;
+
     #[ORM\ManyToOne]
     #[Groups(['read:Bagage', 'read:Voyage', 'write:Bagage'])]
     private ?Gare $garedepart = null; // Gare d'origine du bagage (= gare de l'agent s'il y est rattaché)
@@ -475,6 +506,42 @@ class Bagage extends EntityBase implements EntrepriseOwnedInterface, MultiGareSc
     public function setMontantEncaisse(?int $montantEncaisse): static
     {
         $this->montantEncaisse = $montantEncaisse;
+
+        return $this;
+    }
+
+    public function getSessioncaisse(): ?Sessioncaisse
+    {
+        return $this->sessioncaisse;
+    }
+
+    public function setSessioncaisse(?Sessioncaisse $sessioncaisse): static
+    {
+        $this->sessioncaisse = $sessioncaisse;
+
+        return $this;
+    }
+
+    public function getMontantrembourse(): ?int
+    {
+        return $this->montantrembourse;
+    }
+
+    public function setMontantrembourse(?int $montantrembourse): static
+    {
+        $this->montantrembourse = $montantrembourse;
+
+        return $this;
+    }
+
+    public function getSessioncaisseremboursement(): ?Sessioncaisse
+    {
+        return $this->sessioncaisseremboursement;
+    }
+
+    public function setSessioncaisseremboursement(?Sessioncaisse $sessioncaisseremboursement): static
+    {
+        $this->sessioncaisseremboursement = $sessioncaisseremboursement;
 
         return $this;
     }

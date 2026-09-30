@@ -847,6 +847,526 @@ la compagnie SAHEL ressort en rouge.
 
 
 
+# Caisse et soldes — ce qu'un agent a encaissé, puis ce que la compagnie détient
+
+> **Plan validé le 2026-09-23 · révisé les 2026-09-28 et 2026-09-29 · mise en œuvre EN ATTENTE** —
+> l'utilisateur donnera le départ.
+>
+> Le chantier précédent (module Dépenses) est livré : backend, frontend et documentation. Ce plan
+> porte sur A1 de la feuille de route, la clôture de caisse.
+>
+> **Révision du 28/09/2026 — deux décisions de l'utilisateur, qui touchent les formules :**
+> 1. **plus aucun filtre `ESPECES`** : un solde n'est pas un coffre mais tout ce qu'on détient, donc
+>    toute dépense le fait baisser quel que soit son mode de règlement ;
+> 2. **les approvisionnements et les dépannages sortent du solde de l'entreprise** — trou mesuré à
+>    7 255 200 FCFA sur le jeu actuel.
+>
+> **Révision du 29/09/2026 — L'ORDRE EST INVERSÉ.** La CAISSE passe devant ; les SOLDES deviennent
+> un palier de FIN, et CONDITIONNEL. Question de l'utilisateur : « la partie soldes est-elle vraiment
+> nécessaire, ou rend-elle l'application plus contraignante ? » Trois raisons de la suivre :
+>
+> 1. **LE SOLDE A BESOIN DES CLÔTURES POUR EXISTER** — ce n'est pas une préférence d'ordre, c'est une
+>    dépendance, et elle rend l'ancien découpage intenable. La formule de « Soldes et versements »
+>    part de `Σ montantcompte des sessions CLOTUREE` : tant qu'aucune caisse ne se clôture, le solde
+>    d'une gare n'a AUCUNE entrée et ne fait que baisser des dépenses. L'ancien palier 1 se disait
+>    pourtant « livrable seul et déjà utile, à partir des ventes qui existent déjà » — il aurait donc
+>    fallu une SECONDE formule, fondée sur la recette THÉORIQUE, remplacée trois paliers plus loin par
+>    celle des comptages RÉELS : deux chiffres successifs pour la même question, et le premier aurait
+>    dit « ce que la gare aurait dû détenir », ce qui est déjà le métier du module Recette ;
+> 2. **SANS LES VERSEMENTS, UN SOLDE NE REDESCEND JAMAIS** — ils étaient au palier 5, le solde au 1 ;
+> 3. **`soldeinitial` EST UNE VALEUR QUE PERSONNE NE CONNAÎT** le jour du déploiement : on saisira un
+>    chiffre plausible dont tout le solde héritera pour toujours. Construit APRÈS les clôtures, le
+>    solde se dérive de ce qui a été physiquement COMPTÉ, et l'encaisse de départ n'est plus qu'un
+>    point d'origine.
+>
+> **Et le trou symétrique est TRANCHÉ** (même jour) : les encaissements EN LIGNE entrent dans le solde
+> de l'ENTREPRISE — proposition 1, voir la section. Décision sans effet avant le palier conditionnel,
+> puisqu'il n'y aura pas de solde avant lui.
+
+## Contexte
+
+L'application sait au franc près ce qu'un guichet **aurait dû** encaisser : `RecetteGareService`
+compose la recette par gare et par canal, et le dernier chantier a branché les dépenses en face.
+Mais rien ne rapproche ce chiffre de **l'argent réellement dans le tiroir**. Pour une compagnie où
+presque tout se paie en espèces, c'est le manque le plus coûteux de la feuille de route : un écart de
+caisse ne se détecte aujourd'hui que par recoupement manuel, a posteriori, et sans rien d'opposable à
+l'agent.
+
+Trois trous rendent ce rapprochement impossible en l'état :
+
+- **aucune recette ne dit comment elle a été payée** — un billet, un bagage, un courrier n'ont pas de
+  mode de règlement ;
+- **le remboursement d'un désistement n'est chiffré nulle part** — le billet passe `ANNULE`, la
+  recette baisse rétroactivement, la sortie d'espèces ne laisse aucune trace ;
+- ~~**les frais de suivi d'un courrier** (`Courrier::$fraissuivi`) sont saisis et encaissés mais
+  n'entrent dans **aucun** calcul de recette~~ — **RÉPARÉ le 24/09/2026**, hors de ce chantier : les
+  douze sommes de `CourrierRepository` portent `SUM(c.montant + COALESCE(c.fraissuivi, 0))`,
+  verrouillées par `tests/Domain/RecetteCourrierTest.php`. Il reste à les compter dans le
+  **théorique d'une caisse**, ce qui est du ressort du palier 2.
+
+Ce chantier pose d'abord la **SESSION DE CAISSE** par agent — non pas un pot d'argent de plus, mais
+une période de responsabilité : elle dit si le compte de tel guichetier tombe juste ce soir. C'est A1,
+et c'est ce qui manque. Viennent ENSUITE, et seulement si la compagnie les demande, les **versements**
+d'espèces d'une gare vers le siège, puis le **SOLDE** — ce qu'une gare et l'entreprise détiennent
+réellement. Cet ordre n'est pas un confort de livraison : le solde se calcule à partir de ce que les
+agents ont REMIS à la clôture, il ne peut donc pas précéder la caisse.
+
+Les deux notions répondent à deux questions distinctes, et aucune ne remplace l'autre : le
+**résultat** (recettes − dépenses) dit si l'affaire est rentable, le **solde** dit ce qu'il y a dans
+le coffre ce soir.
+
+## Décisions actées
+
+- **La CAISSE d'abord, les SOLDES en fin de parcours et SOUS CONDITION** (29/09/2026 — voir l'en-tête
+  pour les trois raisons). Conséquence pratique : les paliers 1 à 5 ne touchent NI à `Gare`, NI à
+  `Entreprise` — aucune migration sur ces deux tables, aucun champ de plus dans leurs formulaires de
+  création — et A1 est livré à la fin du palier 5, sans qu'un seul solde ait été écrit.
+- **Les encaissements EN LIGNE entrent dans le solde de l'ENTREPRISE** (29/09/2026) : proposition 1 de
+  « Le trou symétrique ». L'argent d'un paiement mobile n'atterrit dans le tiroir d'aucun guichet, il
+  arrive sur un compte de la compagnie. CONSÉQUENCE ASSUMÉE : le solde le comptera DÈS LE PAIEMENT,
+  donc pendant qu'il est encore chez le prestataire — la créance est certaine, mais la détenir n'est
+  pas l'avoir reçue. Distinguer les deux un jour, c'est la proposition 2 (un compte de trésorerie par
+  canal), hors de ce chantier.
+- **Un SOLDE n'est pas un coffre** (recadrage de l'utilisateur, 28/09/2026 — il remplace le filtre
+  `ESPECES` que ce plan portait partout). Le solde d'une gare ou de l'entreprise, c'est l'argent
+  qu'elle **DÉTIENT**, où qu'il soit : tiroir, compte en banque, portefeuille mobile. Donc **toute
+  dépense le fait baisser, quel que soit son mode de règlement**. Un virement de 500 000 vide le
+  compte de la gare aussi sûrement que 500 000 sortis du tiroir.
+  Ce que l'ancien filtre coûtait : un solde systématiquement **trop haut**, du montant exact de tout
+  ce qui ne se paie pas en espèces, et aucun écran pour le dire. `modereglement` redevient ce qu'il
+  est — la mention de COMMENT on a payé, utile pour retrouver une pièce, sans effet sur aucun total.
+  Le garde-fou est posé dans le docblock de
+  [Modereglement.php](Backend-Transport/src/Domain/Enum/Modereglement.php), qui annonçait l'inverse.
+- **La CAISSE d'un agent, elle, reste bien un tiroir d'espèces** — et ce n'est pas une contradiction,
+  parce qu'aucune dépense n'y touche (décision plus bas). Les deux notions ne se recouvrent pas : la
+  caisse compte ce qu'un guichetier a physiquement encaissé sur sa journée, le solde compte ce que la
+  gare détient en tout.
+- **Tout encaissement au guichet est réputé espèces.** Aucun champ de mode de règlement n'est ajouté
+  à `Ticket`, `Bagage`, `Courrier` : ce serait alourdir le geste le plus fréquent de l'application.
+  Un paiement mobile exceptionnel produira un écart, que l'agent justifiera par un motif.
+- **Aucune garde bloquante.** Un agent peut vendre sans avoir ouvert sa caisse : une session lui est
+  alors ouverte automatiquement, fonds à zéro. Le guichet ne s'arrête jamais sur une procédure
+  oubliée, et aucune vente ne reste orpheline.
+- **Le commercial à bord est hors périmètre** — `commercialflutter` n'est pas touché. Sa remise
+  d'espèces se traitera plus tard, probablement comme un versement à une gare.
+- **Les versements gare → siège sont dans le périmètre** : sans eux la caisse du siège reste vide et
+  le solde d'une gare ne baisse jamais.
+- **Frais de suivi** : la réparation de la RECETTE est faite (24/09/2026) ; reste à les compter
+  dans le théorique d'une caisse.
+- **L'agent remet TOUT à la clôture.** Son tiroir repart à zéro ; le chef de gare lui avance un
+  fonds à chaque prise de poste. Un écart appartient donc toujours à une personne et à une journée.
+- **Une dépense de gare sort TOUJOURS du coffre du chef de gare**, jamais du tiroir d'un guichet.
+  Conséquence directe : le module Dépenses livré n'est PAS modifié — aucune colonne de session à y
+  ajouter. Une dépense pèse sur le solde de la gare, pas sur la caisse d'un agent.
+- **L'annulation ne rembourse pas** — ni bagage, ni courrier, ni les bagages annulés en cascade avec
+  un billet désisté. Seul le **désistement d'un billet** rend de l'argent. Le remboursement pour
+  **perte** existe dans la vraie vie mais relève de B4 (réclamations et indemnisations), qui n'est pas
+  modélisé : le mécanisme est posé, pas branché.
+
+## Modèle
+
+**`Sessioncaisse`** — `extends EntityBase implements EntrepriseOwnedInterface, GareOwnedInterface,
+HasSoftDeleteGuard`, patron [Depense.php](Backend-Transport/src/Entity/Depense.php).
+
+| champ | type | note |
+|---|---|---|
+| `agent` | FK `User`, non nul | le poste : c'est la seule identité d'une caisse |
+| `gare` | FK `Gare`, non nul | `gareScopeField()` |
+| `datedebut` / `datefin` | `datetime_immutable` (fin nullable) | |
+| `fondsouverture` | `bigint`, défaut 0 | |
+| `ouvertureautomatique` | `bool` | l'agent n'a pas ouvert sa caisse — alimente l'alerte |
+| `montanttheorique` + 8 totaux par poste | `bigint` nullable | **figés à la clôture** |
+| `montantcompte` | `bigint` nullable | l'espèce réellement comptée |
+| `ecart` | `bigint` nullable, **signé** | `montantcompte − montanttheorique`, pas d'`Assert\Positive` |
+| `motifecart` | string(255) nullable | **obligatoire dès que l'écart ≠ 0** |
+| `statut` | string(20) | enum `OUVERTE → CLOTUREE`, pas de réouverture |
+| `agentsessionouverte` | int nullable | porte l'index unique, remis à null à la clôture |
+
+La caisse a **deux états seulement** : `OUVERTE`, puis `CLOTUREE` et c'est fini. Pas de visa, pas de
+réouverture — si l'agent reprend la vente après avoir clôturé, sa première écriture lui ouvre une
+NOUVELLE session et la clôture précédente reste intacte.
+
+**Le théorique est PERSISTÉ**, contre la doctrine maison du « rien de dérivable stocké » : la clôture
+est une pièce opposable. Un tarif corrigé ou une annulation tardive déplaceraient un chiffre
+recalculé, et l'écart signé par l'agent ne voudrait plus rien dire. Même exception assumée que
+`Ticket::$desistementImputableCompagnie`.
+
+**`soldeinitial`** (`bigint`, défaut 0) sur **`Gare`** ET sur **`Entreprise`** — ⏸️ **REPORTÉ AU
+PALIER 6, conditionnel** : rien avant lui ne touche à ces deux tables. L'encaisse dont on part à
+l'ouverture. C'est une DONNÉE saisie, pas un compteur : le solde courant se recalcule à la lecture,
+sinon il dériverait à la première dépense corrigée — même doctrine que `ProgrammeFidelite` (« aucun
+compteur stocké, aucune dérive »).
+> !! C'est le champ le plus FRAGILE du chantier, et c'est une raison de plus de le faire en dernier :
+> personne ne connaît l'encaisse réelle d'une gare le jour du déploiement. Saisi de travers, il décale
+> le solde **pour toujours** et rien ne le dira. Posé APRÈS les clôtures, il n'est plus le socle du
+> calcul mais son point d'origine — l'essentiel du solde vient alors de montants physiquement comptés.
+
+**`Versement`** : `gare` (non nul), `montant`, `dateversement`, `statut` (`EMIS/ACCEPTE/REFUSE`), `accepteur`,
+`dateacceptation`, `montantrecu`, `motifecart`, `motifrefus`, `justificatif`, `reference` unique par
+entreprise.
+
+**Aucune entité `Caisse`** : le solde d'une gare et celui du siège sont **dérivés**. Le siège n'a pas
+de guichet — lui ouvrir des sessions créerait des caisses que personne ne compte jamais.
+
+Index déclarés **dans le mapping** (la base de test est bâtie par `doctrine:schema:update`) :
+`(identreprise, gare, datedebut)`, `(agent, statut)`, et l'unique `(identreprise, agentsessionouverte)`.
+
+## Le rattachement — FK explicite
+
+Chaque écriture d'espèces porte la session qui l'a vue passer, **posée à l'écriture** :
+
+| entité | colonnes | posée par |
+|---|---|---|
+| `Ticket` | `sessioncaisse`, `sessioncaisseremboursement`, `montantrembourse` | [TicketProcessor.php](Backend-Transport/src/State/TicketProcessor.php), [DesistementProcessor.php](Backend-Transport/src/State/DesistementProcessor.php) |
+| `Bagage`, `Courrier` | `sessioncaisse` | leurs processors |
+| `Reservation` | `sessioncaisse`, `sessioncaisseregul` | `ConfirmerReservationProcessor`, `RegulariserReservationProcessor` |
+
+`Depense` n'y figure PAS : une dépense sort du coffre, pas d'un tiroir de guichet. Le module livré
+reste intact.
+
+Le rattachement **dérivé** (agent + intervalle de temps) est écarté : il rendrait 0 ou 2 caisses
+selon les bornes, casserait sur une vente antidatée — cas qui existe déjà en interne, `HorodatageTrait`
+réécrit `createdAt` en DQL — et ne survivrait pas à une relecture des mois plus tard. « Un billet
+appartient toujours à exactement une caisse » doit être une colonne, pas un calcul.
+
+**`NULL` = hors caisse**, et c'est ce qui remplace tous les filtres du module Recette : la vente du
+commercial, le billet émis depuis un bon, le billet de report (aucun argent ne bouge) et le paiement
+mobile n'ont simplement pas de session. **Deux colonnes sur `Ticket` et `Reservation`** parce que ce
+sont deux événements distincts sur la même ligne : la vente lundi, le remboursement jeudi.
+
+**Ne poser aucun `Groups`** sur ces FK — avec `skip_null_values: false`, chaque billet traînerait
+`sessioncaisse: null`, et la session d'un collègue fuiterait dans la réponse. Un `SearchFilter` sur
+`sessioncaisse.id` suffit au frontend.
+
+**Aucun backfill** : fabriquer un rattachement rétroactif serait une falsification sur une pièce de
+preuve. Le module démarre le jour du déploiement.
+
+## L'ouverture automatique
+
+`SessioncaisseService::courante(User): ?Sessioncaisse`, source unique appelée par les processors :
+
+- l'acteur **sans gare** (admin, central) → `null` : son écriture reste hors caisse ;
+- mémoïsation par agent (une vente écrit un billet puis un bagage) ;
+- `wrapInTransaction` + `lock($user, PESSIMISTIC_WRITE)` — le verrou porte sur la ligne `user`, donc
+  seules les écritures du même agent s'attendent ;
+- sinon création avec `fondsouverture = 0`, `ouvertureautomatique = true`, audit dédié.
+
+**Piège de deadlock** : `TicketProcessor` verrouille déjà le voyage. La session doit être résolue
+**avant** d'entrer dans ce `wrapInTransaction`, pour que l'ordre soit toujours `user → voyage`.
+
+## Théorique et écart
+
+```
+théorique = fondsouverture
+          + Σ Ticket.prix                                   (sessioncaisse)
+          + Σ Bagage.montant                                (sessioncaisse)
+          + Σ Courrier.montant + COALESCE(fraissuivi, 0)    (sessioncaisse)
+          + Σ Reservation.prix                              (sessioncaisse)
+          + Σ Reservation.penalitemontant + montantcomplement (sessioncaisseregul)
+          − Σ Ticket.montantrembourse                       (sessioncaisseremboursement)
+
+écart = montantcompte − théorique        (signé : négatif = manquant)
+```
+
+La caisse d'un agent ne connaît donc que des ENTRÉES et un seul type de sortie : le remboursement
+qu'il rend de son tiroir à un client qui se désiste. Dépenses et versements sortent du coffre et
+pèsent sur le solde de la gare, pas sur sa caisse.
+
+**Aucun filtre sur `statut`** — c'est le point le plus contre-intuitif du module. Toutes les requêtes
+existantes portent `t.statut = 'VALIDE'` ; ici c'est interdit. L'argent est entré à la vente ; une
+annulation ne l'efface pas, elle le ressort par la ligne de remboursement. Filtrer sur `VALIDE`
+ferait disparaître une vente et son annulation du même jour **des deux côtés**, masquant deux
+mouvements réels. À écrire dans le docblock du service et à verrouiller par un test.
+
+**La caisse ne s'ajoute à aucun total existant.** Elle ne crée ni recette ni charge : elle rapproche.
+Ne jamais soustraire un écart du bénéfice — ce serait le double comptage technique que le README
+interdit.
+
+## Soldes et versements
+
+> ⏸️ **PALIER 6 — CONDITIONNEL** (révision du 29/09/2026). Tout ce qui suit ne s'engage qu'une fois
+> les clôtures en service et sur décision de l'utilisateur. **Les versements et les soldes se livrent
+> ENSEMBLE, jamais l'un sans l'autre** : sans versement, un solde de gare ne redescend jamais et la
+> caisse du siège reste vide ; sans solde, un versement n'est qu'une pièce de plus à ranger.
+
+**Le solde est le chiffre de tête**, celui que le chef de gare et le patron regardent en premier.
+Il se dérive, il ne se stocke pas — et il part de ce que les agents ont **COMPTÉ**, jamais de ce que
+la recette dit qu'ils auraient dû encaisser. C'est toute la différence entre « ce que la gare
+détient » et « ce qu'elle a vendu », et c'est pourquoi ces formules ne veulent rien dire tant
+qu'aucune caisse ne se clôture :
+
+```
+solde gare = Gare.soldeinitial
+           + Σ montantcompte des sessions CLOTUREE        (ce que les agents ont remis)
+           − Σ fondsouverture de TOUTES les sessions      (ce que le chef leur a avancé)
+           + Σ fondsouverture des sessions CLOTUREE       (rendu avec le comptage)
+           − Σ Depense.montant       (gare)             TOUS modes · deletedAt IS NULL
+           − Σ Versement.montant     (EMIS ou ACCEPTE)
+
+en transit = Σ Versement.montant  (EMIS)
+
+solde entreprise = Entreprise.soldeinitial
+                 + Σ Versement.montantrecu              (ACCEPTE)
+                 − Σ Depense.montant  (gare NULLE)      TOUS modes · deletedAt IS NULL
+                 − Σ Approvisionnement.couttotal        (statut ≠ ANNULE)
+                 − Σ Depannage.couttotal                (statut ≠ ANNULE)
+```
+
+**Les deux derniers postes ferment un trou mesuré.** Le plan ne soustrayait que les `Depense`, alors
+que la compagnie paie aussi ses pièces et ses réparations : sur le jeu actuel, **7 255 200 FCFA**
+sortis chez IRA Transport (4 966 000 d'approvisionnements + 2 289 200 de dépannages), 126 000 chez
+Sahel Voyages, que le solde de l'entreprise aurait ignorés. Un solde faux de cet ordre est pire que
+pas de solde : il est crédible.
+
+Aucun risque de double comptage — le README l'écrit : « un `Depannage` ou un `Approvisionnement` ne
+produit JAMAIS de dépense », les trois postes du bénéfice sont **disjoints**, et le solde reprend
+exactement le découpage de `FinancierStatsProvider`.
+
+**Le coût d'un approvisionnement est sur son ENTÊTE depuis le 28/09/2026** (`Approvisionnement::$couttotal`,
+migration `Version20260928100000`, backfill compris) — comme celui d'un dépannage. `SoldeService` lit donc
+`SUM(a.couttotal)` sur UNE table, sans jointure sur les détails. Le champ est recomposé EN ENTIER par
+`ApprovisionnementProcessor::recomposerCout()` à chaque écriture, jamais saisi. Le dépannage porte le
+sien de la même façon (recomposé par son processor, main d'œuvre externe comprise depuis le 25/09).
+!! Ce plan a longtemps dit l'inverse (« coût sur les DÉTAILS, un `SUM(a.couttotal)` ne compilerait
+pas ») : c'était vrai avant le 28/09, ce ne l'est plus.
+
+!! **`SoldeService` REPREND LES EXCLUSIONS DES REPOSITORIES DE COÛT, poste par poste**, sans inventer
+de règle propre :
+
+| poste | exclu par | pourquoi |
+|---|---|---|
+| `Depense` | `deletedAt IS NULL` | l'entité n'a pas de statut : la corbeille est son SEUL geste d'annulation (`DepenseRepository`) — l'entorse au principe comptable qui reste à traiter |
+| `Approvisionnement`, `Depannage` | `statut != 'ANNULE'` **ET** `deletedAt IS NULL` | les deux depuis le 28/09/2026 (corbeille exclue de tout total d'argent). Le garde de `SoftDeleteProcessor` refuse la corbeille tant qu'ils ne sont pas `ANNULE` : en pratique une ligne en corbeille est donc toujours déjà annulée, et le filtre `deletedAt` ne retire rien de plus — il est là pour que la règle soit écrite partout pareil |
+
+!! Ce tableau disait jusqu'au 28/09 que la corbeille d'un appro ou d'un dépannage « ne gère que la
+visibilité dans les listes ». Ce n'est plus vrai. La règle à retenir : le solde exclut **exactement**
+ce que le bénéfice exclut (`FinancierStatsProvider` → `coutTotal()` des trois repositories). Sinon, on
+aurait deux chiffres pour la même chose, sur les mêmes données — exactement le défaut que le chantier
+précédent a passé son temps à traquer.
+
+Les deux lignes de `fondsouverture` se simplifient en « − fonds des sessions encore OUVERTES » : ce
+que le chef a avancé aux guichets ouverts n'est plus dans le coffre, mais il est toujours dans la
+gare. Le solde affiché est celui de la GARE (coffre + tiroirs en cours), parce que c'est la question
+posée : « combien la gare détient-elle ? »
+
+La gare **émet** un versement (imputation forcée à sa gare, `DepenseProcessor::imputer()` recopié),
+le **siège accepte ou refuse**. Entre les deux, l'argent voyage physiquement et n'est chez personne :
+un versement crédité d'office ferait apparaître au siège un solde qu'il ne détient pas, et le montant
+**en transit** est précisément ce qu'on veut voir. `montantrecu ≠ montant` → motif obligatoire.
+
+`/accepter` et `/refuser` sont gardés par **`ROLE_ADMIN` + garde de siège**, et non par une
+permission d'entité : avec le bypass `ROLE_ADMIN_GARE`, un chef de gare accepterait ses propres
+versements. Précédent exact : `Remove_Depense`.
+
+**Le piège de l'imputation** : une dépense de siège créée par un admin qui a une gare doit se décider
+sur `Depense::$gare`, **jamais** sur la gare de son auteur. C'est le seul piège qui reste — le second
+de cette liste (« filtrer sur `ESPECES` ») est mort avec le recadrage du 28/09.
+
+**UN SEUL AXE DÉCIDE : `Depense::$gare`.** Il dit qui porte la charge — une gare, ou le siège quand il
+est nul — et il décide donc à la fois du RÉSULTAT et du SOLDE. `modereglement` ne décide de rien.
+
+> **Point refermé (28/09/2026).** Ce plan portait un « point laissé ouvert » sur le risque inverse : un
+> Mobile Money payé avec l'argent du tiroir aurait fait dériver le solde à la hausse, et il proposait
+> d'ajouter `MOBILE_MONEY` aux modes qui sortent du coffre, ou un booléen « sortie de caisse »
+> pré-rempli depuis le mode. La réponse de l'utilisateur le referme un cran plus haut : **aucun mode
+> ne sort du lot**. Donc plus aucune clause à calibrer, plus aucun booléen à tenir à jour, et plus
+> aucun mode de règlement à inventer pour qu'un paiement compte — le jour où la compagnie encaisse par
+> un moyen qui n'existe pas encore dans l'enum, le solde est déjà juste.
+> **Aucune requête de total ne filtre sur le mode — ni pour le résultat, ni pour le solde**, et
+> `SoldeService` ne lit jamais `modereglement`.
+
+**Le solde ne se confond pas avec le résultat.** Il ne remplace ni la recette ni le bénéfice : il dit
+ce qu'on détient, pas ce qu'on a gagné. Ne jamais l'ajouter à `FinancierStatsProvider`.
+
+### Le trou symétrique — les encaissements en ligne ✅ TRANCHÉ le 29/09/2026
+
+Fermer les sorties fait apparaître le manque en face. Si le solde suit l'argent **où qu'il soit**, il
+doit aussi suivre l'argent qui **arrive ailleurs qu'à un guichet** — et une réservation payée en ligne
+est exactement ce cas : `Reservation` porte un bloc « Paiement (en ligne, simulé pour l'instant) »
+(`etatpaiement`, `referencepaiement`, `datepaiement`), et le hold de paiement existe précisément parce
+qu'on « refusait le paiement APRÈS prélèvement **chez le prestataire** ». Cet argent n'a jamais vu un
+tiroir : il arrive sur un compte de l'**entreprise**.
+
+Or les formules ci-dessus ne le créditent nulle part :
+
+- il n'entre pas dans le solde d'une **gare** — pas de session de caisse, donc rien dans
+  `montantcompte` (et c'est juste : aucun agent ne l'a encaissé) ;
+- il n'entre pas dans le solde de l'**entreprise** — qui ne monte que par les versements des gares.
+
+**Mesuré sur le jeu actuel** : 2 réservations `source = MOBILE` et `etatpaiement = PAYE`, soit
+**30 000 FCFA** (dont une `A_REGULARISER`), contre une seule réservation guichet à 8 000. Le solde de
+l'entreprise serait donc **systématiquement pessimiste**, et l'écart grandira à mesure que la vente en
+ligne prend — c'est une fonctionnalité qui monte, pas un reliquat.
+
+**Ce qui rend le déséquilibre visible à l'écran** : `ReservationRepository::recettePayeeParGare()`
+filtre sur `etatpaiement = PAYE` **sans regarder `source`**. Les 30 000 sont donc déjà comptés dans la
+recette de la **Gare d'Adjamé** (`recetteBillets`, `canalReservation`). Dès le palier 6, la même gare
+afficherait une recette qui les contient et un solde qui ne peut pas les contenir. Ce n'est pas un
+bug : la recette dit ce qui a été **vendu là**, le solde dit ce qui est **détenu là**. Mais les deux
+nombres cohabiteront à l'écran, et il faudra que le libellé le dise.
+
+Trois façons d'en sortir, par ordre de préférence :
+
+1. **Un poste d'entrée dédié sur le solde de l'entreprise** :
+   `+ Σ Reservation.prix + penalitemontant + montantcomplement (etatpaiement = PAYE, source = MOBILE)`.
+   Symétrique des trois postes de sortie, aucune entité nouvelle, et la question « combien la
+   compagnie détient-elle ? » retrouve une réponse juste. Le filtre doit porter sur **`source`**, pas
+   sur le statut : une réservation `A_REGULARISER` ou `EXPIREE` a été payée, l'argent est bien là — la
+   même leçon que le « aucun filtre sur `statut` » du théorique de caisse.
+2. **Un compte de trésorerie par canal**, si la compagnie veut distinguer le compte du prestataire de
+   son compte bancaire : plus juste, mais c'est un modèle à part entière, hors de ce chantier.
+3. **Ne rien faire et l'écrire** : le solde de l'entreprise n'est alors que son **encaisse de siège**,
+   pas ce qu'elle détient. Tenable seulement si l'écran le nomme ainsi.
+
+> ✅ **C'est la PROPOSITION 1 qui est retenue** (utilisateur, 29/09/2026) : « les réservations payées
+> en ligne entrent dans le solde de l'entreprise ». La question de métier qui restait — quand cet
+> argent devient-il celui de la compagnie : au prélèvement, ou au reversement du prestataire ? — est
+> donc tranchée pour **le prélèvement**. CONSÉQUENCE ASSUMÉE : le solde de l'entreprise comptera de
+> l'argent encore détenu par l'opérateur mobile. La créance est certaine, mais ce n'est pas la même
+> chose que de l'avoir reçue, et ce plan a tranché l'inverse pour les versements gare → siège, où
+> l'argent qui voyage n'est **chez personne**. L'asymétrie est voulue : un versement est un transport
+> physique dont on sait qu'il peut mal finir, un prélèvement chez un prestataire est une écriture
+> déjà passée. Si la compagnie veut un jour voir les deux séparément, c'est la proposition 2 — un
+> compte de trésorerie par canal, hors de ce chantier.
+>
+> À implémenter AVEC le palier 6, pas avant : il n'y a pas de solde à créditer jusque-là.
+
+## Sécurité
+
+`Sessioncaisse` et `Versement` entrent dans `GareScopedEntities` — l'admin de gare vise les caisses
+de sa gare, c'est son métier, et il peut déléguer à un chef de guichet. Les **trois listes
+dupliquées** restent à tenir d'accord (backend, `ApiUser`, `commercialflutter`).
+
+Une action dédiée, **`CLOTURER`** : sous `MODIFIER`, tout profil autorisé à rectifier une saisie
+pourrait arrêter la caisse d'un collègue. Trois endroits à compléter, sinon l'action reste
+inassignable : le catalogue du `PermissionVoter`, `RoleFormType::ACTIONS_SPECIFIQUES`, et
+`ActionsDedieesTest::gardesAttendues()`.
+
+**Un agent ne voit pas la caisse d'un collègue** : `CaisseScopeExtension` (patron
+`AlerteAudienceExtension`) borne à `agent = moi` pour qui n'est ni admin, ni admin de gare, ni
+central. `CaisseGuard` limite la clôture au titulaire de la caisse, à son admin de gare ou à un
+admin. Et `Sessioncaisse`/`Versement` vont dans les exclusions de `CorbeilleRegistry` : on ne met pas
+une preuve à la corbeille.
+
+**Pas de visa.** La clôture arrête la caisse, définitivement — deux statuts, pas trois. Le contrôle
+hiérarchique se fait par la LECTURE : l'écran des sessions se filtre sur les écarts, et l'alerte
+`CAISSE_ECART_ELEVE` remonte en portée DIRECTION, comme les alertes anti-fraude existantes. Le ticket
+imprimé garde en revanche **deux lignes de signature** : recevoir l'argent reste un geste physique,
+même sans acte dans l'application.
+
+## Frais de suivi — la réparation ✅ **FAITE le 24/09/2026**
+
+Livrée hors de ce chantier, parce qu'elle n'avait aucun besoin de la caisse : les **douze** sommes de
+`CourrierRepository` portent `SUM(c.montant + COALESCE(c.fraissuivi, 0))`, annulations et
+suppressions par agent comprises. Le `COALESCE` est la moitié du correctif — la colonne est nullable
+et `montant + NULL` vaut NULL, une addition sans lui ferait disparaître tous les courriers **sans**
+frais de suivi. `tests/Domain/RecetteCourrierTest.php` tombe dans les deux sens, vérifié.
+
+Il reste à les compter dans le **théorique d'une caisse** (palier 2), ce qui est une autre requête.
+
+## Ordre de livraison
+
+> **Révision du 29/09/2026.** L'ancien palier 1 (les soldes) devient le palier 6, et CONDITIONNEL.
+> Les cinq premiers paliers ne touchent ni à `Gare`, ni à `Entreprise` : **A1 est livré à la fin du
+> palier 5**, sans qu'un seul solde ait été écrit.
+
+**Palier 1 — le rattachement.** Enums, `Sessioncaisse`, repository, migration, `SessioncaisseService`
+avec son verrou, FK branchées dans les processors de vente. *Vérifié : une vente au guichet crée et
+rattache une session, celle du commercial non.*
+
+**Palier 2 — la clôture.** `CaisseTheoriqueService`, requêtes par poste, `/cloturer`, gel des totaux,
+écart, motif obligatoire. Frais de suivi dans le théorique (la recette, elle, est déjà réparée).
+*Vérifié : le théorique égale la somme des pièces qu'on peut lister.*
+
+**Palier 3 — remboursements et périmètre.** Remboursement du désistement, réservations et
+régularisations, `CaisseScopeExtension`, `CaisseGuard`, permission `CLOTURER`, audit. *Vérifié :
+vente + annulation le même jour laissent le théorique inchangé ; un agent ne voit pas la caisse d'un
+collègue.*
+
+**Palier 4 — frontend de la caisse.** `CaisseController`, écrans « ma caisse », ouverture, clôture
+avec **grille de dénominations** (locale au navigateur, seul le total part au serveur), liste des
+sessions avec filtre sur les écarts. Menu « Finances » — sa condition d'affichage doit gagner
+`SESSIONCAISSE_VOIR`, sinon un caissier sans droit Dépense ne verra pas le groupe. Impression : un
+**ticket thermique** signé à la clôture (agent + chef de gare) et un récapitulatif A4 par gare.
+
+**Palier 5 — alertes, fixtures, documentation.** `CAISSE_NON_CLOTUREE` (gare, avertissement) et
+`CAISSE_ECART_ELEVE` (direction, anti-fraude). Fixtures déterministes : une session close sans écart,
+une avec écart négatif motivé, une ouverte automatiquement. README du BK (nouveau module) et du FT.
+**➜ A1 EST LIVRÉ ICI. Arrêt pour validation sur données réelles**, et c'est à ce moment qu'on décide
+si le palier 6 a lieu.
+
+---
+
+**Palier 6 — versements et soldes. ⏸️ CONDITIONNEL, et indivisible.** `soldeinitial` sur `Gare` et
+`Entreprise` (migration + formulaires de création), `SoldeService` (les trois postes de sortie du
+siège : dépenses, approvisionnements, dépannages ; le poste d'ENTRÉE des encaissements en ligne),
+`GET /api/gares/me/solde` et `/api/caisse/entreprise`, `Versement` avec `/accepter` et `/refuser`,
+`VERSEMENT_EN_TRANSIT_PROLONGE`, écran de SOLDE en tête (gare et entreprise), écrans de versement,
+caisse du siège, fixtures (un versement en transit, un accepté avec manquant).
+
+> **Les deux moitiés ne se séparent pas** : un solde sans versement ne redescend jamais, un versement
+> sans solde n'est qu'une pièce de plus à ranger. Et **aucune des deux ne se livre avant le palier
+> 5** : la formule du solde part de `Σ montantcompte des sessions CLOTUREE`, elle n'a rien à lire
+> tant qu'aucune caisse ne se ferme.
+
+## Vérification
+
+```bash
+php bin/console doctrine:migrations:migrate --no-interaction
+make test-db && make test-api
+```
+
+Les sentinelles de la CAISSE (`tests/Api/CaisseTest.php`,
+`tests/Domain/CaisseTheoriqueServiceTest.php`), paliers 1 à 5 :
+
+1. une vente sans session ouverte en crée **une seule** ; deux ventes du même agent aussi ;
+2. la vente du commercial — en ligne **et** via `/sync` — ne crée aucune session ;
+3. le billet émis depuis un bon n'en a pas non plus (anti double comptage) ;
+4. **vente + annulation le même jour → théorique inchangé** : la sentinelle du « pas de filtre statut » ;
+5. annulation le lendemain → la session de vente garde son chiffre, celle du jour porte la sortie ;
+6. écart ≠ 0 sans motif → refus ; théorique figé insensible à une correction post-clôture ;
+7. un agent ne voit pas la caisse d'un collègue, et ne clôture pas la sienne sans la permission.
+
+Puis, à la main : ouvrir une caisse, vendre, clôturer avec un écart, imprimer le ticket, relire la
+session depuis le compte du chef de gare. **Tester avec les deux profils** — agent de gare et admin —,
+la leçon du chantier précédent.
+
+Les sentinelles du PALIER 6 (`tests/Api/VersementTest.php`), si et seulement s'il a lieu :
+
+8. **toute dépense baisse le SOLDE de la gare, quel que soit son mode**, sans jamais toucher au
+   théorique d'une caisse : la sentinelle boucle sur les QUATRE modes et exige le même mouvement à
+   chaque tour. Un test écrit sur `ESPECES` seul resterait vert avec l'ancien filtre réintroduit ;
+9. un approvisionnement et un dépannage non annulés baissent le solde de l'ENTREPRISE ; passés
+   `ANNULE`, ils le laissent intact. Une dépense mise à la CORBEILLE cesse de peser. Et pour les trois
+   postes, le solde de l'entreprise bouge d'exactement le même montant que le bénéfice sur les mêmes
+   gestes : c'est ce qui garantit que les deux calculs appliquent les mêmes exclusions ;
+10. versement : le solde de la gare baisse à l'émission, celui de l'entreprise ne monte qu'à
+    l'acceptation, et le montant en transit vaut la différence ;
+11. le solde d'une gare part de son `soldeinitial` et non de zéro, et **monte de ce que les agents
+    ont COMPTÉ, pas de ce que la recette annonce** : une session clôturée avec un manquant fait
+    monter le solde du montant compté, sentinelle de la différence entre détenu et vendu ;
+12. une réservation payée EN LIGNE crédite le solde de l'ENTREPRISE et **aucune gare**, alors que la
+    même somme reste dans la recette de sa gare de provenance — les deux chiffres cohabitent et c'est
+    voulu ; le filtre porte sur `source`, donc un bon `A_REGULARISER` ou `EXPIREE` compte toujours.
+
+## Hors périmètre
+
+- **Le commercial à bord** : aucune session, `commercialflutter` intouché.
+- **Aucun mode de règlement** sur les ventes.
+- **L'indemnisation pour perte** d'un bagage ou d'un courrier : c'est B4 de la feuille de route
+  (réclamations), non modélisé. Les colonnes de remboursement du billet serviront de patron le jour
+  venu.
+- L'intégration de l'écart au bénéfice, la reprise de l'historique antérieur au déploiement, le
+  rapprochement bancaire, et `Depense::$voyage` (frais de route).
+
+
+
+
+
+
+
+
+
 On enchaîne avec la caisse
 
 Le cadrage est déjà pris : sessions par agent, caisse du siège alimentée par des versements, `ESPECES` comme crochet. J'explore ce que l'application sait déjà de l'argent qui passe par un guichet.
@@ -3320,3 +3840,734 @@ Réglez simplement form: true # set to false to disable form integration sur `fa
 **Avant de le désactiver**, demandez-vous pourquoi : la plupart des projets gardent `form: true` par défaut, car c'est ce qui permet d'avoir le champ d'upload avec case "supprimer le fichier" directement dans vos formulaires Symfony. On ne le désactive généralement que si vous gérez les uploads entièrement par un autre moyen (API séparée, upload manuel hors formulaire Symfony, etc.).
 
 Dans votre cas précis, qu'est-ce qui vous pousse à vouloir le désactiver — un conflit avec un autre bundle, ou vous gérez les uploads autrement ?
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Remise en contexte du projet
+
+Je vais explorer la structure du projet pour me remettre à jour.
+
+Je suis à jour. Voici ce que j'ai retrouvé.
+
+## Périmètre actif
+
+`iTransport/` contient 5 dossiers (nexttransport a disparu du poste, plus de `CLAUDE.md` racine) :
+
+| Dossier | Rôle | Dernier commit |
+|---|---|---|
+| [Backend-Transport](Backend-Transport) | Symfony / API Platform / Lexik JWT — **le métier** (469 fichiers PHP, 37 classes de test) | `0af48cb` — main d'œuvre, `deletedAt` stats, médias privés, icônes |
+| [Frontend-Transport](Frontend-Transport) | Symfony / Twig / React UX / Shadcn / Tailwind v4 — back-office | `e878d16` (même chantier) |
+| `commercialflutter` | vendeur à bord, **vente hors ligne comprise** | `064025c` — numéro de départ |
+| `resaflutter` / `resanative` | réservation client (Flutter / React Native) | idem |
+
+Les deux dépôts Symfony sont propres (seul `brl.md` est modifié — ignoré, comme `tools/brl/`).
+
+## Architecture, en bref
+
+- **Multi-entreprises** via `identreprise` + `EntrepriseScopeExtension` ; **multi-gares** via `GareScopeExtension` (données entreprise / partagées le long d'une ligne / propres à la gare).
+- Soft-delete tenu par les **extensions** API Platform, pas par un filtre Doctrine global — d'où les pièges répétés (une association `OneToMany` ne connaît pas la corbeille, un agrégat qui oublie `deletedAt IS NULL` repart avec le défaut).
+- Modules : Administration, Système (maintenance + corbeille super admin), RH, Stock/Appro, Flotte/Maintenance, Exploitation, Billetterie, Réservation, Fidélité, Courrier, Bagage, Recette, **Dépense**, Journal d'activité, Alertes, Tableau de bord.
+- Règles fortes que je garde en tête : **priorité absolue à la gare amont** (surbooking assumé, on compte des **sièges**), **éviction dérivée** (sauf `desistementImputableCompagnie`, persisté), recette via la source unique `RecetteGareService`, bénéfice = recettes − dépannages − appros − dépenses (3 postes **disjoints**), rien de dérivable n'est stocké (exceptions documentées : `couttotal`, `jourdepart`).
+
+## Derniers chantiers livrés (septembre)
+
+`Version20260928180000` ferme la série : main d'œuvre externe du dépannage, PATCH partiel réparé, courriers hors CA rendu cohérent sur les 3 surfaces qui divergeaient, corbeille exclue de 60+ agrégats d'argent, **justificatifs de dépense rendus privés** (4 portes fermées, `public/documents` + nom aléatoire 128 bits), Glide limité à `images/media`/`images/users`, icônes PWA, `postcss-preset-env` retiré (CSS 391 → 191 Kio), thème à trois modes + `color-scheme`.
+
+## Ce qui reste ouvert
+
+1. **`Depense` est la dernière entorse** au principe « l'argent ne se supprime pas » : aucun statut, la corbeille est son seul geste d'annulation. Piste retenue : un `ANNULE` avec motif — **à valider avant de coder**, ça touche un module livré.
+2. **La caisse (A1 de la feuille de route)** : plan révisé le 28/09, en attente de feu vert. Il porte un point non tranché — les réservations payées en ligne (30 000 FCFA mesurés) n'entrent dans aucun solde alors qu'elles comptent déjà en recette de gare.
+3. **Dette connue** : pas de `gare` sur `Depannage`, donc « résultat d'exploitation » et jamais « bénéfice » sur un écran de gare.
+4. Le reste de la feuille de route : D1 limite de débit forgot/reset, B2 QR d'embarquement, C1 recherche globale (le champ existe et ne cherche rien), A2 report de masse, B1 SMS, A3 e-mails asynchrones.
+
+Deux réflexes que je réapplique : **mesurer sur les données réelles avant de conclure**, et **demander avant toute écriture en base** (commandes `Tmp*` en transaction annulée).
+
+Je t'écoute pour la suite.
+
+
+
+
+
+
+
+
+
+
+
+
+Une fois le choix fait, je génère les jeux complets : mipmaps Android (48 → 192), `AppIcon.appiconset` iOS (20 → 1024), icônes web et maskable pour les deux apps Flutter, et côté Expo l'icône 1024, l'adaptive Android (fond, premier plan, monochrome), le favicon et le `splash-icon` — avec la couleur de fond du splash remise sur la marque, elle est encore au bleu Expo.
+
+
+
+`R2` et `C2`, entendu. Je génère les jeux complets et j'archive les six autres dans chaque app. D'abord je vérifie la chaîne de rendu (Chrome headless → Pillow), la même que celle des icônes du back-office.
+
+La chaîne de rendu répond exactement (`#F59E0B` retrouvé au pixel). Je pose maintenant les sources SVG dans chaque app.
+
+Maintenant le script de génération. Il vit dans chaque app pour que le changement d'icône reste possible sans moi.
+
+Le foreground Android sort trop petit — j'ai réduit le canevas entier au lieu de caler le dessin sur la zone sûre. Le dessin n'occupe que 33 % de la largeur là où Android en attend le double. Je corrige en mesurant l'encombrement réel du tracé plutôt qu'en devinant une échelle :
+
+Cadrage correct et calques alignés. Je passe à `commercialflutter`, puis j'écris la variante Expo.
+
+Les trois apps sont générées. Je compose une planche de contrôle pour vérifier le rendu réel — masque circulaire d'Android, coins iOS, icône thématique.
+
+Rien n'est rogné par le masque d'Android, la coche survit en creux sur l'icône thématique, et le siège vendu reste lisible à 48 px.
+
+Je consigne maintenant les deux décisions que tu as tranchées, le README du BK annonçant encore la piste que tu viens d'écarter.
+
+C'est en place sur les trois apps.
+
+## Ce qui a été posé
+
+`R2` la place retenue pour les deux apps clientes, `C2` le plan des sièges pour le commercial. Par app Flutter : les cinq mipmaps (48 → 192), l'icône adaptative complète — premier plan, monochrome, `mipmap-anydpi-v26/ic_launcher.xml`, `values/ic_launcher_background.xml` —, les seize fichiers de `AppIcon.appiconset` aplatis sans alpha, et les icônes web. Côté Expo : `icon.png`, les trois calques adaptatifs, le favicon et le `splash-icon`.
+
+Un défaut corrigé en route : mon premier cadrage réduisait le canevas entier de 34 %, ce qui laissait le tracé à 33 % de la largeur — la moitié de ce qu'Android attend. L'échelle est maintenant mesurée sur un rendu sans fond, et la contrainte est un rayon et non une largeur, le masque du lanceur pouvant être un cercle. Le script le fait pour n'importe quel dessin futur.
+
+## Les six autres, archivées
+
+Chaque app a un dossier `branding/` : le SVG maître, sa silhouette monochrome, `generer.py`, un `README.md`, et `propositions/<nom>/` avec le SVG et un aperçu 512 px — `c1-ligne`, `c3-recu`, `c4-car` côté commercial, `r1-ligne`, `r3-epingle`, `r4-bon` côté client. Pour changer un jour : copier la proposition par-dessus `icon.svg`, adapter la silhouette, relancer.
+
+```bash
+python branding/generer.py
+```
+
+## Au-delà des images
+
+`app.json` d'Expo pointait `ios.icon` sur le dossier Icon Composer d'Expo et déclarait le bleu Expo en fond d'adaptative et de splash — les trois sont accordés sur la marque. Les `web/manifest.json` des deux apps Flutter portaient le bleu Flutter en `theme_color`, passés à l'ambre et au brun. Le script Expo ne réécrit jamais ces couleurs, il signale seulement quand elles cessent de suivre le SVG.
+
+Trois choses que je laisse telles quelles, à ton arbitrage : `resanative/assets/expo.icon/` n'est plus référencé et peut être supprimé ; les écrans de lancement Flutter sont des placeholders vides, pas des icônes par défaut ; et les manifests web portent encore `resanative`, `commercialflutter` et « A new Flutter project » comme noms — renommer une app est ta décision, pas la mienne. Rien n'est commité.
+
+## Tes deux arbitrages, consignés
+
+Le README du BK annonçait encore le `ANNULE` sur `Depense` comme « à reprendre » — c'était cette annonce qui était fausse, elle est remplacée par la décision et son motif : pas d'effet physique à défaire, donc deux gestes pour une seule intention. Et la caisse tient désormais sa règle : les réservations payées en ligne entrent au solde de l'entreprise, la recette restant imputée à la gare de provenance. Ma mémoire est à jour dans les deux sens.
+
+
+
+
+
+
+
+
+
+
+
+
+Je suis d'accord avec le fait que la `Clôture de caisse quotidienne par agent` apporte un plus à l'application, mais la question que je me pose est si la partie soldes est vraiment nécessaire (du genre si ça apporte un plus dans l'application ou le rend plus contraignat) !
+
+
+
+
+Bonne question, et je pense que tu as raison de la poser — en relisant le plan avec ton doute en tête, le palier 1 est le maillon faible.
+
+## Ce que le solde apporte vraiment
+
+La clôture de caisse ne dépend pas du solde. Le théorique d'une session se calcule depuis les ventes de l'agent, l'écart c'est compté moins théorique, et rien là-dedans n'a besoin de savoir ce que la gare détient. C'est le plan qui a placé les soldes en premier parce qu'ils sont simples et sans dépendance — mais simple à construire n'est pas utile à lire.
+
+Et il y a un défaut que le plan reconnaît lui-même sans en tirer la conséquence : sans les versements, qui sont au palier 5, le solde d'une gare **ne baisse jamais**. Il monte de chaque vente et ne redescend que des dépenses. Livré seul, le palier 1 produit donc un chiffre juste le jour de la mise en service et qui s'éloigne de la réalité un peu plus chaque semaine, sans que rien à l'écran ne le signale. C'est exactement le genre de nombre que ce projet refuse partout ailleurs.
+
+Le `soldeinitial` a le même problème à la racine : pour une compagnie qui démarre, personne ne connaît l'encaisse réelle de chaque gare. On saisira un chiffre plausible, et tout le solde en héritera pour toujours.
+
+## Ce que je propose
+
+Inverser. Faire la caisse d'abord — sessions, rattachement, clôture, écart motivé, écran « ma caisse » — et décider du solde après, une fois que les clôtures tournent.
+
+L'avantage n'est pas seulement de gagner du temps : le solde qu'on construira ensuite sera **meilleur**. Une fois les clôtures en place, le solde d'une gare se dérive de ce qui a été physiquement compté — somme des montants comptés, moins les dépenses, moins les versements — au lieu de partir d'une encaisse déclarée à la louche. Un chiffre mesuré plutôt qu'un chiffre annoncé, et réconciliable avec une liste de sessions qu'on peut afficher.
+
+Sur la contrainte pour l'utilisateur, le plan est déjà sage : aucune garde bloquante, une session s'ouvre toute seule à la première vente si l'agent a oublié. La clôture ajoute un geste en fin de journée — compter son tiroir — qui est précisément le but de A1, et que le chef de gare fait déjà à la main aujourd'hui, sans rien d'opposable.
+
+Le solde, lui, n'ajoute aucun geste mais ajoute un chiffre que personne ne peut vérifier. C'est le mauvais côté du marché.
+
+## Conséquence sur ta décision de tout à l'heure
+
+Les réservations en ligne au solde de l'entreprise restent la bonne règle, elle est consignée — elle ne s'appliquera simplement pas tout de suite, puisqu'il n'y aura pas de solde avant qu'on ait tranché de le faire.
+
+Si tu me suis, je reprends le plan dans ce sens — les soldes passent en fin de parcours et deviennent conditionnels — et je te le soumets avant d'écrire quoi que ce soit. Si tu préfères garder les soldes dès le départ, dis-le : dans ce cas les versements doivent venir avec, sinon le chiffre ne tient pas.
+
+
+
+
+
+
+
+
+Je relis les parties du plan que je n'ai pas encore vues avant de le reprendre.
+
+Le plan est clair. En le relisant en entier, je trouve un argument plus fort que celui que je t'ai donné hier — et qui corrige ce que j'avais dit.
+
+Plan repris. Il fait maintenant six paliers au lieu de sept, et A1 est livré au cinquième.
+
+## Ce qui a changé
+
+L'ordre : rattachement, clôture, remboursements et périmètre, frontend de la caisse, puis alertes/fixtures/documentation — et c'est là que `A1` est livré, avec un arrêt pour validation sur données réelles. Les soldes et les versements deviennent un palier 6 conditionnel, qu'on décide à ce moment-là et pas avant. Les cinq premiers paliers ne touchent ni à `Gare` ni à `Entreprise` : aucune migration sur ces tables, aucun champ de plus dans leurs formulaires.
+
+J'ai aussi rendu le palier 6 indivisible. Versements et soldes ne se livrent plus séparément : un solde sans versement ne redescend jamais, un versement sans solde n'est qu'une pièce de plus à ranger. C'est l'ancien découpage qui les séparait de quatre paliers.
+
+## Un argument que j'avais mal posé hier
+
+Je t'avais dit que le solde livré seul « gonflerait indéfiniment ». C'est vrai d'une formule fondée sur les recettes, pas de celle que le plan écrit vraiment. Sa formule part de `Σ montantcompte des sessions CLOTUREE` — donc sans clôtures, le solde d'une gare n'a aucune entrée du tout et ne fait que baisser des dépenses.
+
+Le défaut est donc plus profond qu'un problème d'ordre : l'ancien palier 1 se disait « livrable seul à partir des ventes qui existent déjà », ce qui aurait exigé une seconde formule, fondée sur le théorique, remplacée trois paliers plus loin par celle des comptages réels. Deux chiffres successifs pour la même question — et le premier aurait dit « ce que la gare aurait dû détenir », ce qui est déjà le métier du module Recette. Ta question a fait tomber une incohérence, pas seulement un ordre discutable. C'est écrit tel quel en tête du plan.
+
+## Et ta décision sur les encaissements en ligne
+
+La section `⚠️ À TRANCHER` est close. Elle retient la proposition 1 et note ce qu'elle engage : l'argent compte dès le prélèvement, donc pendant qu'il est encore chez l'opérateur. Le plan tranche l'inverse pour les versements gare → siège, où l'argent qui voyage n'est chez personne — l'asymétrie est maintenant justifiée noir sur blanc plutôt que subie. Deux sentinelles de plus au palier 6, dont celle qui vérifie que la même somme reste dans la recette de sa gare sans entrer dans son solde.
+
+Le plan est prêt, ma mémoire aussi. Dis-moi quand tu veux que j'ouvre le palier 1 — enums, `Sessioncaisse`, `SessioncaisseService` et son verrou, puis les FK dans les processors de vente.
+
+
+
+
+
+
+Ok, avant de commencer le palier 1, quand tu dis `remboursements` tu fais allusion à quoi !
+
+
+Bonne question à poser avant d'ouvrir le chantier — je vérifie ce que le code fait aujourd'hui plutôt que de te répondre depuis le plan.
+
+Une seule chose : **l'annulation d'un billet par désistement**. C'est le seul geste de l'application qui fait sortir des espèces du tiroir d'un guichetier.
+
+## Ce que fait le code aujourd'hui
+
+`POST /tickets/{id}/desister` a deux modes. Le `REPORT` ne rend rien — le billet est remplacé sur un autre départ, aucun argent ne bouge. L'`ANNULATION`, elle, passe le billet en `ANNULE`, exige un motif, libère le siège et annule en cascade les bagages liés. Son docbloc annonce un « remboursement intégral implicite (= prix) », et le mot important est *implicite* : `Ticket` n'a aucun champ de montant remboursé. L'argent sort de la caisse sans qu'aucune ligne ne l'écrive.
+
+Ce que le système fait à la place, c'est retirer le billet des totaux — toutes les requêtes de recette filtrent `statut = 'VALIDE'`. La recette baisse donc **rétroactivement, au jour de la vente**.
+
+Et c'est exactement là qu'est le trou. Un billet vendu hier et annulé aujourd'hui fait baisser la recette d'hier, pendant que le tiroir qui se vide est celui d'aujourd'hui. Le soir, le guichetier a un manquant que rien n'explique. C'est pour ça que le palier 3 ajoute `montantrembourse` et `sessioncaisseremboursement` sur `Ticket` : le premier chiffre ce qui est sorti, le second dit de quelle caisse. Et c'est aussi la raison de la règle la plus contre-intuitive du plan — le théorique d'une caisse ne filtre jamais sur `statut` : la vente reste dans la caisse d'hier, le remboursement pèse sur celle d'aujourd'hui.
+
+Ne remboursent rien, par décision du plan : l'annulation d'un bagage seul, celle d'un courrier, un bon de réservation expiré. Et le vendeur à bord ne rembourse pas du tout — le code le refuse déjà, avec le bon motif : la caisse et le justificatif sont à la gare.
+
+## Deux choses à trancher avant le palier 3
+
+Le montant est-il **toujours** le prix intégral ? Le code le suppose aujourd'hui parce qu'il ne le chiffre pas. Dès qu'on l'écrit dans une colonne, la question devient réelle : beaucoup de compagnies retiennent des frais sur un désistement tardif. Soit le champ reste dérivé du prix, soit l'agent saisit ce qu'il a réellement rendu, avec le prix en valeur par défaut — le second est plus juste et plus vérifiable, mais c'est une règle de gestion qui t'appartient.
+
+Et les **bagages annulés en cascade** : le plan a acté qu'ils ne sont pas remboursés. Le passager récupérerait donc le prix de son billet mais pas celui de ses bagages, alors que le même geste au guichet annule les deux. Je soupçonne que c'est un choix par omission plutôt qu'une décision — au comptoir, on rend probablement tout.
+
+Aucune des deux ne bloque le palier 1 : le rattachement pose les colonnes et le service de session, pas les règles de remboursement. On peut démarrer et trancher avant le palier 3.
+
+
+
+
+
+
+
+
+
+
+à ce sujet on vas revenir sur les actions annuler, car je me dis que ce n'est pas logique et qu'on devrait s'en séparé vu qu'on parle d'argent, et dédié l'action de suppression (deletedAt qui les sortir du calcule des recettes et coût, etc...) à l'administrateur de l'entreprise !
+
+
+
+
+Là tu touches à un mécanisme central, et je ne veux pas te répondre de mémoire. Je regarde d'abord qui peut réellement supprimer quoi aujourd'hui.
+
+J'ai vérifié, et il y a une bonne nouvelle : **la moitié de ce que tu proposes est déjà en place.**
+
+## La suppression est déjà réservée à l'admin d'entreprise
+
+`Ticket`, `Bagage`, `Courrier`, `Approvisionnement` et `Depannage` portent tous la même garde, avec le même commentaire dans le code :
+
+> `security: "is_granted('ROLE_ADMIN')"` — suppression d'un document comptable : admin d'entreprise uniquement (la sortie normale est l'annulation, tracée)
+
+Et le frontend suit : le bouton Supprimer d'une fiche courrier est sous `{% if is_granted('ROLE_ADMIN') ... %}`. Aucun agent ne peut mettre une vente à la corbeille. La seule exception est `Depense`, qui ajoute `ROLE_ADMIN_GARE` — ta décision du 24/09, parce que la ligne saisie en double était le seul geste qu'un chef de gare ne pouvait pas défaire.
+
+## Se séparer d'`ANNULE`, en revanche, je te le déconseille
+
+Quatre choses casseraient, et la dernière est la plus gênante.
+
+**L'annulation défait des effets physiques, la corbeille ne défait rien.** Annuler un approvisionnement retire les pièces du stock, annuler un dépannage les y remet, annuler un billet libère le siège, annuler une réservation rend la place. Une mise en corbeille ne touche à rien — c'est écrit dans le README, et c'est pour ça que `SoftDeleteProcessor` refuse la corbeille sur un appro ou un dépannage encore vivant : sans ce garde, on obtiendrait du stock sans coût, des pièces gratuites en inventaire et un bénéfice trop beau.
+
+**Le geste appartient au guichet, pas au siège.** Un passager se désiste devant l'agent : le siège doit être libéré tout de suite pour être revendu. Le confier à l'admin d'entreprise, c'est bloquer une place jusqu'à ce qu'il traite la demande, parfois le lendemain.
+
+**Tu perdrais la surveillance.** Le taux d'annulation par agent, les actions critiques, l'alerte `AGENT_ANNULATION_ELEVEE` reposent sur `ANNULE`, qui reste visible. Une ligne en corbeille est invisible partout, sauf sur les surfaces de contrôle qui ne la filtrent justement pas. On ne distinguerait plus « le client s'est désisté » de « l'agent a fait disparaître une vente ».
+
+**Et surtout, ça inverse le principe que tu as validé le 28/09.** « Ce qui touche à l'argent ne se supprime pas, il se contre-passe » — `ANNULE` *est* la contre-passation, la corbeille est la suppression. Ton raisonnement part de « on parle d'argent », et c'est exactement pour cette raison que l'annulation tracée est le bon geste et la suppression le mauvais.
+
+## Ce que ton intuition vise juste
+
+Il y a un vrai défaut derrière ta gêne, et ce n'est pas celui-là : aujourd'hui, `ANNULE` fait **disparaître la recette** — toutes les requêtes filtrent `statut = 'VALIDE'`. Un agent qui annule efface une vente des totaux, et rien ne vient en face. C'est surveillé, ce n'est pas empêché.
+
+C'est précisément ce que la caisse répare, et mieux qu'une restriction de droits. Après le palier 3, annuler ne fera plus disparaître l'argent : ça produira une sortie chiffrée dans la caisse de l'agent, et il devra présenter un tiroir en moins le soir. L'annulation devient opposable au lieu d'être silencieuse.
+
+Si tu maintiens ton idée malgré ça, dis-le moi et je la creuse pour de bon — mais je voulais que tu aies ces quatre points avant, parce qu'ils engagent le stock et l'anti-fraude, pas seulement un choix de vocabulaire.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ok je te suis, on garde `ANNULE`, commence le palier 1
+
+
+
+
+## Ce qui est en place
+
+L'entité [Sessioncaisse.php](Backend-Transport/src/Entity/Sessioncaisse.php) avec ses huit postes de théorique, [SessioncaisseStatut](Backend-Transport/src/Domain/Enum/SessioncaisseStatut.php) à deux états sans retour possible, le [repository](Backend-Transport/src/Repository/SessioncaisseRepository.php), et [SessioncaisseService](Backend-Transport/src/Domain/Service/SessioncaisseService.php) qui porte le verrou. Les colonnes `sessioncaisse` sont branchées dans les trois processors de vente, et l'audit `CAISSE_OUVERTE_AUTO` trace les caisses ouvertes par une vente.
+
+Trois décisions que j'ai prises et que tu peux renverser. Les huit postes sont détaillés une ligne par ligne de la formule — frais de suivi, pénalité et complément ont chacun la leur, parce qu'ils sont des encaissements distincts sur le reçu du client. Aucun `Groups` sur les FK de rattachement : avec `skip_null_values: false`, la caisse d'un collègue fuiterait par la fiche d'un billet. Et `Sessioncaisse` refuse la corbeille **inconditionnellement** — ouverte elle porte des encaissements, clôturée elle est la pièce signée ; dans les deux cas l'effacer retirerait d'un contrôle la trace qu'il contrôle.
+
+Un défaut attrapé avant la migration : `HasSoftDeleteGuard` exige une méthode que j'avais oubliée, le conteneur ne compilait pas. C'est ce qui m'a fait écrire ce refus au bon endroit plutôt que de le découvrir au palier 3.
+
+## Les six sentinelles
+
+La première vente ouvre la caisse avec un fonds à zéro et le drapeau d'ouverture automatique. Deux ventes du même agent tombent dans une seule caisse, et le bagage rejoint celle du billet — c'est la mémoïsation qui se vérifie là. Les trois exclusions passent chacune par son chemin : le commercial à bord, le billet émis depuis un bon, l'acteur sans gare.
+
+Le seul échec était mon payload de test — `type: 'BAGAGE'` au lieu de `LEGER`.
+
+## Ce que je n'ai pas fait, conformément au plan
+
+Pas d'`ApiResource` sur `Sessioncaisse` : rien n'est encore lisible par l'API, ça vient avec la clôture au palier 2. Le rattachement des réservations et du remboursement est au palier 3, la documentation du README au palier 5.
+
+## Une chose t'appartient
+
+La migration `Version20260929170000` est écrite et vérifiée, mais **je ne l'ai pas appliquée sur ta base de développement** — la base de test, elle, est à jour et c'est elle qui a validé les 308 tests. Tu me dis quand je la passe :
+
+```bash
+php bin/console doctrine:migrations:migrate --no-interaction
+```
+
+
+
+
+
+
+
+On enchaîne sur le palier 2
+
+Avant d'ouvrir le palier 2, je relis l'entité — elle a changé sur le disque depuis ma dernière lecture.
+
+L'entité est intacte — la note venait de ma propre édition. J'attaque le palier 2 : la clôture. D'abord les points d'ancrage de la permission dédiée.
+
+J'ai les patrons. Une décision de structure à vérifier avant d'écrire : où vivent les agrégats.
+
+La convention est claire : les repositories portent les requêtes, le service compose. J'ajoute les agrégats par session.
+
+Maintenant le service qui compose le théorique.
+
+Maintenant les DTO d'entrée et les deux processors.
+
+Reste l'exposition API. J'ajoute les opérations à l'entité.
+
+Contrat des permissions respecté. J'écris les sentinelles du palier 2.
+
+Les DTO n'atteignent pas le processor : un problème de groupes de sérialisation. Je regarde comment le projet câble ses DTO d'action.
+
+Un vrai défaut, pas un artefact de test : lever une exception depuis l'intérieur d'un `wrapInTransaction` ferme l'EntityManager. Je corrige.
+
+Piège du harnais : après une réponse en erreur, Doctrine réinitialise le gestionnaire et détache les entités du test. Je crée l'acteur avant, et je consigne le piège.
+
+Palier 2 livré. Backend `OK (316 tests, 1069 assertions)`, frontend `OK (44 tests, 128 assertions)`, et aucune migration supplémentaire — le palier 1 avait tout prévu.
+
+## Ce qui marche
+
+[CaisseTheoriqueService](Backend-Transport/src/Domain/Service/CaisseTheoriqueService.php) compose les huit postes depuis les repositories, [CloturerCaisseProcessor](Backend-Transport/src/State/CloturerCaisseProcessor.php) gèle, constate l'écart et exige le motif. Sept sentinelles : le théorique égale la somme des pièces fonds compris, l'écart sans motif est refusé dans les deux sens, le théorique figé résiste à une correction post-clôture, une caisse clôturée ne se rouvre pas et la vente suivante en ouvre une neuve.
+
+## Trois décisions que je te soumets
+
+J'ai ajouté l'ouverture manuelle, que le plan ne listait pas ici. Sans elle, toute caisse naît d'une vente avec un fonds à zéro, et la monnaie remise au guichet le matin ressort le soir comme un excédent inexpliqué — le théorique n'était testable qu'à zéro.
+
+J'ai posé la permission `CLOTURER` maintenant plutôt qu'au palier 3, pour ne pas exposer une action d'écriture sous une garde provisoire. Les trois points d'ancrage sont synchronisés, le test de contrat le vérifie.
+
+Et j'ai tranché une règle que le plan ne couvrait pas : **`deletedAt` filtre le théorique, `statut` non**. Une vente annulée y reste — l'argent est passé par le tiroir, c'est le remboursement qui l'en ressortira. Une vente en corbeille en sort — elle n'aurait jamais dû être saisie, donc rien n'est entré, et la garder ferait porter à l'agent un manquant qu'il n'a pas commis. C'est la question du README appliquée à la caisse : y a-t-il un effet physique à défaire ?
+
+## Un défaut réel, trouvé par les tests
+
+Lever une exception métier depuis l'intérieur d'un `wrapInTransaction` **ferme l'EntityManager** : Doctrine attrape tout `Throwable` et appelle `close()` avant de relancer. Un simple refus laissait donc derrière lui un gestionnaire inutilisable. Le verrou rend maintenant `null` et le refus est levé dehors.
+
+## Ce que tu dois savoir avant de t'en servir
+
+Quatre postes sur huit valent encore zéro : réservations encaissées au guichet, pénalités, compléments, remboursements. Leurs colonnes arrivent au palier 3. Conséquence concrète — **une gare qui encaisse des bons aura un écart positif systématique**, et la clôture ne devrait pas être mise entre les mains des agents avant que le palier 3 ne soit livré. C'est écrit en tête du service.
+
+Il manque aussi `CaisseScopeExtension` : en l'état, un agent habilité à `VOIR` lit les caisses de ses collègues de la même gare. C'est noté dans l'entité et c'est le premier point du palier 3, avec l'audit de clôture.
+
+Et la migration du palier 1 attend toujours ton feu vert sur la base de développement.
+
+
+
+
+
+
+
+
+
+
+
+J'ai déjà appliqué la migration, on enchaîne sur le palier 3
+
+La migration est passée. Avant d'écrire le palier 3, deux points que j'avais signalés au palier 1 restent ouverts — et ils changent le code.
+
+
+Quand un agent rembourse un désistement, quel montant sort de son tiroir ?
+
+Je dirai le 1, mais rassure moi : quand tu dit remboursement ! tu parle du fait d'annuler un billet ?
+
+Un client se désiste : ses bagages sont annulés en cascade. Sont-ils remboursés ?
+
+Oui, remboursés aussi (recommandé)
+
+
+Oui, exactement — et c'est plus étroit que le mot ne le laisse croire.
+
+Le remboursement, c'est `POST /tickets/{id}/desister` en mode `ANNULATION` : le billet passe `ANNULE`, le motif est obligatoire, le siège est libéré et les bagages liés sont annulés en cascade. C'est le seul geste de l'application qui fait sortir des espèces d'un tiroir. Le mode `REPORT` du même endpoint ne rend rien — le client part sur un autre départ, son billet est remplacé à prix conservé, aucun argent ne bouge.
+
+Une conséquence de ton second choix, que je te signale avant de coder : si les bagages annulés en cascade sont remboursés, alors l'annulation d'un bagage **seul** (`/bagages/{id}/annuler`, quand le client retire son bagage mais garde son billet) doit l'être aussi — sinon le même geste rend l'argent ou non selon le chemin emprunté. Je les aligne. Le courrier annulé pose exactement la même question et je le laisse de côté pour l'instant : dis-moi si tu veux que je l'aligne aussi.
+
+J'attaque. D'abord les chemins que je dois modifier.
+
+Patron clair. J'ajoute les colonnes du palier 3.
+
+Maintenant les quatre processors. D'abord le désistement.
+
+Maintenant les agrégats manquants et le branchement des quatre postes restants.
+
+Reste le périmètre. J'écris l'extension et la garde.
+
+Le piège des namespaces PHP en chaîne Python — `\U` dans `App\Entity\User`. Le script n'a pas tourné du tout. Je reprends avec des chaînes brutes.
+
+Bash réduit les doubles backslashes avant Python. J'utilise des chaînes brutes multi-lignes, sans aucune séquence d'échappement.
+
+Les trois listes sont d'accord. Je génère la migration du palier 3.
+
+Base de test à jour. J'écris les sentinelles du palier 3.
+
+Cinq sur cinq. Maintenant le périmètre.
+
+Tout passe. Je consigne d'abord un piège rencontré trois fois aujourd'hui.
+
+Palier 3 livré. Backend `OK (325 tests, 1139 assertions)`, frontend `OK (44 tests, 128 assertions)`.
+
+## Les huit postes sont branchés
+
+Le remboursement est désormais chiffré : `montantrembourse` et `sessioncaisseremboursement` sur `Ticket` et `Bagage`, posés par le désistement en mode `ANNULATION` — bagages en cascade compris, comme tu l'as tranché — et par l'annulation d'un bagage seul, alignée pour que le même geste ne dépende pas de la porte empruntée. Côté réservation, `sessioncaisse` porte l'encaissement au guichet et `sessioncaisseregul` la régularisation d'un no-show, qui tombe souvent des semaines plus tard chez un autre agent.
+
+Les deux colonnes par entité sont tout l'enjeu : la vente de lundi reste dans la caisse de lundi, le remboursement de jeudi pèse sur celle de jeudi. Une sentinelle le mesure — après clôture, l'ancienne caisse ne bouge pas d'un franc et la nouvelle porte la sortie.
+
+## Le périmètre
+
+[CaisseScopeExtension](Backend-Transport/src/Doctrine/CaisseScopeExtension.php) borne ce qu'on lit, [CaisseGuard](Backend-Transport/src/Security/CaisseGuard.php) ce qu'on ferme. Un agent ne voit que ses caisses, et celle d'un collègue répond 404 plutôt que 403 — l'extension s'applique aussi à l'item, donc l'objet est introuvable avant que la sécurité ne parle. Le chef de gare voit et clôture les caisses de sa gare, parce qu'un agent parti ou malade laisse un tiroir que quelqu'un doit compter le soir même.
+
+`Sessioncaisse` est exclue de la corbeille et entre dans `GareScopedEntities` — les trois listes dupliquées (backend, `ApiUser`, `commercialflutter`) sont d'accord. L'audit `CAISSE_CLOTUREE` trace chaque clôture, écart nul compris : c'est lui qui atteste qu'on a compté.
+
+## Ce qui reste ouvert
+
+Le **courrier annulé** pose la même question que le bagage et je ne l'ai pas touché : dis-moi si tu veux que je l'aligne.
+
+La migration `Version20260930090000` est écrite et la base de test à jour, mais je n'ai rien passé sur ton développement :
+
+```bash
+php bin/console doctrine:migrations:migrate --no-interaction
+```
+
+Après ça, `A1` n'a plus besoin que du palier 4 — les écrans — et du palier 5. Le module backend est complet et, contrairement à hier, la clôture peut maintenant être mise entre les mains des agents : plus aucun poste ne vaut zéro par défaut.
+
+
+
+
+
+
+
+
+Oui aligne le courrier et enchaîne sur le palier 4
+
+Je commence par aligner le courrier.
+
+Le courrier est aligné. J'attaque le palier 4 — les écrans. D'abord les conventions du front.
+
+Avant d'écrire les écrans, je dois corriger une affirmation que j'ai posée au palier 2 et qui est fausse.
+
+Je crée maintenant le contrôleur de caisse.
+
+Un durcissement d'abord : le message d'erreur révélait le montant de l'écart, ce qui permet de l'effacer en ajustant sa saisie.
+
+Maintenant les écrans. D'abord « ma caisse ».
+
+J'écris le tableau des sessions sur le patron des autres listings.
+
+Le voter frontend est générique, rien à y ajouter. Je lance le build et j'écris le test de rendu en parallèle.
+
+J'écris le test de rendu — la sentinelle du comptage aveugle surtout.
+
+Le contrôleur déballait `member` une fois de trop — `collection()` renvoie déjà la liste. Je corrige.
+
+Build terminé sans erreur. J'écris le test de rendu.
+
+Tests et build au vert. Le hook me demande de vérifier dans le navigateur — j'essaie, même si ma note dit que les identifiants de fixtures sont refusés en dev.
+
+Le courrier est aligné, et le palier 4 est en place pour sa partie écrans.
+
+## Le courrier
+
+`montantrembourse` et `sessioncaisseremboursement` sur `Courrier`, posés par l'annulation — taxe **et** frais de suivi ensemble, puisque le client a payé les deux et qu'aucun des deux services ne sera rendu. Le poste « remboursements » du théorique court désormais sur trois entités, et une sentinelle le mesure : un courrier à 5 000 + 500 de suivi ressort à 5 500, théorique à zéro.
+
+## Les écrans
+
+[CaisseController](Frontend-Transport/src/Controller/CaisseController.php) sert « ma caisse » (ouverture avec fonds, ou clôture), la liste des sessions et la fiche. La grille de dénominations vit dans [caisse.js](Frontend-Transport/assets/modules/caisse.js) : elle aide à compter, le détail ne quitte jamais le navigateur, seul le total part. « Caisse » est dans le menu Finances, dont la condition d'affichage a gagné `SESSIONCAISSE_VOIR` — sans quoi un caissier sans droit sur les dépenses ne verrait pas le groupe.
+
+**Le point le plus important de ce palier n'est pas un écran, c'est une correction.** J'avais écrit au palier 2 que la clôture devait annoncer le théorique avant que l'agent ne compte. C'est la pratique comptable exactement retournée : à qui connaît le montant attendu, il suffit de le recopier pour n'avoir jamais d'écart. Le comptage est désormais aveugle, le message d'erreur ne chiffre plus l'écart — il dit seulement que le compte ne tombe pas juste — et un test vérifie qu'aucun attendu n'apparaît sur l'écran de saisie. Une limite reste, documentée : rien ne consigne les tentatives refusées, donc un agent peut encore tâtonner.
+
+## Ce que je n'ai pas pu vérifier, et ce qui manque
+
+J'ai lancé les deux serveurs et tenté de me connecter avec `chef.abidjan@ira-transport.ci` : refusé, comme ma note du projet l'annonçait pour les mots de passe de fixtures en dev. Le rendu est donc couvert par trois tests de rendu, le lint Twig et le build — pas par mes yeux. Si tu ouvres l'écran, regarde surtout le dépliant des coupures.
+
+Il reste deux choses du palier 4 que je n'ai pas faites : le **ticket thermique** dédié au format 80 mm — la fiche s'imprime en A4 avec les deux lignes de signature, mais ce n'est pas le même imprimé — et le **récapitulatif A4 par gare**. Dis-moi si j'enchaîne dessus ou si tu préfères passer au palier 5.
+
+Suites au vert : backend `OK (325 tests)`, frontend `OK (47 tests, 142 assertions)`. La migration du courrier `Version20260930100000` attend ton feu vert sur la base de développement.
+
+
+
+
+
+
+
+
+
+
+
+
+
+J'ai rechargé les fixtures, tu peux vérifier.
+
+- Concernant le rembourssement, en testant sur l'application, j'ai fais un rembourssement de 30000F et consigné 10000F (sans faire de vente) et je me retrouve avec un écart de `+40000F Excédent dans le tiroir` ! est ce la logique ?
+- Dans l'état actuel, est ce qu'on sait quel caisse appartient à un agent !
+
+Ensuite, on enchaîne sur ce qui reste pour le palier 4.
+
+
+
+
+
+
+Trois points. Je commence par vérifier ce que l'API renvoie réellement — ta seconde question me fait douter d'un détail de sérialisation.
+
+Le mot de passe des fixtures est `aaaa`, pas `Password123!`. Ma note de projet disait « refusé en dev » — elle était fausse, je me trompais simplement de mot de passe.
+
+Deux constats, dont un bug. **`agent` sort comme un IRI** (`"/api/users/81"`) et non comme un objet : la fiche et la liste affichent donc « — » à la place du nom. Je corrige.
+
+Corrigé. Maintenant la vérification visuelle, enfin possible.
+
+L'écran fonctionne et les noms s'affichent. Je regarde maintenant ton cas de remboursement dans les données réelles.
+
+Je vois le symptôme : « Attendu en caisse : **−30 000** ». J'y reviens dans un instant. D'abord, j'enchaîne sur le reste du palier 4 — le ticket thermique.
+
+Je vérifie la génération du ticket dans le navigateur.
+
+Le ticket se génère (200, téléchargement). Dernier élément : le récapitulatif A4 par gare.
+
+Je corrige ma note sur les fixtures — elle m'a fait perdre du temps hier.
+
+Vérification faite, et tes deux questions ont chacune une vraie réponse.
+
+## 1. Le remboursement : l'arithmétique est juste, le résultat ne veut rien dire
+
+Ton cas : théorique = 0 (fonds) + 0 (ventes) − 30 000 (remboursé) = **−30 000**, donc écart = 10 000 − (−30 000) = +40 000. La formule fait exactement ce qu'on lui demande.
+
+Mais le symptôme se voit à l'écran : **« Attendu en caisse : −30 000 »**. Un tiroir ne peut pas contenir moins que rien. Ce chiffre dit qu'il est sorti de la caisse plus d'argent qu'il n'y est entré — donc que les 30 000 remboursés viennent d'ailleurs : du coffre du chef de gare, ou d'une session précédente déjà clôturée. Et **rien ne permet d'enregistrer cette entrée**. C'est le manque, pas un bug de calcul.
+
+Conséquence : dans ce cas précis, l'écart ne mesure plus rien, et le mot « excédent » est faux — tu n'as pas 40 000 de trop, tu as été réapprovisionné sans que le système le sache.
+
+Ce qui manque est un **apport de caisse** : le chef remet des espèces en cours de session, ça entre dans le théorique comme le fonds d'ouverture. Ton scénario deviendrait alors : apport 30 000, remboursé 30 000, attendu 0, compté 10 000 → **manquant de 20 000**, ce qui est la vérité. C'est un ajout au modèle (un champ cumulé et une opération, ou une entité de mouvements si tu veux le détail), donc je ne le code pas sans ton accord. En attendant, je peux au minimum remplacer « Excédent » par un avertissement quand l'attendu est négatif — dis-moi si tu veux l'un, l'autre, ou les deux.
+
+## 2. L'agent : on le savait, l'écran ne le montrait pas
+
+`Sessioncaisse::$agent` est une FK non nulle depuis le palier 1 — le lien a toujours existé. Mais l'API le sérialisait en IRI (`"agent": "/api/users/81"`) parce qu'aucun champ de `User` ne portait le groupe `read:Sessioncaisse`. L'écran affichait donc un tiret. C'est corrigé : `nom` et `prenom` sont exposés sur ce groupe, et la liste montre maintenant « Bernadette Assi · Gare d'Adjamé ». Ta question a trouvé un vrai bug.
+
+J'en profite : le mot de passe des fixtures est `aaaa`, pas `Password123!`. Ma note disait « refusé en dev » — elle était fausse, je me trompais simplement de valeur. Corrigée, et la connexion au front marche.
+
+## Le reste du palier 4
+
+Le **ticket thermique 80 mm** (`/caisse/{id}/ticket`) reprend les neuf lignes du décompte, l'écart encadré et les deux signatures ; il est réservé aux caisses clôturées — imprimer une caisse ouverte révélerait l'attendu à qui doit compter à l'aveugle. Testé : 200, PDF généré. Le **récapitulatif A4** (`/caisse/recapitulatif`) met les caisses d'une période côte à côte avec une colonne « Encaissé » qui exclut le fonds, et reprend la période filtrée à l'écran. Sa note de bas de page dit ce qu'un total d'écarts ne dit pas : un manquant et un excédent de même montant s'annulent.
+
+Suite frontend au vert, `OK (47 tests, 142 assertions)`. Le serveur de développement tourne encore sur 8002 si tu veux regarder.
+
+
+
+
+
+
+
+
+
+- Pour l'Excédent, quelle solution est la plus cohérente ?
+- Vérifie s'il n'y a pas de problème de sérialisation
+- Quand tu dis `Le récapitulatif A4 (/caisse/recapitulatif) met les caisses d'une période côte à côte avec une colonne « Encaissé » qui exclut le fonds, et reprend la période filtrée à l'écran`, je vois `reprend la période filtrée à l'écran` alors que sur le tableau de listing des caisses je ne vois pas le filtre de période !
+
+
+
+
+
+
+
+Ton troisième point est une vraie incohérence que j'ai introduite — j'y viens. D'abord l'audit de sérialisation, sur l'API réelle.
+
+Le backend a été arrêté. Je le relance pour faire l'audit sur des réponses réelles plutôt que sur une lecture des annotations.
+
+Aucune fuite. Je vérifie maintenant ce que la caisse expose elle-même — trop, ou pas assez.
+
+`email` portait déjà `read:Sessioncaisse` — je ne l'ai pas ajouté, le fichier a été modifié depuis. Je le laisse et je te le signale. Maintenant ton troisième point : tu as raison, le filtre n'existe pas.
+
+Il existe un type `date_range` qui produit exactement les `date_from`/`date_to` que j'ai câblés côté serveur. Je relis le composant — il a changé sur disque.
+
+Filtre en place et vérifié à l'écran. Voici les trois réponses.
+
+## 1. L'excédent : la solution cohérente est l'apport de caisse
+
+Le modèle connaît **une** entrée d'argent non commerciale — le fonds d'ouverture du matin — et aucune en cours de journée. La réalité en a deux : l'avance du matin, et le réapprovisionnement quand un agent doit rembourser plus qu'il n'a encaissé. C'est ce second mouvement qui manque, et son absence produit exactement ce que tu as vu : un attendu négatif, donc un écart qui ne mesure plus rien.
+
+Ce n'est pas un cas rare. C'est le cas **normal** d'un désistement le lendemain d'une vente : la vente est dans la caisse d'hier, déjà clôturée, le remboursement sort du tiroir d'aujourd'hui qui n'a rien reçu en face. Je l'ai d'ailleurs rencontré en écrivant le palier 3 — mon propre test porte le motif « Remboursement sur le fonds du matin ». J'ai contourné le problème dans le test au lieu de le voir.
+
+Je recommande une petite entité d'apports plutôt qu'un simple compteur cumulé, pour une raison qui vient du README : *un total doit être réconciliable avec une liste qu'on peut afficher*. Un poste « apports : 30 000 » que personne ne peut détailler serait exactement le genre de chiffre que ce module existe pour éliminer. Chaque apport porterait la session, le montant, l'auteur et un motif ; le poste se dérive de la liste et entre dans le théorique comme le fonds.
+
+Ton scénario deviendrait alors : apport 30 000, remboursé 30 000, attendu 0, compté 10 000 → **manquant de 20 000**, ce qui est la vérité.
+
+Et je garderais un filet même avec ça : quand l'attendu est négatif, l'écran doit dire « réapprovisionnement non saisi » au lieu d'annoncer un excédent — parce qu'un agent qui oublie de saisir son apport retombera sur le même faux chiffre.
+
+C'est un ajout au modèle avec migration, donc j'attends ton feu vert. Dis-moi si tu veux l'entité, ou seulement le filet d'affichage en attendant.
+
+## 2. Sérialisation : rien ne fuit, un champ de trop
+
+Vérifié sur l'API réelle. Les colonnes de caisse posées aux paliers 1 et 3 — `sessioncaisse`, `sessioncaisseremboursement`, `montantrembourse`, `sessioncaisseregul` — **ne sortent sur aucune ressource** : ni ticket, ni bagage, ni courrier, ni réservation. C'était l'intention, elle tient.
+
+Côté caisse, les vingt champs attendus sont tous présents. Deux remarques : `gare` et la session exposent `createdAt`, ce qui vient de `read:Base` et se retrouve partout ailleurs dans le projet. Et `agent` expose **`email`** en plus du nom et du prénom — ce groupe a été ajouté sur `User::$email` depuis ma dernière lecture du fichier, ce n'est pas moi. Aucun écran ne s'en sert ; ce n'est pas une fuite grave puisqu'un chef de gare connaît les adresses de ses agents, mais si tu ne t'en sers pas, la ligne peut sauter.
+
+## 3. Le filtre de période : tu avais raison
+
+J'avais câblé `date_from` et `date_to` côté serveur et écrit que le récapitulatif reprenait « la période filtrée à l'écran » — alors que le tableau n'offrait que le filtre de statut. Le bouton imprimait donc le mois en cours quoi qu'on regarde. Le filtre `date_range` est maintenant dans le composant, et l'écran le montre : les deux champs de date sont à côté du statut.
+
+
+
+
+
+
+
+
+
+
+- Pour l'Excédent, on vas aller sur le filet d'affichage pour l'instant.
+
+Et qu'elle est la suite !
+
+
+
+
+
+Entendu, le filet d'affichage. Je le pose partout où l'écart se lit — sinon l'avertissement manquerait là où le chiffre est repris.
+
+L'encadré s'affiche. Mais il contredit la ligne juste au-dessus, qui continue d'affirmer « Excédent dans le tiroir » — je retire l'affirmation fausse plutôt que de la laisser suivie de son démenti.
+
+Filet vérifié : « Excédent » a disparu de cette fiche, remplacé par l'avertissement. Je vérifie l'état des migrations avant d'annoncer la suite.
+
+Filet posé sur les cinq surfaces où l'écart se lit, vérifié à l'écran, et toutes les migrations sont passées.
+
+## Ce que fait le filet
+
+Quand l'attendu est négatif, la ligne « Attendu en caisse » porte `négatif : réapprovisionnement non saisi`, et un encadré explique que l'argent remboursé venait d'ailleurs. Surtout, la fiche **n'affirme plus « Excédent dans le tiroir »** dans ce cas : énoncer une conclusion fausse pour la démentir trois lignes plus bas est pire que se taire. Même règle sur le ticket thermique — on n'imprime pas « Excédent » sur un papier qu'on fait signer.
+
+Le repère est aussi dans la liste des caisses et dans le récapitulatif A4, parce que c'est là qu'on compare les agents entre eux : une ligne fausse s'y lirait comme les autres, et elle entre dans le total de la colonne.
+
+Au passage, j'ai vu que tu affiches l'email de l'agent sur la fiche — c'est donc bien volontaire, je ne touche pas.
+
+## La suite : le palier 5, qui clôt A1
+
+Il reste trois choses, et elles vont ensemble :
+
+**Les alertes.** `CAISSE_NON_CLOTUREE` en portée gare — une caisse ouverte depuis la veille, c'est un agent parti sans compter. Et `CAISSE_ECART_ELEVE` en portée direction, avec les alertes anti-fraude : c'est elle qui fait remonter un manquant sans qu'on ait à ouvrir l'écran. Les deux se branchent sur le balayeur existant, qui est idempotent.
+
+**Les fixtures.** Une session close sans écart, une avec un manquant motivé, une ouverte automatiquement — et maintenant j'ajouterais une quatrième : une avec attendu négatif, pour que le filet qu'on vient de poser soit visible sur le jeu de démonstration sans avoir à le reproduire à la main.
+
+**La documentation.** Le README du backend n'a pas encore de section Caisse, et celui du front ignore le module. C'est la source de vérité du projet ; la laisser en retard de cinq paliers est ce qui produit des notes fausses comme celle du mot de passe.
+
+À la fin de ce palier, `A1` est livré et on s'arrête pour validation sur données réelles. Restent ensuite deux décisions qui t'appartiennent : l'**entité d'apports** qu'on vient de reporter, et le **palier 6 conditionnel** — versements et soldes, à décider une fois que tu auras vu les clôtures tourner.
+
+Je lance le palier 5 ?
+
+
+
+
+
+
+
+
+
+
+
+
+
+Je lance le palier 5. D'abord les alertes — je regarde comment le balayeur est construit.
+
+J'ajoute les deux requêtes au repository de caisse.
+
+Maintenant l'évaluateur dans le balayeur.
+
+La règle d'audience exclut `DIRECTION` quel que soit `idgare` — mon `idgare` était donc inutile, et incohérent avec les deux autres alertes de direction. Je l'aligne.
+
+Les alertes sont faites. Maintenant les fixtures — je regarde l'organisation existante.
+
+Deux défauts dans ce que je viens d'écrire : le montant compté serait négatif, et le remboursement ne serait rattaché à aucun billet — ce que mon propre docbloc interdit.
+
+Je valide la fixture sur la base de test — la base de développement, c'est à toi de décider.
+
+La commande console est anormalement lente sur ce poste. Je continue sur la documentation pendant qu'elle tourne.
+
+Heredoc trop long, le piège que j'ai consigné. Je passe par un fichier intermédiaire.
+
+La commande console reste bloquée. Je contourne avec un accès direct, sans démarrer le framework.
+
+Les quatre caisses sont cohérentes et le remboursement de 8 000 vient d'un vrai billet annulé. Maintenant la documentation du front.
+
+Reste l'aide et la prise en main. Je regarde leur structure.
+
+Un « 0 » dans la pastille serait faux. Je renumérote la liste.
+
+Tout est en place. Je mets ma mémoire à jour avant de faire le point.
+
+Palier 5 livré. **`A1` est terminé.** Backend `OK (329 tests, 1158 assertions)`, frontend `OK (47 tests, 142 assertions)`, build compilé.
+
+## Les alertes
+
+`CAISSE_NON_CLOTUREE` part au chef de gare au-delà de 18 heures d'ouverture — 18 h et non « la veille », parce qu'une règle de calendrier ferait sonner l'alerte à minuit une pour l'agent de nuit qui vient d'ouvrir. `CAISSE_ECART_ELEVE` part à la direction au-delà de 20 000 FCFA sur 7 jours, avec les annulations et remises anormales : un écart met en cause une personne, et la première chose qu'un chef de gare ferait d'une alerte visant son équipe serait de la traiter avant que le siège ne la voie.
+
+Le point qui comptait : l'alerte d'écart **exclut les attendus négatifs**. Sans ça, elle se déclencherait sur le faux excédent qu'on vient d'apprendre à signaler comme non exploitable — et trois alertes fausses suffisent à ce qu'on cesse de les lire. C'est une sentinelle à part entière dans les tests.
+
+## Les fixtures
+
+Quatre caisses, vérifiées en base : compte juste à 61 500, manquant motivé de 2 500, caisse ouverte automatiquement, et le cas de l'attendu négatif. Les totaux ne sont pas inventés — chaque caisse close rattache de vrais billets du jeu, et le remboursement de 8 000 vient d'un vrai billet annulé. Poser des montants plausibles sans les pièces derrière aurait produit exactement le chiffre introuvable que ce module combat.
+
+## La documentation
+
+Le README du backend a sa section `Caisse` complète, y compris les pièges traversés : l'EntityManager fermé par une exception levée dans un `wrapInTransaction`, le statut qui ne filtre pas le théorique quand `deletedAt` le filtre, et le fait que ce même README avait d'abord écrit l'inverse sur le comptage aveugle. Le README du front porte ce qui lui est propre.
+
+Côté guide, l'aide a sa rubrique « Ouvrir et clôturer ma caisse » en cinq étapes, et la prise en main ouvre désormais le bilan de journée par la clôture des agents — j'ai renuméroté ses étapes, une pastille « 0 » aurait été fausse.
+
+## Deux gestes qui te reviennent
+
+Les fixtures ne sont chargées que sur la base de test. Pour voir les quatre caisses dans ton application :
+
+```bash
+php bin/console doctrine:fixtures:load --no-interaction
+```
+
+Et le balayeur doit tourner pour que les deux alertes apparaissent :
+
+```bash
+php bin/console app:alertes:generer
+```
+
+Ensuite, c'est l'arrêt prévu par le plan : validation sur données réelles. Restent l'apport de caisse et le palier 6 — versements et soldes —, tous deux conditionnels et à décider quand tu auras vu les clôtures tourner.

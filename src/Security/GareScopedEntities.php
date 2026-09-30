@@ -22,6 +22,11 @@ final class GareScopedEntities
      * rejoue cette décision pour masquer un bouton) et '_gareScopedEntities' dans
      * 'commercialflutter'. Une liste qui diverge fait promettre à l'écran ce que le serveur refuse.
      *
+     * 'Sessioncaisse' en fait partie : surveiller les caisses de sa gare EST le métier d'un admin de
+     * gare, et il peut en déléguer la lecture à un chef de guichet. Ses données restent bornées par
+     * 'GareScopeExtension', et 'CaisseScopeExtension' le laisse passer là où elle borne un simple
+     * agent à SES propres caisses.
+     *
      * 'Depense' en fait partie : l'admin de gare TIENT LES CHARGES DE SA GARE (carburant, péage,
      * imprévus) comme il tient ses ventes, sans qu'un administrateur d'entreprise ait à lui
      * fabriquer un rôle. Ses données sont déjà bornées à sa gare par 'GareScopeExtension', et les
@@ -29,7 +34,7 @@ final class GareScopedEntities
      * réservée à 'ROLE_ADMIN' : une sortie d'argent est un document, on la corrige, on ne l'efface
      * pas depuis un guichet.
      */
-    public const ENTITIES = ['Voyage', 'Ticket', 'Reservation', 'Courrier', 'Bagage', 'User', 'Role', 'Depense'];
+    public const ENTITIES = ['Voyage', 'Ticket', 'Reservation', 'Courrier', 'Bagage', 'User', 'Role', 'Depense', 'Sessioncaisse'];
 
     /** Admin/super entreprise : aucune restriction de périmètre. */
     public static function isPrivileged(User $user): bool

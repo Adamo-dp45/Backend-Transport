@@ -297,7 +297,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[ORM\Column(length: 180)]
     #[Assert\NotBlank()]
     #[Assert\Email()]
-    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage'])]
+    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Sessioncaisse'])]
     private ?string $email = null;
 
     /**
@@ -316,11 +316,17 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[ORM\Column(length: 255)]
     #[Assert\NotBlank()]
     #[Assert\Length(minMessage: 'Le nom est obligatoire', min: 1)]
-    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Activite'])]
+    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Activite', 'read:Sessioncaisse'])]
     private ?string $nom = null;
 
     #[ORM\Column(length: 255)]
-    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Activite'])]
+    #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Activite', 'read:Sessioncaisse'])] /*
+        - 'read:Sessioncaisse' : sans un champ de 'User' dans ce groupe, ApiPlatform sérialise la
+          relation en IRI ('"agent": "/api/users/81"') et l'écran des caisses affiche un tiret à la
+          place du titulaire. Or une caisse EXISTE pour dire à qui appartient un écart — la question
+          « de qui est cette caisse ? » est la seule qu'on lui pose. Même correctif que
+          'Voyage::$numerodepart' exposé sur 'read:Depense'
+    */
     #[Assert\NotBlank()]
     #[Assert\Length(minMessage: 'Le prenom est obligatoire', min: 1)] // 'message'..
     private ?string $prenom = null;

@@ -11,6 +11,7 @@ use App\Entity\Detailcourrier;
 use App\Entity\Personnel;
 use App\Entity\Piece;
 use App\Entity\Reservation;
+use App\Entity\Sessioncaisse;
 use App\Entity\User;
 use App\Entity\Voyage;
 use App\Tests\Support\ApiTestCase;
@@ -53,6 +54,7 @@ final class ActionsDedieesTest extends ApiTestCase
             'détail de courrier perdu' => [Detailcourrier::class, '/detailcourriers/{id}/perdu', "is_granted('DECLARER_PERDU', 'Courrier')"],
             'bagage déclaré perdu' => [Bagage::class, '/bagages/{id}/perdu', "is_granted('DECLARER_PERDU', object)"],
             "suspension d'un agent" => [Personnel::class, '/personnels/{id}/suspendre', "is_granted('ROLE_ADMIN')"],
+            'clôture de caisse' => [Sessioncaisse::class, '/sessioncaisses/{id}/cloturer', "is_granted('CLOTURER', object)"],
         ];
     }
 

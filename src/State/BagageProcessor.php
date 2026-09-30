@@ -9,6 +9,7 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Domain\Enum\BagageStatus;
 use App\Domain\Enum\TicketStatus;
 use App\Domain\Service\ActiviteLogger;
+use App\Domain\Service\SessioncaisseService;
 use App\Entity\Bagage;
 use App\Entity\Dto\BagageInput;
 use App\Entity\Gare;
@@ -34,7 +35,8 @@ class BagageProcessor implements ProcessorInterface
         private BagageRepository $bagageRepository,
         private TicketRepository $ticketRepository,
         private ActiviteLogger $activiteLogger,
-        private EntityManagerInterface $em
+        private EntityManagerInterface $em,
+        private SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -188,6 +190,14 @@ class BagageProcessor implements ProcessorInterface
         $estCommercial = $voyage?->getCommercial() && $voyage->getCommercial()->getId() === $userId;
         $commercial = $estCommercial ? $this->security->getUser() : null;
 
+        /*
+            LA CAISSE de l'agent qui encaisse ce bagage. Le COMMERCIAL n'en a pas : il n'a pas de
+            guichet, et c'est ce même test qui écarte l'enregistrement HORS LIGNE — un bagage
+            différé suit un billet vendu à bord, donc son auteur est toujours le commercial du
+            voyage. Le raisonnement complet est sur 'Ticket::$sessioncaisse'.
+        */
+        $sessioncaisse = $estCommercial ? null : $this->sessioncaisseService->courante($this->security->getUser());
+
         $bagage = new Bagage();
         $bagage
             ->setIdentreprise($identreprise)
@@ -206,6 +216,7 @@ class BagageProcessor implements ProcessorInterface
             ->setTarifbagage($tarifbagage)
             ->setStatut($this->resoudreStatut($voyage))
             ->setCodebagage($codebagage ?? $this->generateCode($identreprise))
+            ->setSessioncaisse($sessioncaisse)
         ;
 
         $bagage = $ecrire($bagage);

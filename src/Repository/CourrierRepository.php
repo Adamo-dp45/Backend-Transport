@@ -612,4 +612,49 @@ class CourrierRepository extends ServiceEntityRepository
 
         return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
     }
+
+    /**
+     * Ce qu'un agent a encaissé en COURRIERS sur sa session — DEUX postes et non un seul.
+     *
+     * Le montant des colis et les frais de suivi sont SÉPARÉS ici, alors que les douze sommes de
+     * recette de ce repository les additionnent ('SUM(c.montant + COALESCE(c.fraissuivi, 0))').
+     * Ce n'est pas une divergence : ce sont deux encaissements distincts, deux lignes sur le reçu
+     * du client, et un ticket de caisse qui les fond ne permet plus de chercher un écart là où il
+     * est. La somme, elle, reste la même.
+     *
+     * Mêmes règles que les autres postes : aucun filtre sur 'statut' (l'argent est entré, une
+     * annulation le ressort par le remboursement), mais 'deletedAt IS NULL' (une ligne en corbeille
+     * n'aurait jamais dû être saisie, donc rien n'est entré).
+     *
+     * @return array{montant: int, fraissuivi: int}
+     */
+    public function totauxPourSession(int $sessionId): array
+    {
+        $ligne = $this->createQueryBuilder('c')
+            ->select('COALESCE(SUM(c.montant), 0) AS montant, COALESCE(SUM(c.fraissuivi), 0) AS fraissuivi')
+            ->andWhere('c.sessioncaisse = :session')
+            ->andWhere('c.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $ligne['montant'], 'fraissuivi' => (int) $ligne['fraissuivi']];
+    }
+
+    /**
+     * CE QUI EST SORTI DU TIROIR en courriers sur cette session.
+     *
+     * UNE seule colonne, alors que l'entrée en compte deux (taxe et frais de suivi) : en sortie il
+     * n'y a qu'un geste, une somme rendue d'un coup. 'montantrembourse' porte déjà le total.
+     */
+    public function totalRembourseePourSession(int $sessionId): int
+    {
+        return (int) $this->createQueryBuilder('c')
+            ->select('COALESCE(SUM(c.montantrembourse), 0)')
+            ->andWhere('c.sessioncaisseremboursement = :session')
+            ->andWhere('c.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

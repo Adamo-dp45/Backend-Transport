@@ -23,7 +23,8 @@ class AnnulerBagageProcessor implements ProcessorInterface
         private ProcessorInterface $processor,
         private Security $security,
         private GareGuard $gareGuard,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private \App\Domain\Service\SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -44,6 +45,14 @@ class AnnulerBagageProcessor implements ProcessorInterface
 
         $data
             ->setStatut(BagageStatus::STATUT_ANNULE->value)
+            /*
+                REMBOURSÉ, comme un bagage annulé EN CASCADE avec le billet de son propriétaire
+                ('DesistementProcessor'). Les deux chemins mènent au même geste de comptoir — on
+                rend au client ce qu'il a payé pour un transport qui n'aura pas lieu —, et ne
+                chiffrer que l'un des deux ferait dépendre le remboursement de la porte empruntée.
+            */
+            ->setMontantrembourse($data->getMontant())
+            ->setSessioncaisseremboursement($this->sessioncaisseService->courante($user))
             ->setUpdatedBy($user->getId())
             ->setUpdatedAt(new \DateTimeImmutable());
 

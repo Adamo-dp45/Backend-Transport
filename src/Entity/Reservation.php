@@ -282,6 +282,27 @@ class Reservation extends EntityBase implements EntrepriseOwnedInterface, MultiG
 
     // -- Régularisation (no-show payé récupéré : report sur un nouveau départ) -- //
 
+    /**
+     * LES DEUX CAISSES D'UNE RÉSERVATION, et ce sont deux moments très éloignés l'un de l'autre.
+     *
+     * 'sessioncaisse' porte l'ENCAISSEMENT AU GUICHET ('/confirmer') : un client qui paie son bon
+     * au comptoir met des espèces dans le tiroir d'un agent, exactement comme une vente directe.
+     * 'sessioncaisseregul' porte la RÉGULARISATION d'un no-show ('/regulariser') : la pénalité et
+     * le complément tarifaire, encaissés des semaines plus tard, souvent par un autre agent.
+     *
+     * !! UN PAIEMENT EN LIGNE N'A NI L'UNE NI L'AUTRE. L'argent d'un Mobile Money n'a jamais vu un
+     * tiroir — il arrive sur un compte de l'entreprise. Le rattacher à une caisse ferait porter à
+     * un agent un excédent qu'il ne pourrait pas présenter. C'est aussi pour cela que le SOLDE de
+     * l'entreprise le comptera à part, le jour où les soldes existeront.
+     *
+     * Aucun 'Groups', pour la même raison que 'Ticket::$sessioncaisse'.
+     */
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisse = null;
+
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisseregul = null;
+
     /** Pénalité encaissée lors de la régularisation (0 si aucune ou pas encore régularisée). */
     #[ORM\Column(options: ['default' => 0])]
     #[Groups(['read:Reservation'])]
@@ -535,6 +556,30 @@ class Reservation extends EntityBase implements EntrepriseOwnedInterface, MultiG
     public function setIdentreprise(?int $identreprise): static
     {
         $this->identreprise = $identreprise;
+
+        return $this;
+    }
+
+    public function getSessioncaisse(): ?Sessioncaisse
+    {
+        return $this->sessioncaisse;
+    }
+
+    public function setSessioncaisse(?Sessioncaisse $sessioncaisse): static
+    {
+        $this->sessioncaisse = $sessioncaisse;
+
+        return $this;
+    }
+
+    public function getSessioncaisseregul(): ?Sessioncaisse
+    {
+        return $this->sessioncaisseregul;
+    }
+
+    public function setSessioncaisseregul(?Sessioncaisse $sessioncaisseregul): static
+    {
+        $this->sessioncaisseregul = $sessioncaisseregul;
 
         return $this;
     }

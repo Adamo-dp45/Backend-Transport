@@ -32,6 +32,7 @@ class ConfirmerReservationProcessor implements ProcessorInterface
     public function __construct(
         private ProcessorInterface $processor,
         private Security $security,
+        private \App\Domain\Service\SessioncaisseService $sessioncaisseService,
         private EntityManagerInterface $em,
         private PaiementProviderInterface $paiement,
         private GareGuard $gareGuard,
@@ -84,7 +85,17 @@ class ConfirmerReservationProcessor implements ProcessorInterface
             );
         }
 
-        return $this->em->wrapInTransaction(function () use ($reservation, $user, $operation, $uriVariables, $context) {
+        /*
+            LA CAISSE, RÉSOLUE AVANT LA TRANSACTION : 'SessioncaisseService' verrouille la ligne
+            'user', celle qui suit verrouille le départ. L'ordre des verrous doit rester le même
+            partout, sinon deux agents qui encaissent sur le même voyage s'interbloquent.
+
+            Nulle si l'acteur n'est pas un utilisateur de gare : un paiement qui n'est pas passé par
+            un guichet — webhook mobile, acteur sans gare — n'a aucun tiroir à créditer.
+        */
+        $caisse = $user instanceof User ? $this->sessioncaisseService->courante($user) : null;
+
+        return $this->em->wrapInTransaction(function () use ($reservation, $user, $caisse, $operation, $uriVariables, $context) {
             // Paiement (simulé) — le vrai prestataire Mobile Money se branchera ici.
             $resultat = $this->paiement->payer($reservation);
             if (!$resultat->succes) {
@@ -96,6 +107,13 @@ class ConfirmerReservationProcessor implements ProcessorInterface
                 ->setReferencepaiement($resultat->reference)
                 ->setDatepaiement(new \DateTimeImmutable())
                 ->setStatut(ReservationStatus::STATUT_CONFIRMEE->value)
+                /*
+                    L'ENCAISSEMENT AU GUICHET entre dans la caisse de l'agent, comme une vente
+                    directe : le client a bien posé des espèces sur le comptoir. C'est le seul
+                    moment où le prix d'une réservation touche un tiroir — un bon payé en ligne
+                    n'en voit jamais.
+                */
+                ->setSessioncaisse($caisse)
                 ->setUpdatedBy($user?->getId());
 
             /*

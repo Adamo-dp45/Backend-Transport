@@ -289,6 +289,46 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     #[Groups(['read:Ticket'])] // exposé (IRI) pour distinguer un billet de réservation d'une vente directe
     private ?Reservation $reservation = null;
 
+    /**
+     * LA CAISSE QUI A VU PASSER CET ARGENT, posée à l'écriture par 'TicketProcessor' via
+     * 'SessioncaisseService'. C'est elle qui permet de rapprocher le tiroir d'un guichetier de ce
+     * qu'il aurait dû encaisser — sans quoi un écart ne se détecte que par recoupement manuel.
+     *
+     * !! NULL = HORS CAISSE, et ce 'null' porte à lui seul une règle : la vente du COMMERCIAL à
+     * bord (il n'a pas de guichet), le billet émis depuis un BON (l'argent est entré à la
+     * réservation) et le billet de REPORT (aucun argent ne bouge) n'ont pas de session. C'est ce
+     * qui remplace tous les filtres qu'il aurait fallu semer dans le module Recette.
+     *
+     * !! AUCUN 'Groups', et ce n'est pas un oubli : avec 'skip_null_values: false' chaque billet
+     * traînerait 'sessioncaisse: null' dans sa charge utile, et surtout la caisse d'un COLLÈGUE
+     * fuiterait par la fiche d'un billet. Le frontend filtrera sur 'sessioncaisse.id' le jour où il
+     * en aura besoin.
+     */
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisse = null;
+
+    /**
+     * CE QUI EST SORTI DU TIROIR, et la caisse qui l'a payé — le seul poste en SORTIE d'une session.
+     *
+     * Deux colonnes et non une, parce que ce sont DEUX ÉVÉNEMENTS DISTINCTS sur la même ligne : la
+     * vente lundi, le remboursement jeudi. Les confondre ferait retomber la sortie de jeudi dans la
+     * caisse de lundi — déjà clôturée et signée — et l'agent de jeudi aurait un manquant que rien
+     * n'expliquerait.
+     *
+     * Le MONTANT vaut toujours le prix : c'est la règle en vigueur (« remboursement intégral
+     * implicite »), simplement CHIFFRÉE au lieu d'être sous-entendue. Le laisser saisir par l'agent
+     * ouvrirait la porte à qui déclare plus qu'il n'a rendu — son tiroir tomberait juste et la
+     * différence resterait dans sa poche. Une retenue sur désistement tardif serait un changement
+     * de règle MÉTIER, à décider pour elle-même.
+     *
+     * Aucun 'Groups', pour la même raison que 'sessioncaisse'.
+     */
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    private ?int $montantrembourse = null;
+
+    #[ORM\ManyToOne]
+    private ?Sessioncaisse $sessioncaisseremboursement = null;
+
     #[ORM\Column(options: ['default' => 0])]
     #[Groups(['read:Ticket', 'read:Voyage'])]
     private int $remise = 0; // Montant déduit (FCFA), calculé par le processor ; prix = tarif - remise
@@ -756,6 +796,42 @@ class Ticket extends EntityBase implements EntrepriseOwnedInterface, LigneGareSc
     public function setDesistementImputableCompagnie(bool $desistementImputableCompagnie): static
     {
         $this->desistementImputableCompagnie = $desistementImputableCompagnie;
+
+        return $this;
+    }
+
+    public function getSessioncaisse(): ?Sessioncaisse
+    {
+        return $this->sessioncaisse;
+    }
+
+    public function setSessioncaisse(?Sessioncaisse $sessioncaisse): static
+    {
+        $this->sessioncaisse = $sessioncaisse;
+
+        return $this;
+    }
+
+    public function getMontantrembourse(): ?int
+    {
+        return $this->montantrembourse;
+    }
+
+    public function setMontantrembourse(?int $montantrembourse): static
+    {
+        $this->montantrembourse = $montantrembourse;
+
+        return $this;
+    }
+
+    public function getSessioncaisseremboursement(): ?Sessioncaisse
+    {
+        return $this->sessioncaisseremboursement;
+    }
+
+    public function setSessioncaisseremboursement(?Sessioncaisse $sessioncaisseremboursement): static
+    {
+        $this->sessioncaisseremboursement = $sessioncaisseremboursement;
 
         return $this;
     }

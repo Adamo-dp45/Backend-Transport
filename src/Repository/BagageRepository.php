@@ -620,4 +620,50 @@ class BagageRepository extends ServiceEntityRepository
 
         return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
     }
+
+    /**
+     * Ce qu'un agent a encaissé en BAGAGES sur sa session — poste du théorique de caisse.
+     *
+     * !! AUCUN FILTRE SUR 'statut', et c'est le point le plus contre-intuitif du module : les
+     * autres sommes de ce repository portent le statut, ici c'est INTERDIT. L'argent est entré à
+     * la VENTE ; une annulation ne l'efface pas, elle le ressort par la ligne de REMBOURSEMENT.
+     * Filtrer ferait disparaître une vente et son annulation du même jour DES DEUX CÔTÉS, en
+     * masquant deux mouvements réels — alors que l'agent, lui, a bien sorti les espèces du tiroir.
+     *
+     * 'deletedAt IS NULL' en revanche FILTRE, et la distinction n'est pas affaire de style : la
+     * corbeille dit « cette ligne n'aurait jamais dû être saisie » (doublon, faute de frappe), donc
+     * aucun argent n'est entré. La garder ferait porter à l'agent un MANQUANT qu'il n'a pas commis.
+     * C'est la question du README — « y a-t-il un effet PHYSIQUE à défaire ? » — appliquée ici.
+     */
+    public function totalPourSession(int $sessionId): int
+    {
+        return (int) $this->createQueryBuilder('b')
+            ->select('COALESCE(SUM(b.montant), 0)')
+            ->andWhere('b.sessioncaisse = :session')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * CE QUI EST SORTI DU TIROIR sur cette session — le seul poste en SORTIE d'une caisse.
+     *
+     * Vise 'sessioncaisseremboursement' et non 'sessioncaisse' : la vente de lundi reste dans la
+     * caisse de lundi, le remboursement de jeudi pèse sur celle de jeudi. C'est toute la raison
+     * d'être des deux colonnes — les confondre ferait rouvrir une caisse déjà signée.
+     *
+     * Aucun filtre sur 'statut' (la ligne est justement ANNULE, c'est ce qui la qualifie), mais
+     * 'deletedAt IS NULL' comme partout ailleurs.
+     */
+    public function totalRembourseePourSession(int $sessionId): int
+    {
+        return (int) $this->createQueryBuilder('b')
+            ->select('COALESCE(SUM(b.montantrembourse), 0)')
+            ->andWhere('b.sessioncaisseremboursement = :session')
+            ->andWhere('b.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

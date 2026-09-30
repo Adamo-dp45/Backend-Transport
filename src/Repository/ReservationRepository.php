@@ -558,4 +558,46 @@ class ReservationRepository extends ServiceEntityRepository
 
         return ['montant' => (int) $row['montant'], 'nb' => (int) $row['nb']];
     }
+
+    /**
+     * Les BONS encaissés au guichet sur cette session.
+     *
+     * !! CE N'EST PAS LA RECETTE DES RÉSERVATIONS. 'recettePayeeParGare' compte tout ce qui est
+     * PAYÉ, en ligne comme au comptoir ; ici on ne veut que ce qui est passé par un TIROIR. Le
+     * tri se fait tout seul : un paiement mobile n'a pas de 'sessioncaisse', puisque personne ne
+     * l'a encaissé à un guichet.
+     */
+    public function totalPourSession(int $sessionId): int
+    {
+        return (int) $this->createQueryBuilder('r')
+            ->select('COALESCE(SUM(r.prix), 0)')
+            ->andWhere('r.sessioncaisse = :session')
+            ->andWhere('r.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * La RÉGULARISATION d'un no-show : pénalité et complément tarifaire, encaissés au comptoir.
+     *
+     * Deux postes séparés, comme les frais de suivi d'un courrier : ce sont deux lignes sur le
+     * reçu du client, et un ticket de caisse qui les fond ne permet plus de chercher un écart là
+     * où il est. Vise 'sessioncaisseregul' — l'encaissement initial du bon, lui, a sa propre
+     * colonne et souvent une tout autre caisse.
+     *
+     * @return array{penalites: int, complements: int}
+     */
+    public function totauxRegulPourSession(int $sessionId): array
+    {
+        $ligne = $this->createQueryBuilder('r')
+            ->select('COALESCE(SUM(r.penalitemontant), 0) AS penalites, COALESCE(SUM(r.montantcomplement), 0) AS complements')
+            ->andWhere('r.sessioncaisseregul = :session')
+            ->andWhere('r.deletedAt IS NULL')
+            ->setParameter('session', $sessionId)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['penalites' => (int) $ligne['penalites'], 'complements' => (int) $ligne['complements']];
+    }
 }

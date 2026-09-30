@@ -20,7 +20,8 @@ class AnnulerCourrierProcessor implements ProcessorInterface
         private Security $security,
         private GareGuard $gareGuard,
         private UserRepository $userRepository,
-        private ActiviteLogger $activiteLogger
+        private ActiviteLogger $activiteLogger,
+        private \App\Domain\Service\SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -45,6 +46,15 @@ class AnnulerCourrierProcessor implements ProcessorInterface
 
         $data
             ->setStatut(CourrierStatus::STATUT_ANNULE->value)
+            /*
+                REMBOURSÉ, comme un billet désisté ou un bagage annulé : le client reprend son colis
+                avant le départ, il repart avec son argent. TAXE ET FRAIS DE SUIVI ensemble — il a
+                payé les deux, et le suivi SMS d'un colis qui ne part pas n'a pas plus lieu d'être
+                que son transport. Le 'COALESCE' est la moitié du geste : la colonne est nullable,
+                et une addition sans lui rendrait NULL pour tout courrier sans frais de suivi.
+            */
+            ->setMontantrembourse((int) $data->getMontant() + (int) ($data->getFraissuivi() ?? 0))
+            ->setSessioncaisseremboursement($this->sessioncaisseService->courante($user))
             ->setUpdatedBy($user->getId())
             ->setUpdatedAt(new \DateTimeImmutable())
         ;

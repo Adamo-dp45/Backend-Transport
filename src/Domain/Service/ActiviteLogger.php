@@ -107,6 +107,23 @@ class ActiviteLogger
     // Stock — le registre 'Inventaire' porte déjà qui/quoi/combien ; l'activité porte le POURQUOI
     public const STOCK_AJUSTE = 'STOCK_AJUSTE';
 
+    /*
+        Caisse — l'OUVERTURE AUTOMATIQUE seule est tracée, et c'est voulu : une caisse ouverte à la
+        main est un geste normal qui n'apprend rien, tandis qu'une caisse ouverte PAR UNE VENTE dit
+        qu'un agent a commencé à encaisser sans prendre de fonds. Ce n'est pas une faute — rien ne
+        bloque, le guichet ne s'arrête jamais sur une procédure oubliée — mais c'est ce que le chef
+        de gare doit pouvoir retrouver quand le tiroir ne tombe pas juste le soir.
+    */
+    public const CAISSE_OUVERTE_AUTO = 'CAISSE_OUVERTE_AUTO';
+
+    /*
+        La CLÔTURE est tracée SYSTÉMATIQUEMENT, écart ou pas. C'est la seule constante de ce
+        journal qui consigne un CONSTAT plutôt qu'un mouvement : le libellé porte l'écart signé,
+        de sorte qu'un chiffre effacé de la session se retrouve encore ici. Et un écart NUL mérite
+        sa trace autant qu'un manquant — c'est lui qui atteste qu'on a bien compté ce soir-là.
+    */
+    public const CAISSE_CLOTUREE = 'CAISSE_CLOTUREE';
+
     /** Longueurs des colonnes 'activite' : au-delà, l'INSERT serait refusé par la base. */
     private const MAX_TYPE = 60;
     private const MAX_LIBELLE = 255;

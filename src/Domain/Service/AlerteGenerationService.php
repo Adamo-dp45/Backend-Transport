@@ -51,6 +51,26 @@ class AlerteGenerationService
     private const ANNULATION_VOLUME_MIN = 10;      // en deçà, l'échantillon n'est pas significatif
     private const REMISE_MONTANT_SEUIL = 100000;   // FCFA cumulés de remises sur la période
 
+    /*
+        Caisse. 18 HEURES et non « la veille » : une règle de calendrier ferait sonner l'alerte à
+        minuit une pour l'agent de nuit qui vient d'ouvrir à 22 h. 18 h couvre le service le plus
+        long sans jamais atteindre une prise de poste normale.
+    */
+    private const CAISSE_OUVERTE_HEURES = 18;
+
+    /*
+        7 JOURS et non 30 comme l'anti-fraude : un écart de caisse se traite dans la semaine,
+        pendant que l'agent se souvient de sa journée. Passé ce délai, plus personne ne peut
+        expliquer un manquant, et l'alerte ne sert qu'à encombrer la cloche.
+    */
+    private const CAISSE_ECART_PERIODE_JOURS = 7;
+
+    /*
+        20 000 FCFA, l'ordre de grandeur d'un billet longue distance : en deçà, un écart relève de
+        la monnaie mal rendue et se règle entre l'agent et son chef, sans déranger la direction.
+    */
+    private const CAISSE_ECART_SEUIL = 20000;
+
     public function __construct(
         private EntityManagerInterface $em,
         private EntrepriseRepository $entrepriseRepository,
@@ -64,6 +84,7 @@ class AlerteGenerationService
         private TicketRepository $ticketRepository,
         private UserRepository $userRepository,
         private CapaciteService $capaciteService,
+        private \App\Repository\SessioncaisseRepository $sessioncaisseRepository,
     ) {
     }
 
@@ -105,6 +126,7 @@ class AlerteGenerationService
             $this->evaluerReservation($ide, $now),
             $this->evaluerStockFlotte($ide, $now),
             $this->evaluerAntifraude($ide, $now),
+            $this->evaluerCaisse($ide, $now),
         ] as $lot) {
             foreach ($lot as $spec) {
                 $desires[$spec['cle']] = $spec;
@@ -406,6 +428,81 @@ class AlerteGenerationService
     }
 
     // ─────────────────────────── Aides ─────────────────────────── //
+
+    /**
+     * Caisse : une caisse restée ouverte, un écart important à la clôture.
+     *
+     * Les deux ne s'adressent pas aux mêmes yeux, et c'est voulu : la caisse oubliée part au CHEF
+     * DE GARE, qui ira chercher l'agent et fera compter le tiroir ; l'écart part à la DIRECTION,
+     * avec les annulations et les remises anormales, parce qu'il met en cause une personne et que
+     * la première chose qu'un chef de gare ferait d'une alerte visant son équipe serait de la
+     * traiter avant que le siège ne la voie.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function evaluerCaisse(int $ide, \DateTimeImmutable $now): array
+    {
+        $specs = [];
+
+        $limite = $now->modify('-' . self::CAISSE_OUVERTE_HEURES . ' hours');
+        foreach ($this->sessioncaisseRepository->ouvertesAvant($limite, $ide) as $caisse) {
+            $heures = (int) floor(($now->getTimestamp() - $caisse->getDatedebut()->getTimestamp()) / 3600);
+            $agent = trim(($caisse->getAgent()?->getPrenom() ?? '') . ' ' . ($caisse->getAgent()?->getNom() ?? ''));
+
+            $specs[] = $this->spec(
+                AlerteType::CAISSE_NON_CLOTUREE,
+                'CAISSE_NON_CLOTUREE:' . $caisse->getId(),
+                $caisse->getGare()?->getId(),
+                'Caisse non clôturée',
+                sprintf(
+                    '%s : caisse ouverte depuis %d heures, jamais comptée.',
+                    $agent !== '' ? $agent : 'Agent inconnu',
+                    $heures
+                ),
+                'SESSIONCAISSE',
+                $caisse->getId(),
+                ['heures' => $heures]
+            );
+        }
+
+        $debut = $now->modify('-' . self::CAISSE_ECART_PERIODE_JOURS . ' days');
+        foreach ($this->sessioncaisseRepository->ecartsElevesDepuis(self::CAISSE_ECART_SEUIL, $debut, $ide) as $caisse) {
+            $ecart = (int) $caisse->getEcart();
+            $agent = trim(($caisse->getAgent()?->getPrenom() ?? '') . ' ' . ($caisse->getAgent()?->getNom() ?? ''));
+
+            $specs[] = $this->spec(
+                AlerteType::CAISSE_ECART_ELEVE,
+                'CAISSE_ECART_ELEVE:' . $caisse->getId(),
+                /*
+                    AUCUNE GARE, comme les deux autres alertes de portée DIRECTION. Elle n'aurait
+                    aucun effet — 'AlerteAudienceResolver' écarte DIRECTION pour un non-privilégié
+                    quelle que soit la gare — et la gare concernée se lit de toute façon sur la
+                    fiche liée. Un champ renseigné qui ne sert à rien finit par être lu comme s'il
+                    servait.
+                */
+                null,
+                $ecart < 0 ? 'Manquant en caisse' : 'Excédent en caisse',
+                sprintf(
+                    '%s : %s%s FCFA le %s%s',
+                    $agent !== '' ? $agent : 'Agent inconnu',
+                    $ecart > 0 ? '+' : '',
+                    number_format($ecart, 0, ',', ' '),
+                    $caisse->getDatefin()?->format('d/m/Y') ?? '—',
+                    /*
+                        Le MOTIF est dans le message : une alerte qui oblige à ouvrir la fiche pour
+                        savoir si l'agent a déjà expliqué son écart sera ouverte une fois, puis
+                        ignorée.
+                    */
+                    $caisse->getMotifecart() ? ' — « ' . $caisse->getMotifecart() . ' »' : ''
+                ),
+                'SESSIONCAISSE',
+                $caisse->getId(),
+                ['ecart' => $ecart]
+            );
+        }
+
+        return $specs;
+    }
 
     /**
      * Fabrique une « spec » d'alerte (données brutes) — la sévérité/portée/famille sont dérivées

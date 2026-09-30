@@ -37,7 +37,8 @@ class RegulariserReservationProcessor implements ProcessorInterface
         private EmissionBilletService $emissionBillet,
         private ActiviteLogger $activiteLogger,
         private GareGuard $gareGuard,
-        private ReservationEcheanceService $echeance
+        private ReservationEcheanceService $echeance,
+        private \App\Domain\Service\SessioncaisseService $sessioncaisseService
     )
     {
     }
@@ -73,8 +74,15 @@ class RegulariserReservationProcessor implements ProcessorInterface
         // Décompte à encaisser (pénalité + complément) — valide aussi le tronçon et la date du cible
         $calcul = $this->regularisation->calculer($reservation, $cible);
 
+        /*
+            LA CAISSE, RÉSOLUE AVANT LA TRANSACTION : ce service verrouille la ligne 'user', celle
+            qui suit verrouille le départ cible. L'ordre doit rester 'user → voyage' partout,
+            sinon deux agents qui régularisent sur le même départ s'interbloquent.
+        */
+        $caisse = $user instanceof User ? $this->sessioncaisseService->courante($user) : null;
+
         return $this->em->wrapInTransaction(function () use (
-            $reservation, $cible, $calcul, $entrepriseId, $user, $operation, $uriVariables, $context
+            $reservation, $cible, $calcul, $entrepriseId, $user, $caisse, $operation, $uriVariables, $context
         ) {
             $this->em->lock($cible, LockMode::PESSIMISTIC_WRITE);
 
@@ -88,6 +96,14 @@ class RegulariserReservationProcessor implements ProcessorInterface
                 ->setPrix($calcul['nouveauPrix'])
                 ->setPenalitemontant($calcul['penalite'])
                 ->setMontantcomplement($calcul['complement'])
+                /*
+                    LA CAISSE DE LA RÉGULARISATION, et pas celle de l'encaissement initial : la
+                    pénalité et le complément sont perçus ici, parfois des semaines après le
+                    paiement du bon et par un tout autre agent. Les verser à la caisse d'origine
+                    ferait porter cet argent à quelqu'un qui n'a rien reçu, et sa session est de
+                    toute façon clôturée depuis longtemps.
+                */
+                ->setSessioncaisseregul($caisse)
                 ->setStatut(ReservationStatus::STATUT_CONFIRMEE->value)
                 ->setTicket($ticket)
                 // L'exonération couvrait CE report-là : une fois consommée, la réservation repart

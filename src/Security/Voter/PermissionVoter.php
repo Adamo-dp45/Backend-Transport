@@ -30,6 +30,7 @@ final class PermissionVoter extends Voter
               · AJUSTER        — écrire un mouvement de stock (inventaire)
               · ANNULER        — défaire un approvisionnement, un dépannage, une réservation payée
               · DECLARER_PERDU — engager la responsabilité de la compagnie sur un colis ou un bagage
+              · CLOTURER       — arrêter une caisse et signer son écart (le constat est définitif)
 
             'IMPRIMER' et 'EXPORTER' ont été RETIRÉS : ils ne gardaient aucune opération, ni ici ni
             dans le front, et l'écran des rôles ne les proposait pas — on les accordait sans jamais
@@ -40,7 +41,7 @@ final class PermissionVoter extends Voter
         */
         return in_array($attribute, [
             'VOIR', 'CREER', 'MODIFIER', 'SUPPRIMER',
-            'DESISTER', 'AJUSTER', 'ANNULER', 'DECLARER_PERDU',
+            'DESISTER', 'AJUSTER', 'ANNULER', 'DECLARER_PERDU', 'CLOTURER',
         ]); # On ne s'occupe que des actions définies dans notre système
     }
 
