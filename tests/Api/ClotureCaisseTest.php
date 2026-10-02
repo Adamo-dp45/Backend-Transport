@@ -2,8 +2,10 @@
 
 namespace App\Tests\Api;
 
+use App\Domain\Enum\ReservationStatus;
 use App\Domain\Enum\SessioncaisseStatut;
 use App\Domain\Enum\TicketStatus;
+use App\Entity\Reservation;
 use App\Entity\Sessioncaisse;
 use App\Entity\Ticket;
 use App\Entity\User;
@@ -227,6 +229,87 @@ final class ClotureCaisseTest extends ApiTestCase
         self::assertStringContainsString('aucune gare', $this->messageErreur());
     }
 
+    #[Test]
+    #[TestDox("Le complément d'un report n'est pas imputé à la caisse qui a encaissé le bon")]
+    public function leComplementNeRemontePasDansLaCaisseDuBon(): void
+    {
+        $this->ouvrir(fonds: 0);
+        $caisseDuBon = $this->caisse();
+
+        /*
+            LE BON A ÉTÉ PAYÉ 10 000 DANS CETTE CAISSE. La régularisation, elle, a eu lieu AILLEURS
+            — plus tard, au guichet d'un autre agent, qui a perçu 2 000 de complément tarifaire.
+        */
+        $caisseDeLaRegul = $this->caissePour(
+            $this->scenario->utilisateur($this->reseau->entreprise, gare: $this->reseau->gare('Abidjan'))
+        );
+
+        $reservation = $this->scenario->reservation(
+            $this->reseau, $this->voyage, 'Abidjan', 'Korhogo',
+            statut: ReservationStatus::STATUT_CONFIRMEE,
+            prix: 10000,
+            etatpaiement: 'PAYE',
+            datepaiement: new DateTimeImmutable('-2 hours')
+        );
+        $reservation->setSessioncaisse($caisseDuBon);
+        $this->regulariser($reservation, complement: 2000, penalite: 0, caisse: $caisseDeLaRegul);
+
+        $this->cloturer(montantcompte: 10000);
+        $this->assertStatut(200);
+
+        $session = $this->em->getRepository(Sessioncaisse::class)->find($caisseDuBon->getId());
+        self::assertSame(
+            10000,
+            $session->getTotalreservations(),
+            "!! 'RegulariserReservationProcessor' ÉCRASE 'prix' par le nouveau prix du trajet, "
+            . "complément compris. Une somme de 'prix' sur la caisse d'encaissement lui impute donc "
+            . "un argent perçu par QUELQU'UN D'AUTRE, des heures plus tard"
+        );
+        self::assertSame(
+            0,
+            $session->getEcart(),
+            "LA SENTINELLE : sans correction, l'agent qui a encaissé 10 000 et rend 10 000 se voit "
+            . "reprocher un MANQUANT de 2 000 qu'il doit motiver. La caisse sert à opposer un "
+            . "constat à un agent — elle ne peut pas lui fabriquer un trou"
+        );
+    }
+
+    #[Test]
+    #[TestDox("Régularisé dans la même caisse, le complément ne compte qu'une fois")]
+    public function leComplementNeCompteQuUneFoisDansLaMemeCaisse(): void
+    {
+        $this->ouvrir(fonds: 0);
+        $caisse = $this->caisse();
+
+        // Même agent, même journée : il encaisse le bon le matin et régularise l'après-midi.
+        $reservation = $this->scenario->reservation(
+            $this->reseau, $this->voyage, 'Abidjan', 'Korhogo',
+            statut: ReservationStatus::STATUT_CONFIRMEE,
+            prix: 10000,
+            etatpaiement: 'PAYE',
+            datepaiement: new DateTimeImmutable('-4 hours')
+        );
+        $reservation->setSessioncaisse($caisse);
+        $this->regulariser($reservation, complement: 2000, penalite: 1000, caisse: $caisse);
+
+        // 10 000 pour le bon, 2 000 de complément, 1 000 de pénalité : le tiroir contient 13 000.
+        $this->cloturer(montantcompte: 13000);
+        $this->assertStatut(200);
+
+        $session = $this->em->getRepository(Sessioncaisse::class)->find($caisse->getId());
+        self::assertSame(10000, $session->getTotalreservations(), 'le bon, à son prix encaissé');
+        self::assertSame(2000, $session->getTotalcomplements(), 'le complément, sur son propre poste');
+        self::assertSame(1000, $session->getTotalpenalites());
+        self::assertSame(
+            13000,
+            $session->getMontanttheorique(),
+            "le complément est dans 'prix' ET dans 'totalcomplements' : comptées telles quelles, les "
+            . "deux colonnes le font entrer DEUX FOIS, et l'agent se retrouve avec un excédent "
+            . "inexplicable du montant du complément"
+        );
+        self::assertSame(0, $session->getEcart());
+    }
+
     private function ouvrir(int $fonds = 0): void
     {
         $this->requete('POST', '/api/sessioncaisses', $this->agent, ['fondsouverture' => $fonds]);
@@ -282,6 +365,42 @@ final class ClotureCaisseTest extends ApiTestCase
         ]);
     }
 
+    /**
+     * Rejoue l'écriture de 'RegulariserReservationProcessor' : le prix est ÉCRASÉ par le nouveau
+     * prix du trajet (initial + complément), et seuls la pénalité et le complément sont rattachés à
+     * la caisse qui les a perçus.
+     *
+     * Posé en base plutôt que joué par l'API : ce qui est éprouvé ici est le CALCUL du théorique,
+     * pas le parcours de régularisation — il a ses propres tests.
+     */
+    private function regulariser(Reservation $reservation, int $complement, int $penalite, Sessioncaisse $caisse): void
+    {
+        $reservation
+            ->setPrix((int) $reservation->getPrix() + $complement)
+            ->setMontantcomplement($complement)
+            ->setPenalitemontant($penalite)
+            ->setSessioncaisseregul($caisse);
+
+        $this->em->flush();
+    }
+
+    /** Une caisse ouverte pour un autre agent, sans passer par l'API (qui ne sert que l'appelant). */
+    private function caissePour(User $agent): Sessioncaisse
+    {
+        $session = (new Sessioncaisse())
+            ->setAgent($agent)
+            ->setGare($agent->getGare())
+            ->setDatedebut(new DateTimeImmutable('-6 hours'))
+            ->setFondsouverture(0)
+            ->setStatut(SessioncaisseStatut::OUVERTE->value)
+            ->setAgentsessionouverte((int) $agent->getId());
+        $session->setIdentreprise((int) $this->reseau->identreprise());
+
+        $this->em->persist($session);
+        $this->em->flush();
+
+        return $session;
+    }
     private function messageErreur(): string
     {
         $r = $this->reponseJson();

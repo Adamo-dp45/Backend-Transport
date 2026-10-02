@@ -103,13 +103,34 @@ class CourrierProcessor implements ProcessorInterface
                 ->setDatepaiement($data->modepaiement === 'ENVOI' ? new \DateTimeImmutable(): null)
             */
         ;
-        $this->em->persist($courrier);
-        $this->em->flush(); /*
-            - Vu qu'on a besoin pour avoir l'id avant de traiter les détails
-        */
-        $this->handleDetails($courrier, $data->details, $identreprise, $userId);
+            /*
+                TOUT OU RIEN. Le flush ci-dessous n'est là que pour obtenir l'identifiant, mais il
+                RENDAIT DÉFINITIF ce qui précède : une ligne refusée par 'handleDetails' laissait
+                derrière elle un document VIDE en base — un courrier sans colis, un appro sans
+                ligne — pendant que l'écran annonçait une erreur de saisie. L'utilisateur croyait
+                n'avoir rien créé, et le document fantôme comptait pourtant dans les listes.
 
-        return $this->processor->process($courrier, $operation, $uriVariables, $context);
+                !! NE PAS LEVER D'EXCEPTION DEPUIS L'INTÉRIEUR DE CE BLOC sans savoir que Doctrine
+                FERME l'EntityManager avant de relancer : c'est sans conséquence ici, la requête se
+                termine sur l'erreur, mais toute écriture ajoutée après le bloc mourrait dessus.
+            */
+        /*
+            VALIDER AVANT D'ÉCRIRE : 'validerDetails()' existait déjà mais n'était appelée qu'au
+            PATCH. Au POST, le refus tombait depuis 'handleDetails', donc APRÈS le flush — d'où le
+            courrier fantôme. La transaction ci-dessous reste le filet pour l'imprévu, mais les
+            refus ORDINAIRES ne doivent jamais l'atteindre : un rollback ferme l'EntityManager, et
+            une garde qui coûte ça à chaque saisie approximative est une garde mal placée.
+        */
+        $this->validerDetails($data->details, $identreprise);
+
+        return $this->em->wrapInTransaction(function () use ($courrier, $data, $identreprise, $userId, $operation, $uriVariables, $context) {
+            $this->em->persist($courrier);
+            $this->em->flush(); // Nécessaire pour l'identifiant, avant de traiter les détails.
+
+            $this->handleDetails($courrier, $data->details, $identreprise, $userId);
+
+            return $this->processor->process($courrier, $operation, $uriVariables, $context);
+        });
     }
 
     private function handlePatch(CourrierInput $data, int $userId, int $identreprise, $operation, $uriVariables, $context): Courrier

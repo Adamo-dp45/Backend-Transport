@@ -115,7 +115,17 @@ use Symfony\Component\Serializer\Attribute\Groups;
             )
         ),
         new Patch(
-            security: "is_granted('MODIFIER', object)",
+            /*
+                Permission DÉDIÉE 'ANNULER' et non 'MODIFIER' (01/10/2026) : depuis le palier 3 de
+                la caisse, une annulation REND DE L'ARGENT — elle chiffre un remboursement et le
+                sort du tiroir de l'agent. Ce n'est plus du tout le même geste que rectifier un nom
+                ou un poids. Sous 'MODIFIER', tout profil autorisé à corriger une saisie héritait du
+                droit de rembourser, exactement le défaut déjà corrigé sur 'Ticket' ('DESISTER') et
+                sur 'Approvisionnement'/'Depannage'/'Reservation' ('ANNULER').
+                !! CONSÉQUENCE : les rôles qui n'avaient que 'MODIFIER' PERDENT l'annulation. C'est
+                l'objet du changement, mais il faut la redonner explicitement à qui en a besoin.
+            */
+            security: "is_granted('ANNULER', object)",
             uriTemplate: '/bagages/{id}/annuler',
             requirements: ['id' => '\d+'],
             input: false,

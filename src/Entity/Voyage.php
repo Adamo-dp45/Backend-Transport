@@ -519,13 +519,13 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     /**
      * @var Collection<int, Detailpersonnel>
      */
-    #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'voyage')]
+    #[ORM\OneToMany(targetEntity: Detailpersonnel::class, mappedBy: 'voyage', fetch: 'EXTRA_LAZY')]
     private Collection $detailpersonnels; // sérialisée par getDetailpersonnelsVisibles()
 
     /**
      * @var Collection<int, Ticket>
      */
-    #[ORM\OneToMany(targetEntity: Ticket::class, mappedBy: 'voyage')]
+    #[ORM\OneToMany(targetEntity: Ticket::class, mappedBy: 'voyage', fetch: 'EXTRA_LAZY')]
     private Collection $tickets; // sérialisée par getTicketsVisibles()
 
     #[ORM\Column(nullable: true)]
@@ -536,13 +536,13 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     /**
      * @var Collection<int, Courrier>
      */
-    #[ORM\OneToMany(targetEntity: Courrier::class, mappedBy: 'voyage')]
+    #[ORM\OneToMany(targetEntity: Courrier::class, mappedBy: 'voyage', fetch: 'EXTRA_LAZY')]
     private Collection $courriers; // sérialisée par getCourriersVisibles()
 
     /**
      * @var Collection<int, Bagage>
      */
-    #[ORM\OneToMany(targetEntity: Bagage::class, mappedBy: 'voyage')]
+    #[ORM\OneToMany(targetEntity: Bagage::class, mappedBy: 'voyage', fetch: 'EXTRA_LAZY')]
     private Collection $bagages; // sérialisée par getBagagesVisibles()
 
     /**
@@ -954,10 +954,16 @@ class Voyage extends EntityBase implements EntrepriseOwnedInterface, HasSoftDele
     public function getTicketsCount(): int
     {
         /*
-            'matching(Criteria)' et NON 'filter()' : sur une collection non chargée, Doctrine traduit le
-            critère en SQL et 'count()' devient un COUNT — la collection n'est jamais hydratée. Avec
-            'filter()', on chargeait TOUS les billets du voyage juste pour afficher un nombre, et ce sur
-            CHAQUE ligne de la liste des voyages.
+            'matching(Criteria)' et NON 'filter()' : 'filter()' charge TOUS les billets du voyage pour
+            en jeter la moitié, sur CHAQUE ligne de la liste des voyages.
+
+            !! MAIS 'matching()' NE SUFFIT PAS : il faut 'fetch: EXTRA_LAZY' sur l'association, et il
+            manquait. Ce commentaire affirmait que « count() devient un COUNT et la collection n'est
+            jamais hydratée » — c'était faux, et la mesure l'a montré (D3, 02/10/2026) : le listing des
+            voyages émettait, PAR LIGNE, quatre SELECT de toutes les colonnes de 'ticket', 'courrier',
+            'bagage' et 'detailpersonnel'. Soit, pour trente voyages chargés, des milliers de lignes
+            hydratées pour afficher quatre nombres. Sans EXTRA_LAZY, Doctrine traduit bien le critère
+            en SQL mais RAPATRIE LES ENTITÉS et compte en PHP.
         */
         return $this->tickets->matching(
             Criteria::create()->where(

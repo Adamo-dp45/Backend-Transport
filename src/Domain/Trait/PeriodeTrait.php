@@ -19,6 +19,17 @@ trait PeriodeTrait
             n'était complète qu'à minuit. La fin était déjà bornée à 23:59:59 ; le début ne l'était pas.
             Une date passée en paramètre est ramenée à son début de journée pour la même raison.
         */
+        /*
+            LA FIN PAR DÉFAUT EST LE DERNIER JOUR DU MOIS, pas la journée courante : « le mois
+            courant », c'est TOUT le mois (décision de l'utilisateur, 01/10/2026). Une période
+            nommée par son mois doit couvrir son mois entier — la tronquer à aujourd'hui ferait
+            dire « octobre » à un intervalle qui s'arrête le 7, et deux consultations du même mois
+            à deux jours d'écart ne porteraient pas sur la même chose.
+
+            C'est 'GareDashboardController::intervalle()' qui s'aligne sur CETTE convention, et non
+            l'inverse : il bornait sa fin à l'instant courant, si bien que « ce mois-ci » ne
+            désignait pas le même intervalle selon l'écran.
+        */
         $dateDebut = ($debut ? new \DateTimeImmutable($debut) : new \DateTimeImmutable('first day of this month'))->setTime(0, 0);
         $dateFin = ($fin ? new \DateTimeImmutable($fin) : new \DateTimeImmutable('last day of this month'))->setTime(23, 59, 59);
 

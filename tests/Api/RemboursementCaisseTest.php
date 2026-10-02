@@ -49,7 +49,9 @@ final class RemboursementCaisseTest extends ApiTestCase
             [
                 'Ticket' => ['VOIR', 'CREER', 'DESISTER'],
                 'Bagage' => ['VOIR', 'CREER', 'MODIFIER'],
-                'Courrier' => ['VOIR', 'MODIFIER'],
+                // 'ANNULER' depuis le 01/10/2026 : annuler un courrier le REMBOURSE, ce n'est
+                // plus un geste de correction, donc plus un dérivé de 'MODIFIER'.
+                'Courrier' => ['VOIR', 'ANNULER'],
                 'Reservation' => ['VOIR', 'MODIFIER'],
                 'Sessioncaisse' => ['VOIR', 'CREER', 'CLOTURER'],
             ]

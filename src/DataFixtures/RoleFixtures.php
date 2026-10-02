@@ -60,8 +60,23 @@ class RoleFixtures extends Fixture implements DependentFixtureInterface, Fixture
                 // Saisie seule sur Bagage/Courrier : déclarer une PERTE engage la compagnie, cela
                 // remonte à l'encadrement de gare. C'est précisément ce que 'DECLARER_PERDU' permet
                 // désormais de refuser sans retirer la saisie.
-                'Bagage' => self::SAISIE,
-                'Courrier' => self::SAISIE,
+                //
+                // 'ANNULER' y est ajouté (01/10/2026) parce que c'est le geste DU COMPTOIR : un
+                // client qui reprend son colis avant le départ se présente au guichet, pas au
+                // bureau du chef de gare. L'action est séparée de 'MODIFIER' depuis qu'elle
+                // REMBOURSE — on peut donc la donner ici sans donner le reste, exactement comme
+                // pour 'Reservation' juste en dessous.
+                'Bagage' => [...self::SAISIE, 'ANNULER'],
+                'Courrier' => [...self::SAISIE, 'ANNULER'],
+                /*
+                    LA CAISSE DU GUICHETIER — oubliée à la livraison du module (01/10/2026) : les
+                    sessions existaient en fixture, mais aucun rôle ne portait la permission, si
+                    bien que le menu « Finances » restait masqué et qu'aucun agent de démonstration
+                    ne pouvait clôturer. Le module était livré et invisible.
+                    'CLOTURER' est une action DÉDIÉE : un chef de gare peut la retirer à son
+                    caissier sans lui retirer la lecture de sa propre caisse.
+                */
+                'Sessioncaisse' => ['VOIR', 'CREER', 'CLOTURER'],
                 'Reservation' => [...self::SAISIE, 'ANNULER'], // le comptoir annule une réservation
                 'Client' => self::SAISIE,
                 'Voyage' => self::LECTURE,
@@ -70,7 +85,8 @@ class RoleFixtures extends Fixture implements DependentFixtureInterface, Fixture
 
         $this->creerRole($manager, Refs::IRA, $iraId, 'commercial', 'Commercial à bord', 'ENTREPRISE', null,
             'Vend depuis la position réelle du car et fait avancer le voyage.', [
-                // Pas de 'DESISTER' : le remboursement est une opération de GARE, jamais du bord.
+                // Pas de 'DESISTER' ni d'ANNULER : le remboursement est une opération de GARE,
+                // jamais du bord — la caisse, le justificatif et l'imputation sont au guichet.
                 // C'est la seule différence de billetterie avec le guichetier, et elle est voulue.
                 'Ticket' => self::SAISIE,
                 'Bagage' => self::SAISIE,
@@ -139,8 +155,8 @@ class RoleFixtures extends Fixture implements DependentFixtureInterface, Fixture
                 'Voyage' => self::TOUT,
                 'Ticket' => [...self::TOUT, 'DESISTER'],
                 'Reservation' => [...self::TOUT, 'ANNULER'],
-                'Courrier' => [...self::TOUT, 'DECLARER_PERDU'],
-                'Bagage' => [...self::TOUT, 'DECLARER_PERDU'],
+                'Courrier' => [...self::TOUT, 'ANNULER', 'DECLARER_PERDU'],
+                'Bagage' => [...self::TOUT, 'ANNULER', 'DECLARER_PERDU'],
                 'User' => self::SAISIE,
                 'Role' => ['VOIR', 'CREER'],
             ]);
@@ -150,7 +166,8 @@ class RoleFixtures extends Fixture implements DependentFixtureInterface, Fixture
         $this->creerRole($manager, Refs::SAHEL, $sahelId, 'guichetier', 'Guichetier', 'ENTREPRISE', null,
             'Vend les billets depuis sa gare.', [
                 'Ticket' => self::BILLETTERIE_GUICHET,
-                'Bagage' => self::SAISIE,
+                'Bagage' => [...self::SAISIE, 'ANNULER'],
+                'Sessioncaisse' => ['VOIR', 'CREER', 'CLOTURER'],
                 'Voyage' => self::LECTURE,
                 'Client' => self::SAISIE,
             ]);

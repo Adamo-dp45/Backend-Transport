@@ -86,17 +86,30 @@ class ApprovisionnementProcessor implements ProcessorInterface
             ->setIdentreprise($entrepriseId)
             ->setCreatedBy($userId)
             ->setDateappro(new \DateTimeImmutable());
-        $this->em->persist($approvisionnement);
-        $this->em->flush(); /*
-            - Va être nécessaire pour avoir l'id vu qu'on utilise un 'input'
-        */
+            /*
+                TOUT OU RIEN. Le flush ci-dessous n'est là que pour obtenir l'identifiant, mais il
+                RENDAIT DÉFINITIF ce qui précède : une ligne refusée par 'handleDetails' laissait
+                derrière elle un document VIDE en base — un courrier sans colis, un appro sans
+                ligne — pendant que l'écran annonçait une erreur de saisie. L'utilisateur croyait
+                n'avoir rien créé, et le document fantôme comptait pourtant dans les listes.
 
-        $this->handleDetails($approvisionnement, $data->details, $entrepriseId, $userId);
-        $this->recomposerCout($approvisionnement);
+                !! NE PAS LEVER D'EXCEPTION DEPUIS L'INTÉRIEUR DE CE BLOC sans savoir que Doctrine
+                FERME l'EntityManager avant de relancer : c'est sans conséquence ici, la requête se
+                termine sur l'erreur, mais toute écriture ajoutée après le bloc mourrait dessus.
+            */
+        // Cf. 'validerLignes()' : les refus ordinaires ne doivent pas atteindre la transaction.
+        $this->validerLignes($data->details);
 
-        return $this->processor->process($approvisionnement, $operation, $uriVariables, $context); /*
-            - Pas de '->flush()' vu qu'on a le 'process'
-        */
+        return $this->em->wrapInTransaction(function () use ($approvisionnement, $data, $entrepriseId, $userId, $operation, $uriVariables, $context) {
+            $this->em->persist($approvisionnement);
+            $this->em->flush(); // Nécessaire pour l'identifiant, avant de traiter les lignes.
+
+            $this->handleDetails($approvisionnement, $data->details, $entrepriseId, $userId);
+            $this->recomposerCout($approvisionnement);
+
+            // Pas de flush ici : le 'process' du pipeline s'en charge.
+            return $this->processor->process($approvisionnement, $operation, $uriVariables, $context);
+        });
     }
 
     /**
@@ -293,6 +306,28 @@ class ApprovisionnementProcessor implements ProcessorInterface
                     $userId
                 );
                 $this->em->remove($detail);
+            }
+        }
+    }
+
+    /**
+     * Les refus de SAISIE, avant toute écriture — quantité ou prix unitaire absents.
+     *
+     * Ils étaient jusque-là levés depuis 'handleDetails', donc après le flush de l'entête : un
+     * prix oublié laissait un approvisionnement VIDE en base pendant que l'écran n'annonçait
+     * qu'une erreur de formulaire. Les vérifier ici ne dispense pas la boucle de les revérifier —
+     * elle reste la seule à voir les lignes une à une —, ça évite seulement d'écrire pour rien.
+     *
+     * @param array<int, array<string, mixed>>|null $details
+     */
+    private function validerLignes(?array $details): void
+    {
+        foreach ($details ?? [] as $ligne) {
+            if ((int) ($ligne['quantite'] ?? 0) <= 0) {
+                throw new BadRequestHttpException('Quantité invalide');
+            }
+            if ((int) ($ligne['prixunitaire'] ?? 0) <= 0) {
+                throw new BadRequestHttpException('Prix unitaire invalide');
             }
         }
     }

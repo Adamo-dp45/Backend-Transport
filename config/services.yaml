@@ -28,13 +28,35 @@ services:
         resource: '../src/'
         exclude:
             # Les fixtures étendent des classes de 'doctrine/doctrine-fixtures-bundle', qui est en
-            # 'require-dev' : en production ('composer install --no-dev') ces classes n'existent
-            # pas et la compilation du conteneur échouerait. Elles sont donc déclarées plus bas,
-            # sous 'when@dev' / 'when@test' uniquement.
+            # Exclues du chargement AUTOMATIQUE, mais déclarées juste après pour TOUS les
+            # environnements : elles ont besoin de l'autowiring, et le bloc dédié plus bas y ajoute
+            # le purger décoré. (Le bundle est passé en dépendance de PRODUCTION le 30/09/2026 :
+            # l'installation d'une nouvelle compagnie se fait par les fixtures.)
             - '../src/DataFixtures/'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    # Fixtures — disponibles dans TOUS les environnements depuis le 30/09/2026 --
+    #
+    # Le bundle est passé de 'require-dev' à 'require' : l'installation d'une nouvelle compagnie
+    # passe par les fixtures, et 'composer install --no-dev' les rendait introuvables en production.
+    # Elles ne sont donc plus déclarées sous 'when@dev' / 'when@test'.
+    #
+    # !! 'doctrine:fixtures:load' PURGE LA BASE avant de charger. En production, ne l'employer que
+    # sur une installation NEUVE, ou avec '--append'. La commande demande confirmation, mais
+    # '--no-interaction' passe outre — c'est justement le drapeau qu'un script de déploiement met
+    # par réflexe.
+    App\DataFixtures\:
+        resource: '../src/DataFixtures/'
+
+    # Purger tolérant au cycle 'ticket' <-> 'reservation'. En décorant la fabrique du bundle,
+    # l'alias « default » suit le décorateur : 'doctrine:fixtures:load' recharge la base sans
+    # aucune option supplémentaire.
+    App\DataFixtures\Purger\PurgerSansContrainteFactory:
+        decorates: 'doctrine.fixtures.purger.orm_purger_factory'
+        arguments: ['@.inner']
+    # --
 
     # OpenApi --
     App\ApiPlatform\OpenApi\OpenApiFactory:
@@ -80,25 +102,7 @@ services:
     #            - { name: 'api_platform.doctrine.orm.query_extension.item' }
     # --
 
-# Fixtures — chargées UNIQUEMENT en dev et en test, comme le bundle dont elles dépendent.
-when@dev: &fixtures
-    services:
-        _defaults:
-            autowire: true
-            autoconfigure: true
-
-        App\DataFixtures\:
-            resource: '../src/DataFixtures/'
-
-        # Purger tolérant au cycle 'ticket' <-> 'reservation'. En décorant la fabrique du bundle,
-        # l'alias « default » suit le décorateur : 'doctrine:fixtures:load' recharge la base sans
-        # aucune option supplémentaire.
-        App\DataFixtures\Purger\PurgerSansContrainteFactory:
-            decorates: 'doctrine.fixtures.purger.orm_purger_factory'
-            arguments: ['@.inner']
-
 when@test:
-    <<: *fixtures
     # Glide lit les images téléversées PAR LES TESTS ('when@test' de 'vich_uploader.yaml'), jamais 'public/'.
     parameters:
         glide.source: '%kernel.project_dir%/var/test'

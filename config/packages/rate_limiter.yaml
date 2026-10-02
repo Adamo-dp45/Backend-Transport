@@ -5,3 +5,30 @@ framework:
             policy: 'sliding_window'
             limit: 10
             interval: '1 minute'
+
+        # ── Mot de passe oublié (D1 de la feuille de route, 01/10/2026) ──
+        #
+        # DEUX LIMITEURS, et il faut les deux. Par IP seule, un attaquant réparti sur un botnet
+        # noie quand même la boîte d'une personne précise. Par e-mail seul, une machine balaie des
+        # milliers d'adresses pour deviner lesquelles existent.
+        #
+        # !! LE LIMITEUR PAR E-MAIL S'APPLIQUE AVANT DE CHERCHER LE COMPTE, à toute adresse saisie.
+        # Ne le consommer que pour un compte EXISTANT répondrait 429 sur une adresse connue et 204
+        # sur une inconnue : l'énumération que le 204 silencieux sert justement à empêcher, rendue
+        # par le code de statut.
+        mot_de_passe_oubli_ip:
+            policy: 'sliding_window'
+            limit: 10
+            interval: '1 hour' # Une gare partage souvent une seule IP : plusieurs agents doivent y tenir.
+
+        mot_de_passe_oubli_email:
+            policy: 'sliding_window'
+            limit: 3
+            interval: '1 hour' # Trois courriels de réinitialisation par heure suffisent à qui a vraiment oublié.
+
+        # La réinitialisation elle-même : le jeton fait 256 bits, il ne se devine pas. La limite
+        # protège la ressource (hachage du mot de passe, écritures), pas le secret.
+        mot_de_passe_reinitialisation_ip:
+            policy: 'sliding_window'
+            limit: 10
+            interval: '1 hour'

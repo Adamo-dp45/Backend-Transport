@@ -115,11 +115,30 @@ final class GareDashboardController extends AbstractController
     /** @return array{0: \DateTimeImmutable, 1: \DateTimeImmutable} */
     private function intervalle(string $periode): array
     {
-        $fin = new \DateTimeImmutable('now');
+        /*
+            !! CHAQUE PÉRIODE EST BORNÉE À LA FIN DE SA PROPRE PÉRIODE, pas à l'instant courant
+            (01/10/2026). MÊME CONVENTION QUE 'PeriodeTrait::parsePeriode()', avec qui cet écran
+            était en désaccord : il coupait à l'heure de consultation, le trait allait jusqu'au
+            dernier jour du mois — le même « ce mois-ci » désignait donc deux intervalles selon la
+            page, invisible tant qu'on ne compare pas deux chiffres.
+
+            « Le mois courant », c'est TOUT le mois : le tronquer à aujourd'hui ferait dire
+            « octobre » à un intervalle qui s'arrête le 7. Et couper à l'HEURE est le défaut déjà
+            corrigé côté début le 28/09 — le même écran ne donnait pas le même total le matin et
+            le soir, pour des données identiques.
+
+            « Tout » prend la même borne que le mois : il doit au moins contenir ce que « ce
+            mois-ci » contient, sans quoi le plus large des filtres rendrait moins que le plus
+            étroit.
+        */
         $debut = match ($periode) {
             'jour' => new \DateTimeImmutable('today'),
             'tout' => new \DateTimeImmutable('@0'),
             default => new \DateTimeImmutable('first day of this month 00:00'),
+        };
+        $fin = match ($periode) {
+            'jour' => (new \DateTimeImmutable('today'))->setTime(23, 59, 59),
+            default => (new \DateTimeImmutable('last day of this month'))->setTime(23, 59, 59),
         };
 
         return [$debut, $fin];

@@ -50,6 +50,8 @@ final class ActionsDedieesTest extends ApiTestCase
             "annulation d'approvisionnement" => [Approvisionnement::class, '/approvisionnements/{id}/annuler', "is_granted('ANNULER', object)"],
             'annulation de dépannage' => [Depannage::class, '/depannages/{id}/annuler', "is_granted('ANNULER', object)"],
             'annulation de réservation' => [Reservation::class, '/reservations/{id}/annuler', "is_granted('ANNULER', object)"],
+            'annulation de bagage' => [Bagage::class, '/bagages/{id}/annuler', "is_granted('ANNULER', object)"],
+            'annulation de courrier' => [Courrier::class, '/courriers/{id}/annuler', "is_granted('ANNULER', object)"],
             'courrier déclaré perdu' => [Courrier::class, '/courriers/{id}/perdu', "is_granted('DECLARER_PERDU', object)"],
             'détail de courrier perdu' => [Detailcourrier::class, '/detailcourriers/{id}/perdu', "is_granted('DECLARER_PERDU', 'Courrier')"],
             'bagage déclaré perdu' => [Bagage::class, '/bagages/{id}/perdu', "is_granted('DECLARER_PERDU', object)"],

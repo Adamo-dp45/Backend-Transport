@@ -566,11 +566,36 @@ class ReservationRepository extends ServiceEntityRepository
      * PAYÉ, en ligne comme au comptoir ; ici on ne veut que ce qui est passé par un TIROIR. Le
      * tri se fait tout seul : un paiement mobile n'a pas de 'sessioncaisse', puisque personne ne
      * l'a encaissé à un guichet.
+     *
+     * !! LE COMPLÉMENT EST RETRANCHÉ, et cette soustraction n'est pas un ajustement mais la
+     * RÉPARATION D'UN DÉFAUT (01/10/2026). 'RegulariserReservationProcessor' ÉCRASE 'prix' par le
+     * nouveau prix du trajet de report — complément compris — alors que le complément a été perçu
+     * AILLEURS et PLUS TARD, dans la session rattachée par 'sessioncaisseregul'. Une somme de
+     * 'prix' brut imputait donc à la caisse du bon un argent qu'un autre agent avait encaissé, et
+     * 'CaisseTheoriqueService' le comptait une SECONDE fois par 'totauxRegulPourSession'.
+     *
+     * CE QUE ÇA FAISAIT, mesuré par 'ClotureCaisseTest' : l'agent qui avait encaissé un bon de
+     * 10 000 et rendait 10 000 se voyait REFUSER sa clôture — « Le compte ne tombe pas juste :
+     * indiquez un motif » — pour un manquant de 2 000 qu'il n'avait pas commis. La caisse sert à
+     * opposer un constat à un agent ; elle ne peut pas lui fabriquer un trou. Et quand le même
+     * agent encaissait puis régularisait dans SA session, le complément y entrait deux fois et lui
+     * inventait un excédent du même montant.
+     *
+     * LE DÉFAUT NE SE VOYAIT PAS sur le jeu de démonstration : aucune réservation n'y est
+     * régularisée ('montantcomplement' à 0 partout, 'sessioncaisseregul' jamais renseigné) —
+     * mesuré. Il fallait monter le cas pour le faire apparaître, comme pour « courriers hors CA ».
+     *
+     * PAS DE 'COALESCE' sur 'montantcomplement' : la colonne est NOT NULL avec défaut 0 (vérifié
+     * en base). Le piège 'montant + NULL = NULL' qui guette 'fraissuivi' ne s'applique pas ici.
+     *
+     * La RECETTE, elle, reste juste sans rien changer : 'recettePayeeParGare' somme
+     * 'prix + penalitemontant' et doit bien inclure le complément — la compagnie l'a encaissé. Ce
+     * qui était faux n'était pas le TOTAL mais sa RÉPARTITION entre les tiroirs.
      */
     public function totalPourSession(int $sessionId): int
     {
         return (int) $this->createQueryBuilder('r')
-            ->select('COALESCE(SUM(r.prix), 0)')
+            ->select('COALESCE(SUM(r.prix - r.montantcomplement), 0)')
             ->andWhere('r.sessioncaisse = :session')
             ->andWhere('r.deletedAt IS NULL')
             ->setParameter('session', $sessionId)

@@ -20,10 +20,12 @@
     --haute:       #9C5B12;
     --moyenne:     #12557E;
     --faible:      #6B7480;
+    --livre:       #1E6B47;
     --critique-fond: #FBEAE8;
     --haute-fond:    #FBF0E2;
     --moyenne-fond:  #E6EFF5;
     --faible-fond:   #ECEFF2;
+    --livre-fond:    #E4F2EA;
 
     --ombre: 0 1px 2px rgba(19, 26, 36, .05), 0 1px 8px rgba(19, 26, 36, .04);
   }
@@ -45,10 +47,12 @@
       --haute:       #D9A05B;
       --moyenne:     #63A9D6;
       --faible:      #96A1AD;
+      --livre:       #6FBF95;
       --critique-fond: #2E1A18;
       --haute-fond:    #2C2418;
       --moyenne-fond:  #16303F;
       --faible-fond:   #212A34;
+      --livre-fond:    #163024;
 
       --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 8px rgba(0, 0, 0, .2);
     }
@@ -70,10 +74,12 @@
     --haute:       #D9A05B;
     --moyenne:     #63A9D6;
     --faible:      #96A1AD;
+    --livre:       #6FBF95;
     --critique-fond: #2E1A18;
     --haute-fond:    #2C2418;
     --moyenne-fond:  #16303F;
     --faible-fond:   #212A34;
+    --livre-fond:    #163024;
 
     --ombre: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 8px rgba(0, 0, 0, .2);
   }
@@ -206,6 +212,27 @@
   .prio.h { color: var(--haute);    background: var(--haute-fond); }
   .prio.m { color: var(--moyenne);  background: var(--moyenne-fond); }
   .prio.f { color: var(--faible);   background: var(--faible-fond); }
+  /*
+     Marqueur « LIVRÉ ». Il reprend la forme de la pastille de priorité sans se confondre avec
+     elle : une proposition livrée GARDE sa priorité d'origine — elle dit pourquoi on l'a faite, et
+     l'effacer rendrait la liste illisible pour qui la relit dans six mois.
+  */
+  .etat {
+    display: inline-block;
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-weight: 600;
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: .1rem .4rem;
+    margin-left: .45rem;
+    border-radius: 2px;
+    white-space: nowrap;
+    vertical-align: .08em;
+    color: var(--livre);
+    background: var(--livre-fond);
+  }
+  .fiche-tete .etat { margin-left: 0; }
 
   /* ─── Fiches ─── */
   .fiche {
@@ -317,7 +344,7 @@
     .page { max-width: none; padding: 0; gap: 1.6rem; }
 
     /* Les aplats de priorite portent l'information : on les conserve a l'impression. */
-    .prio, .constat.manque b, .constat.acquis b, .fiche { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .prio, .etat, .constat.manque b, .constat.acquis b, .fiche { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
     .fiche { box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
     .constat, .cadre-table { break-inside: avoid; page-break-inside: avoid; }
@@ -392,8 +419,8 @@
           <tr><th>Réf</th><th>Proposition</th><th>Priorité</th><th>Nature</th></tr>
         </thead>
         <tbody>
-          <tr><td class="ref">A1</td><td class="nom"><a href="#a1">Clôture de caisse quotidienne</a></td><td><span class="prio c">Critique</span></td><td>Existant</td></tr>
-          <tr><td class="ref">D1</td><td class="nom"><a href="#d1">Limite de débit sur la réinitialisation</a></td><td><span class="prio h">Haute</span></td><td>Sécurité</td></tr>
+          <tr><td class="ref">A1</td><td class="nom"><a href="#a1">Clôture de caisse quotidienne</a><span class="etat" title="Livré le 30/09/2026 — module Caisse (Sessioncaisse, clôture et écart)">Livré</span></td><td><span class="prio c">Critique</span></td><td>Existant</td></tr>
+          <tr><td class="ref">D1</td><td class="nom"><a href="#d1">Limite de débit sur la réinitialisation</a><span class="etat" title="Livré le 01/10/2026 — limiteurs sur /api/forgot et /api/reset">Livré</span></td><td><span class="prio h">Haute</span></td><td>Sécurité</td></tr>
           <tr><td class="ref">B2</td><td class="nom"><a href="#b2">Contrôle d'embarquement par QR</a></td><td><span class="prio h">Haute</span></td><td>Nouveau</td></tr>
           <tr><td class="ref">C1</td><td class="nom"><a href="#c1">Recherche globale opérationnelle</a></td><td><span class="prio h">Haute</span></td><td>UX</td></tr>
           <tr><td class="ref">A2</td><td class="nom"><a href="#a2">Report de masse d'un départ annulé</a></td><td><span class="prio h">Haute</span></td><td>Existant</td></tr>
@@ -425,6 +452,7 @@
         <span class="fiche-ref">A1</span>
         <h3>Clôture de caisse quotidienne par agent</h3>
         <span class="prio c">Critique</span>
+        <span class="etat" title="Livré le 30/09/2026 — module Caisse (Sessioncaisse, clôture et écart)">Livré</span>
       </div>
       <dl>
         <dt>Besoin</dt>
@@ -877,6 +905,7 @@
         <span class="fiche-ref">D1</span>
         <h3>Limite de débit sur la réinitialisation de mot de passe</h3>
         <span class="prio h">Haute</span>
+        <span class="etat" title="Livré le 01/10/2026 — limiteurs sur /api/forgot et /api/reset">Livré</span>
       </div>
       <dl>
         <dt>Besoin</dt>

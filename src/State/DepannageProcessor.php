@@ -83,29 +83,44 @@ class DepannageProcessor implements ProcessorInterface
             ->setCreatedBy($userId)
             ->setDatedepannage(new \DateTimeImmutable()) // Ou le reçevoir via le 'input'
         ;
-        $this->carStatutService->mettreEnPanne($car); // Pour indiquer que le car est en panne
-        $this->em->persist($depannage);
-        $this->em->flush(); /*
-            - Va être nécessaire pour avoir l'id vu qu'on utilise un 'input'
+        /*
+            TOUT OU RIEN, et ici l'enjeu dépasse le document fantôme : 'mettreEnPanne()' IMMOBILISE
+            LE VÉHICULE. Une ligne de pièce refusée par 'handleDetails' laissait donc un car marqué
+            EN PANNE sans aucun dépannage pour l'expliquer — un véhicule sorti de l'exploitation
+            que plus rien ne permettait de remettre en service, pendant que l'écran n'annonçait
+            qu'une erreur de saisie.
+
+            !! NE PAS LEVER D'EXCEPTION DEPUIS L'INTÉRIEUR DE CE BLOC sans savoir que Doctrine FERME
+            l'EntityManager avant de relancer : sans conséquence ici, la requête se termine sur
+            l'erreur, mais toute écriture ajoutée après le bloc mourrait dessus.
         */
-        $totalPieces = $this->handleDetails($depannage, $data->details, $entrepriseId, $userId);
-        $totalMaindoeuvre = $this->handleMaindoeuvres($depannage, $data->maindoeuvres ?? []);
-        $depannage->setCouttotal($totalPieces + $totalMaindoeuvre);
+        // Cf. 'validerLignes()' : un refus de saisie ne doit ni immobiliser le car, ni rollbacker.
+        $this->validerLignes($data->details);
 
-        // Journal : le car passe EN PANNE — il sort de l'exploitation, c'est une immobilisation.
-        $this->activiteLogger->log(
-            ActiviteLogger::DEPANNAGE_OUVERT,
-            sprintf(
-                'Dépannage ouvert sur le car %s (%s) à %s — véhicule immobilisé',
-                $car->getMatricule() ?? '—',
-                $typepanne?->getLibelle() ?? 'panne non typée',
-                $data->lieudepannage ?: '—'
-            ),
-            'Depannage',
-            $depannage->getId()
-        );
+        return $this->em->wrapInTransaction(function () use ($depannage, $car, $typepanne, $data, $entrepriseId, $userId, $operation, $uriVariables, $context) {
+            $this->carStatutService->mettreEnPanne($car); // Pour indiquer que le car est en panne
+            $this->em->persist($depannage);
+            $this->em->flush(); // Nécessaire pour l'identifiant, avant de traiter les lignes.
 
-        return $this->processor->process($depannage, $operation, $uriVariables, $context);
+            $totalPieces = $this->handleDetails($depannage, $data->details, $entrepriseId, $userId);
+            $totalMaindoeuvre = $this->handleMaindoeuvres($depannage, $data->maindoeuvres ?? []);
+            $depannage->setCouttotal($totalPieces + $totalMaindoeuvre);
+
+            // Journal : le car passe EN PANNE — il sort de l'exploitation, c'est une immobilisation.
+            $this->activiteLogger->log(
+                ActiviteLogger::DEPANNAGE_OUVERT,
+                sprintf(
+                    'Dépannage ouvert sur le car %s (%s) à %s — véhicule immobilisé',
+                    $car->getMatricule() ?? '—',
+                    $typepanne?->getLibelle() ?? 'panne non typée',
+                    $data->lieudepannage ?: '—'
+                ),
+                'Depannage',
+                $depannage->getId()
+            );
+
+            return $this->processor->process($depannage, $operation, $uriVariables, $context);
+        });
     }
 
     private function handlePatch($data, $userId, $entrepriseId, $operation, $uriVariables, $context)
@@ -358,6 +373,29 @@ class DepannageProcessor implements ProcessorInterface
         }
 
         return $total;
+    }
+
+    /**
+     * Les refus de SAISIE, avant toute écriture — doublon de pièce, quantité ou prix absents.
+     *
+     * Ils étaient levés depuis 'handleDetails', donc après que le car ait été IMMOBILISÉ et le
+     * dépannage flushé : une pièce saisie deux fois laissait un véhicule EN PANNE sans dépannage
+     * pour l'expliquer. La transaction couvre désormais ce cas, mais mieux vaut ne pas y arriver.
+     *
+     * @param array<int, array<string, mixed>>|null $details
+     */
+    private function validerLignes(?array $details): void
+    {
+        $ids = array_map(static fn ($d) => $d['piece'] ?? null, $details ?? []);
+        if (count($ids) !== count(array_unique($ids))) {
+            throw new BadRequestHttpException('Une pièce est en doublon dans ce dépannage');
+        }
+
+        foreach ($details ?? [] as $ligne) {
+            if ((int) ($ligne['quantite'] ?? 0) <= 0) {
+                throw new BadRequestHttpException('Quantité invalide');
+            }
+        }
     }
 
     private function handleDetails(Depannage $depannage, $details, $entrepriseId, $userId)
