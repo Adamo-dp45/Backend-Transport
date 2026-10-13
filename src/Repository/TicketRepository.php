@@ -452,6 +452,7 @@ class TicketRepository extends ServiceEntityRepository
             )
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut IN ('ANNULE', 'REPORTE')")
             ->andWhere('t.createdAt >= :debut')
             ->andWhere('t.createdAt <= :fin')
@@ -764,6 +765,7 @@ class TicketRepository extends ServiceEntityRepository
         return (int) $this->createQueryBuilder('t')
             ->select('COUNT(t.id)')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'REPORTE'")
             ->andWhere('t.desistementImputableCompagnie = true')
             ->andWhere('t.createdAt >= :debut')
@@ -814,6 +816,7 @@ class TicketRepository extends ServiceEntityRepository
         $row = $this->createQueryBuilder('t')
             ->select('COALESCE(SUM(t.remise), 0) AS total', 'COUNT(t.id) AS nb')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.remise > 0')
             ->andWhere('t.createdAt >= :debut')
@@ -834,6 +837,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('b.nom AS nom, b.categorie AS categorie, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
             ->join('t.beneficiaire', 'b')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.remise > 0')
             ->andWhere('t.createdAt >= :debut')
@@ -916,6 +920,7 @@ class TicketRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('t')
             ->select('t.createdBy AS agentid, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.remise > 0')
             ->andWhere('t.commercial IS NULL')
@@ -939,6 +944,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('c.id AS commercialid, c.nom AS nom, c.prenom AS prenom, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
             ->join('t.commercial', 'c')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.remise > 0')
             ->andWhere('t.createdAt >= :debut')
@@ -962,6 +968,7 @@ class TicketRepository extends ServiceEntityRepository
             ->select('g.id AS gareid, g.libelle AS garelibelle, COALESCE(SUM(t.remise), 0) AS total, COUNT(t.id) AS nb')
             ->join('t.gare', 'g')
             ->andWhere('t.identreprise = :ide')
+            ->andWhere('t.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("t.statut = 'VALIDE'")
             ->andWhere('t.remise > 0')
             ->andWhere('t.createdAt >= :debut')
@@ -1344,5 +1351,56 @@ class TicketRepository extends ServiceEntityRepository
             ->setParameter('session', $sessionId)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /**
+     * CE QUE LES DÉSISTEMENTS ONT COÛTÉ, en argent — et non plus seulement en nombre de billets.
+     *
+     * Les désistements étaient comptés partout (annulés, reportés, dont imputables à la compagnie)
+     * mais 'montantrembourse' n'entrait dans AUCUNE statistique : on savait combien de billets
+     * disparaissaient, jamais combien d'argent ressortait. Entre « 42 annulations ce mois-ci » et
+     * « 380 000 F remboursés, dont 120 000 de notre fait », seule la seconde phrase se décide.
+     *
+     * !! BORNÉ SUR LA VENTE ('createdAt'), PAS SUR LE DÉSISTEMENT, et c'est volontaire : toute la
+     * section « désistements » de l'écran billetterie compte les billets VENDUS sur la période
+     * (cf. 'compteReportesImputablesCompagnie'). Un montant borné sur 'datedesistement' ne
+     * correspondrait pas aux comptes affichés juste à côté — on lirait « 42 annulés » et un montant
+     * qui porte sur d'autres billets. Ce n'est donc PAS une mesure de trésorerie : pour « combien
+     * est sorti du tiroir cette semaine », c'est la caisse qui répond, poste par poste.
+     *
+     * LA PART IMPUTABLE À LA COMPAGNIE est servie à part : c'est elle qui a de la valeur. Un client
+     * qui renonce coûte le remboursement ; un départ avancé par la compagnie coûte la même somme,
+     * mais celle-là se pilote.
+     *
+     * @return array{montant: int, nb: int, montantImputableCompagnie: int, nbImputableCompagnie: int}
+     */
+    public function remboursementsPourPeriode(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        $ligne = $this->createQueryBuilder('t')
+            ->select(
+                'COALESCE(SUM(t.montantrembourse), 0) AS montant,'
+                . ' COUNT(t.id) AS nb,'
+                . " COALESCE(SUM(CASE WHEN t.desistementImputableCompagnie = true THEN t.montantrembourse ELSE 0 END), 0) AS montantimputable,"
+                . " SUM(CASE WHEN t.desistementImputableCompagnie = true THEN 1 ELSE 0 END) AS nbimputable"
+            )
+            ->andWhere('t.identreprise = :ide')
+            // La CORBEILLE exclut de tout total d'argent : une ligne mise à la corbeille n'aurait
+            // jamais dû être saisie, son remboursement non plus.
+            ->andWhere('t.deletedAt IS NULL')
+            ->andWhere('t.montantrembourse > 0')
+            ->andWhere('t.createdAt >= :debut')
+            ->andWhere('t.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleResult();
+
+        return [
+            'montant' => (int) $ligne['montant'],
+            'nb' => (int) $ligne['nb'],
+            'montantImputableCompagnie' => (int) $ligne['montantimputable'],
+            'nbImputableCompagnie' => (int) $ligne['nbimputable'],
+        ];
     }
 }

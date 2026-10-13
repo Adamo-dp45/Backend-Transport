@@ -256,6 +256,7 @@ class BagageRepository extends ServiceEntityRepository
             )
             ->leftJoin('b.tarifbagage', 'tr')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere('b.montantforce = :force')
             ->andWhere('b.statut IN (:statuts)')
             ->andWhere('b.createdAt >= :debut')
@@ -438,6 +439,7 @@ class BagageRepository extends ServiceEntityRepository
             )
             ->join('b.garedepart', 'g')
             ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("b.statut IN ('ANNULE', 'PERDU')")
             ->andWhere('b.createdAt >= :debut')
             ->andWhere('b.createdAt <= :fin')
@@ -665,5 +667,32 @@ class BagageRepository extends ServiceEntityRepository
             ->setParameter('session', $sessionId)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /**
+     * Ce que les annulations de bagages ont coûté en remboursements, sur la période.
+     *
+     * Pendant de 'TicketRepository::remboursementsPourPeriode' — mêmes bornes (la date de SAISIE,
+     * pas celle de l'annulation) pour que les montants se lisent à côté des comptes de la même
+     * section. Pas d'imputabilité ici : elle n'existe que sur le billet, qui porte le report.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function remboursementsPourPeriode(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        $ligne = $this->createQueryBuilder('b')
+            ->select('COALESCE(SUM(b.montantrembourse), 0) AS montant, COUNT(b.id) AS nb')
+            ->andWhere('b.identreprise = :ide')
+            ->andWhere('b.deletedAt IS NULL')
+            ->andWhere('b.montantrembourse > 0')
+            ->andWhere('b.createdAt >= :debut')
+            ->andWhere('b.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $ligne['montant'], 'nb' => (int) $ligne['nb']];
     }
 }

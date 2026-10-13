@@ -15,12 +15,14 @@ use ApiPlatform\OpenApi\Model\RequestBody;
 use App\Controller\Api\PostAvatarController;
 use App\Domain\Enum\ReferenceStatus;
 use App\Entity\Dto\ChangePasswordInput;
+use App\Entity\Dto\ChangerEmailInput;
 use App\Entity\Dto\ForgotPasswordInput;
 use App\Entity\Dto\RegisterInput;
 use App\Entity\Dto\ResetPasswordInput;
 use App\Entity\Dto\SupprimerMonCompteInput;
 use App\Repository\UserRepository;
 use App\State\ChangePasswordProcessor;
+use App\State\ChangerEmailProcessor;
 use App\State\SupprimerMonCompteProcessor;
 use App\State\ForgotPasswordProcessor;
 use App\State\MeProvider;
@@ -157,6 +159,34 @@ use Vich\UploaderBundle\Mapping\Attribute\UploadableField;
             processor: PromouvoirAdminGareProcessor::class,
             openapi: new Operation(
                 summary: 'Nommer ou révoquer un administrateur de gare',
+                security: [['bearerAuth' => []]]
+            )
+        ),
+        new Patch(
+            security: "is_granted('ROLE_SUPER_ADMIN')", /*
+                - UNE PORTE ÉTROITE, et non l'ouverture du 'PATCH /users/{id}' ci-dessus : ce dernier
+                  exclut le super admin délibérément (« c'est à l'admin de modifier son utilisateur,
+                  à cause des 'userRoles' »). L'élargir pour l'e-mail lui donnerait du même coup les
+                  rôles, l'entreprise et la gare — précisément ce que cette exclusion protège.
+                - POURQUOI ELLE EXISTE : l'e-mail n'est plus modifiable en self-service (cf.
+                  'UserProfileProcessor'), c'est l'identifiant de connexion et le canal de
+                  réinitialisation. L'admin d'une compagnie change celui de ses agents par le 'PATCH'
+                  général ; personne ne pouvait changer LE SIEN, et il restait enfermé.
+            */
+            uriTemplate: '/users/{id}/email',
+            requirements: ['id' => '\d+'],
+            /*
+                - PROVIDER NATIF, vérifié : 'UserEntrepriseExtension' sort sans borner dès que l'acteur
+                  est super admin (ligne 54), la cible est donc trouvée bien qu'il n'ait aucune
+                  entreprise. J'avais d'abord mis 'MeProvider' en supposant le contraire : c'était
+                  faux, et cela aurait rendu un 404 pour un {id} inexistant SANS jamais le vérifier.
+            */
+            input: ChangerEmailInput::class,
+            denormalizationContext: ['groups' => ['write:User:email']],
+            processor: ChangerEmailProcessor::class,
+            openapi: new Operation(
+                summary: "Changer l'e-mail d'un utilisateur (super administrateur)",
+                description: "L'e-mail étant l'identifiant de connexion, il n'est pas modifiable par son porteur. Le super administrateur peut le corriger ; le changement est journalisé avec l'ancienne adresse.",
                 security: [['bearerAuth' => []]]
             )
         ),
@@ -297,6 +327,26 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, GareOwn
     #[ORM\Column(length: 180)]
     #[Assert\NotBlank()]
     #[Assert\Email()]
+    /*
+        !! L'E-MAIL N'EST PAS MODIFIABLE PAR SON TITULAIRE (décision du 06/10/2026), mais la garde
+        n'est PAS ici — elle est dans 'UserProfileProcessor', qui ne le recopie plus sur l'utilisateur
+        connecté.
+
+        Le groupe 'write:User:profil' est volontairement CONSERVÉ, et ce n'est pas un oubli :
+        '/api/me' ne peuple pas l'utilisateur existant, il dénormalise un User « formulaire » que le
+        processor recopie ensuite champ par champ. Retirer le groupe rendait donc l'e-mail NULL sur ce
+        formulaire, et la validation refusait TOUT enregistrement de profil par un 422 « email : cette
+        valeur ne doit pas être vide » — l'agent ne pouvait même plus changer son nom. Mesuré.
+        L'API accepte donc encore un e-mail sur '/api/me' ; elle ne l'applique simplement jamais.
+
+        Pourquoi cette règle : l'e-mail est l'IDENTIFIANT DE CONNEXION et le canal de réinitialisation
+        du mot de passe. En self-service, un agent qui se trompe s'exclut lui-même, et un agent sur le
+        départ peut rediriger la récupération de son compte vers une adresse personnelle. Il reste
+        modifiable par l'ADMINISTRATEUR via '/api/users/{id}' (groupe 'write:User').
+
+        Verrouillé par 'tests/Api/ProfilEmailTest.php', qui relit l'e-mail EN BASE : le refus est
+        SILENCIEUX (200), aucun code de statut ne le signale.
+    */
     #[Groups(['read:User', 'write:User', 'write:User:profil', 'read:Voyage', 'read:Sessioncaisse'])]
     private ?string $email = null;
 

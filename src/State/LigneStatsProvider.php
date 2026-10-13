@@ -10,6 +10,7 @@ use App\Entity\Output\Ligne\LigneStatistiqueOutput;
 use App\Entity\User;
 use App\Repository\BagageRepository;
 use App\Repository\CourrierRepository;
+use App\Repository\DepenseRepository;
 use App\Repository\LigneRepository;
 use App\Repository\ReservationRepository;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -26,6 +27,7 @@ class LigneStatsProvider implements ProviderInterface
         private ReservationRepository $reservationRepository,
         private CourrierRepository $courrierRepository,
         private BagageRepository $bagageRepository,
+        private DepenseRepository $depenseRepository,
         private \App\Domain\Service\ConfigRecetteService $configRecetteService
     )
     {
@@ -40,6 +42,20 @@ class LigneStatsProvider implements ProviderInterface
         $identreprise = $user->getEntreprise()->getId();
         $request = $this->requestStack->getCurrentRequest();
         [$dateDebut, $dateFin] = $this->parsePeriode($request);
+
+        /*
+            LES CHARGES, seulement si l'acteur a le droit de lire des montants de dépense. 'null' et
+            non zéro sinon : « je ne sais pas » ne s'écrit pas comme « il n'y en a pas », et un
+            résultat affiché à tort égal à la recette serait un faux bénéfice.
+            Même arbitrage que 'VoyageResultatProvider' pour la fiche d'un départ.
+        */
+        $avecDepenses = $this->security->isGranted('VOIR', 'Depense');
+        $depensesParLigne = [];
+        if ($avecDepenses) {
+            foreach ($this->depenseRepository->totalParLigne($dateDebut, $dateFin, $identreprise) as $d) {
+                $depensesParLigne[(int) $d['ligneid']] = (float) $d['montant'];
+            }
+        }
 
         // Réservations payées / courriers / bagages par ligne — à additionner aux billets directs.
         $resaParLigne = [];
@@ -59,11 +75,13 @@ class LigneStatsProvider implements ProviderInterface
         $courriersHorsCa = $this->configRecetteService->courriersHorsCa($identreprise);
 
         $performances = array_map(
-            function ($row) use ($resaParLigne, $courriersParLigne, $bagagesParLigne, $courriersHorsCa) {
+            function ($row) use ($resaParLigne, $courriersParLigne, $bagagesParLigne, $courriersHorsCa, $depensesParLigne, $avecDepenses) {
                 $id = (int) $row['id'];
                 $recetteBillets = round((float) $row['recette'] + ($resaParLigne[$id]['recette'] ?? 0), 2); // billets directs + réservations
                 $recetteCourriers = round($courriersParLigne[$id]['recette'] ?? 0, 2);
                 $recetteBagages = round($bagagesParLigne[$id]['recette'] ?? 0, 2);
+                $recette = round($recetteBillets + ($courriersHorsCa ? 0 : $recetteCourriers) + $recetteBagages, 2);
+                $depenses = $depensesParLigne[$id] ?? 0.0;
 
                 return new LignePerformanceDto(
                     id: $id,
@@ -76,7 +94,15 @@ class LigneStatsProvider implements ProviderInterface
                     recetteCourriers: $recetteCourriers,
                     nbbagages: $bagagesParLigne[$id]['nb'] ?? 0,
                     recetteBagages: $recetteBagages,
-                    recette: round($recetteBillets + ($courriersHorsCa ? 0 : $recetteCourriers) + $recetteBagages, 2), // grand total
+                    recette: $recette,
+                    /*
+                        Le RÉSULTAT ne retranche que les charges RATTACHÉES À UN DÉPART de la ligne.
+                        Les charges de structure — salaires, loyer, dépannages, pièces — n'ont aucun
+                        lien avec une ligne et ne peuvent pas y être réparties sans clé inventée :
+                        c'est un RÉSULTAT, jamais un bénéfice.
+                    */
+                    depenses: $avecDepenses ? round($depenses, 2) : null,
+                    resultat: $avecDepenses ? round($recette - $depenses, 2) : null,
                 );
             },
             $this->ligneRepository->findAllAvecStats($dateDebut, $dateFin, $identreprise)

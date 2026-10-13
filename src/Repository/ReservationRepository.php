@@ -625,4 +625,51 @@ class ReservationRepository extends ServiceEntityRepository
 
         return ['penalites' => (int) $ligne['penalites'], 'complements' => (int) $ligne['complements']];
     }
+
+    /**
+     * L'ENTONNOIR DES RÉSERVATIONS, CANAL PAR CANAL : émises → payées → présentées → perdues.
+     *
+     * Le module savait déjà combien de bons viennent du mobile ('partMobile') et quelle part est
+     * payée ('tauxConversion'), mais JAMAIS LE CROISEMENT : impossible de dire si le mobile convertit
+     * mieux ou moins bien que le guichet. Or c'est la seule question qui se décide — un canal qui
+     * apporte 60 % du volume et n'en honore qu'un tiers ne vaut pas celui qui apporte 40 % et les
+     * honore tous.
+     *
+     * CE QUE CHAQUE ÉTAPE SIGNIFIE, parce qu'aucune ne se lit sans sa définition :
+     *  - ÉMISES : tous les bons créés sur la période, quel que soit leur sort.
+     *  - PAYÉES : l'argent est entré. 'CONFIRMEE' + 'A_REGULARISER' — un no-show a bel et bien payé,
+     *    c'est le voyage qu'il n'a pas pris. Les exclure sous-estimerait la recette du canal.
+     *  - PRÉSENTÉES : un billet a été émis ('r.ticket IS NOT NULL'). C'est l'aboutissement réel ;
+     *    entre « payé » et « présenté » se loge exactement le no-show.
+     *  - PERDUES : 'EXPIREE' (jamais payé dans le délai) + 'ANNULEE'. Aucune recette.
+     *
+     * !! LE NO-SHOW N'EST PAS UNE PERTE SÈCHE, et l'écran ne doit pas le présenter ainsi : le bon est
+     * payé, et il reste régularisable — avec pénalité et complément. Le mettre avec les perdues
+     * ferait croire à un manque à gagner qui n'existe pas.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function entonnoirParSource(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('r')
+            ->select(
+                'r.source AS source,'
+                . ' COUNT(r.id) AS emises,'
+                . " SUM(CASE WHEN r.statut IN ('CONFIRMEE', 'A_REGULARISER') THEN 1 ELSE 0 END) AS payees,"
+                . ' SUM(CASE WHEN r.ticket IS NOT NULL THEN 1 ELSE 0 END) AS presentees,'
+                . " SUM(CASE WHEN r.statut = 'A_REGULARISER' THEN 1 ELSE 0 END) AS aregulariser,"
+                . " SUM(CASE WHEN r.statut IN ('EXPIREE', 'ANNULEE') THEN 1 ELSE 0 END) AS perdues,"
+                . " COALESCE(SUM(CASE WHEN r.etatpaiement = 'PAYE' THEN r.prix + r.penalitemontant ELSE 0 END), 0) AS recette"
+            )
+            ->andWhere('r.identreprise = :ide')
+            ->andWhere('r.deletedAt IS NULL')
+            ->andWhere('r.createdAt >= :debut')
+            ->andWhere('r.createdAt <= :fin')
+            ->groupBy('r.source')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getArrayResult();
+    }
 }

@@ -68,6 +68,13 @@ class ActiviteLogger
     public const TICKET_REPORTE = 'TICKET_REPORTE';
     public const TICKET_REPORTE_EVICTION = 'TICKET_REPORTE_EVICTION'; // report d'un billet évincé (imputable compagnie, pas au client)
     public const TICKET_SUPPRIME = 'TICKET_SUPPRIME';
+
+    /*
+        Un changement d'e-mail DÉPLACE LE POUVOIR DE REPRENDRE UN COMPTE : qui reçoit les liens de
+        réinitialisation peut y entrer. Il se trace donc comme une suppression, avec l'ancienne
+        adresse dans le libellé — sans elle on constate le changement sans pouvoir revenir dessus.
+    */
+    public const USER_EMAIL_MODIFIE = 'USER_EMAIL_MODIFIE';
     public const TICKET_REMISE = 'TICKET_REMISE'; // remise appliquée sur un billet (audit anti-abus)
     public const TICKET_HORS_LIGNE = 'TICKET_HORS_LIGNE'; // billet vendu à bord sans réseau, remonté à la synchronisation
     public const TICKET_ECART_TARIF = 'TICKET_ECART_TARIF'; /*
@@ -140,14 +147,22 @@ class ActiviteLogger
     {
     }
 
-    public function log(string $type, string $libelle, ?string $cibletype = null, ?int $cibleid = null): void
+    /**
+     * @param int|null $identreprise L'entreprise au journal de laquelle rattacher la trace. Par défaut celle de
+     *                               L'ACTEUR, ce qui couvre tous les gestes du métier. Il faut la passer
+     *                               explicitement quand l'acteur n'en a pas — le SUPER ADMIN, qui n'est
+     *                               rattaché à aucune compagnie : sans elle, 'log()' sortait ici sans rien
+     *                               écrire, et l'appelant croyait avoir tracé. Mesuré sur la base : le compte
+     *                               super admin a bien 'entreprise_id' nul.
+     */
+    public function log(string $type, string $libelle, ?string $cibletype = null, ?int $cibleid = null, ?int $identreprise = null): void
     {
         try {
             $user = $this->security->getUser();
             if(!$user instanceof User) {
                 return;
             }
-            $entrepriseId = $user->getEntreprise()?->getId();
+            $entrepriseId = $identreprise ?? $user->getEntreprise()?->getId();
             if($entrepriseId === null) {
                 return;
             }

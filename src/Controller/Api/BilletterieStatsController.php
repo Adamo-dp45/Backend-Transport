@@ -21,7 +21,14 @@ final class BilletterieStatsController extends AbstractController
     use PeriodeTrait;
 
     #[Route('/api/stats/billetterie/details', name: 'api_stats_billetterie_details', methods: ['GET'])]
-    public function details(Request $request, Security $security, TicketRepository $ticketRepository, UserRepository $userRepository): JsonResponse
+    public function details(
+        Request $request,
+        Security $security,
+        TicketRepository $ticketRepository,
+        UserRepository $userRepository,
+        \App\Repository\BagageRepository $bagageRepository,
+        \App\Repository\CourrierRepository $courrierRepository
+    ): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -67,6 +74,23 @@ final class BilletterieStatsController extends AbstractController
         $reporteVolontaire = max(0, $statuts['REPORTE'] - $reporteEviction);
         $totalVolontaire = $reporteVolontaire + $statuts['ANNULE'];
 
+        /*
+            CE QUE LES DÉSISTEMENTS COÛTENT, EN ARGENT. Jusqu'ici cette section ne comptait que des
+            BILLETS : on savait combien disparaissaient, jamais combien d'argent ressortait. Le
+            remboursement court sur TROIS entités — le billet désisté, ses bagages annulés en
+            cascade, et le courrier repris avant départ (même triplet que la caisse) : n'en compter
+            qu'une partie annoncerait un coût systématiquement sous-évalué.
+
+            !! LES MONTANTS SUIVENT LA MÊME BORNE QUE LES COMPTES ci-dessus — les pièces VENDUES sur
+            la période, et non les remboursements VERSÉS sur la période. C'est ce qui permet de lire
+            « 42 annulés » et leur montant côte à côte ; une borne de trésorerie porterait sur
+            d'autres billets que ceux qu'on vient de compter. Pour « combien est sorti du tiroir »,
+            c'est la caisse qui répond.
+        */
+        $rembBillets = $ticketRepository->remboursementsPourPeriode($debut, $fin, $ent);
+        $rembBagages = $bagageRepository->remboursementsPourPeriode($debut, $fin, $ent);
+        $rembCourriers = $courrierRepository->remboursementsPourPeriode($debut, $fin, $ent);
+
         $desistements = [
             'valide' => $statuts['VALIDE'],
             'reporte' => $statuts['REPORTE'],           // tous les reportés (volontaires + éviction)
@@ -77,6 +101,21 @@ final class BilletterieStatsController extends AbstractController
             'taux' => $totalBillets > 0 ? (int) round($totalVolontaire / $totalBillets * 100) : 0,
             'parAgent' => $annulationsParAgent,
             'suppressions' => $suppressionsParAgent,
+            'rembourse' => [
+                'billets' => $rembBillets['montant'],
+                'bagages' => $rembBagages['montant'],
+                'courriers' => $rembCourriers['montant'],
+                'total' => $rembBillets['montant'] + $rembBagages['montant'] + $rembCourriers['montant'],
+                'nb' => $rembBillets['nb'] + $rembBagages['nb'] + $rembCourriers['nb'],
+                /*
+                    LA PART QUE LA COMPAGNIE SE DOIT À ELLE-MÊME : un départ avancé après le paiement
+                    produit un report qu'elle a provoqué. Le compte existait déjà ('reporteEviction') ;
+                    son COÛT est le chiffre qui se pilote — un client qui renonce ne se décide pas,
+                    un horaire qu'on déplace, si.
+                */
+                'imputableCompagnie' => $rembBillets['montantImputableCompagnie'],
+                'nbImputableCompagnie' => $rembBillets['nbImputableCompagnie'],
+            ],
         ];
 
         // ── Remises ──

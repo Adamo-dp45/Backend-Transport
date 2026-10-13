@@ -14014,3 +14014,474 @@ cd Backend-Transport && php "C:/Users/adamo/AppData/Local/Temp/claude/C--Users-a
 ```
 
 La seconde retire les 100 000 billets `PERF-` puis les 2 196 voyages `PERF-`. Dites-moi quand c'est fait et je vérifie que la base est revenue à son état d'origine.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Ce qui manque vraiment côté stats
+
+**1. La fiabilité de caisse par agent — l'angle mort complet**
+
+Aucune statistique ne touche `Sessioncaisse` : les écarts ne se voient que caisse par caisse, jamais agrégés. C'est paradoxal, parce que c'est la **seule donnée de contrôle** du projet — tout le reste mesure l'activité, elle seule mesure la véracité. Vous avez déjà le nécessaire : écart signé, motif, agent, gare, date.
+
+La décision qu'elle sert : qui former, qui surveiller, quelle gare dérive. Un agent à ±200 F de moyenne et un agent à ±5 000 F ne demandent pas la même chose, et aujourd'hui rien ne les distingue à l'œil.
+
+Attention au piège déjà documenté : il faudra écarter les attendus négatifs, sinon le classement sera pollué par de faux excédents.
+
+**2. Ce que coûtent les désistements, en argent**
+
+Les désistements sont comptés partout — annulés, reportés, dont imputables à la compagnie. Mais `montantrembourse` **n'est exposé dans aucune statistique**. On sait combien de billets sont annulés, jamais combien d'argent est ressorti.
+
+La décision : chiffrer ce que votre propre désorganisation vous coûte. Un départ avancé produit un report imputable à la compagnie ; le compte existe, le montant non. C'est la différence entre « 42 reports ce mois-ci » et « 380 000 F remboursés dont 120 000 de notre fait ».
+
+**3. Le résultat par ligne**
+
+`VoyageResultatService` calcule le résultat d'**un** voyage, pour sa fiche. Rien ne l'agrège par ligne sur une période. Vous avez pourtant le résultat par gare (`DepenseGareService`).
+
+La décision : quelle ligne mérite un car de plus, laquelle on arrête. C'est sans doute la statistique la plus structurante pour une compagnie, et c'est un assemblage de briques existantes.
+
+**4. L'entonnoir des réservations par canal**
+
+`Reservation` porte `source` (guichet / mobile), `etatpaiement`, le statut, la pénalité et le complément. Les statuts sont comptés ; la **conversion par canal** ne l'est pas.
+
+La décision : le canal mobile rapporte-t-il réellement, ou produit-il surtout des bons payés que personne ne vient honorer ? Émises → payées → présentées → régularisées → perdues, par canal : quatre chiffres qui tranchent la question.
+
+## Mon classement
+
+**La caisse d'abord** : angle mort total, données déjà là, et c'est du contrôle, pas du confort. **Le résultat par ligne ensuite** : plus de travail, mais c'est la décision la plus lourde que vous prenez. Les désistements chiffrés sont rapides à ajouter aux pages existantes. L'entonnoir des réservations peut attendre d'avoir du volume mobile réel.
+
+
+
+
+
+
+
+## L'email — fermé, mais pas où je croyais
+
+La garde est posée. **Deux surprises mesurées en chemin**, que je signale parce qu'elles changent la lecture :
+
+Retirer l'email du groupe d'écriture ne fermait pas la modification : `UserProfileProcessor` faisait `setEmail($data->getEmail())` et écrasait donc l'email par **`null`**. Pire, `/api/me` ne peuple pas l'utilisateur existant — il dénormalise un `User` « formulaire » — si bien que sans le groupe, la validation refusait **tout** enregistrement de profil par un 422. L'agent ne pouvait même plus changer son nom.
+
+La garde est donc dans le **processeur** : l'API accepte encore l'email et ne l'applique jamais. La règle générale, consignée au README : avant de retirer un champ d'un groupe d'écriture, vérifier qu'aucun processeur ne le recopie — sinon on ne ferme pas l'écriture, on l'écrase avec du vide.
+
+Côté écran, l'email s'affiche en lecture seule avec la mention « seul un administrateur peut la changer » ; le champ reste envoyé en `hidden`, sans quoi la validation échouerait. L'administrateur garde la main via `/api/users/{id}`.
+
+Vérifications : sentinelle `ProfilEmailTest` (2 tests), qui **relit l'email en base** puisque le refus est silencieux — et qui tombe bien quand je réintroduis le `setEmail`. Enregistrement du profil testé à l'identique dans le navigateur : « Profil mis à jour avec succès », email inchangé. Backend `OK (342 tests, 1207 assertions)`, frontend `OK (47, 142)`. Aide mise à jour.
+
+## Statistique 1 — remplacer le lien « Caisses »
+
+Votre remarque est juste et je la suis : le lien actuel mène à un listing opérationnel, qui n'a rien à faire dans un espace d'analyse. Je le remplace par la page **« Caisses & écarts »**, qui portera la fiabilité par agent — et depuis laquelle on pourra descendre vers le listing des sessions quand on veut le détail d'une caisse précise.
+
+J'attaque au prochain tour : agrégation des écarts par agent et par gare sur une période, en écartant les attendus négatifs (le piège connu, sans quoi le classement serait pollué par de faux excédents).
+
+
+
+
+
+
+
+
+
+
+## Statistique 1 livrée — « Caisses & écarts »
+
+La page remplace le lien vers le listing dans l'espace Recettes, comme vous l'avez proposé : un écran opérationnel n'avait rien à faire dans un espace d'analyse. On y descend depuis la nouvelle page quand on veut le détail d'une clôture.
+
+**Trois arbitrages, parce que le chiffre évident est le mauvais :**
+
+**On ne classe pas sur l'écart net.** Un agent qui alterne +3 000 et −3 000 a un net nul et n'est jamais juste — trier là-dessus le placerait *dernier*. Le classement porte sur l'écart **absolu** cumulé ; le net reste affiché en second parce qu'il pose une autre question : un manquant qui ne se compense jamais.
+
+**L'écart est rapporté au volume brassé**, en pour mille. À 1 000 F d'écart, celui qui a manipulé 4 millions est quarante fois plus précis que celui qui a manipulé 100 000 F. Sans ce rapport, une grande gare paraît toujours la pire.
+
+**Les attendus négatifs sont écartés — et comptés.** C'est le piège que vous connaissez : un remboursement réglé avec des espèces du coffre rend le théorique négatif, et l'écart y vaut tout le réapprovisionnement non saisi. Compté, il mettrait un agent irréprochable en tête des suspects. Un bandeau l'annonce à l'écran : un classement amputé en silence ne se conteste pas.
+
+L'écran ouvre sur le **taux de clôtures justes**, pas sur le palmarès des fautes, et dit explicitement qu'un écart est d'abord un signal de formation — monnaie mal rendue, fonds mal compté, ou vente encaissée sans être saisie ; seule la dernière relève du contrôle.
+
+**Sur vos données** : Aristide Koffi 1 clôture, 0 juste, −2 500 F (55,56 ‰) ; Bernadette Assi 1 clôture juste ; 50 % de justesse globale et **1 clôture écartée**, correctement signalée.
+
+Vérifications : 4 sentinelles (`CaisseFiabiliteTest`), dont celle de l'attendu négatif qui **tombe bien** quand je retire le filtre. Backend `OK (346 tests, 1221 assertions)`, frontend `OK (47, 142)`. README et mémoire à jour.
+
+**Prochaine : la 3, le résultat par ligne.** `VoyageResultatService` calcule déjà le résultat d'un voyage pour sa fiche ; il s'agit de l'agréger par ligne sur une période, comme `DepenseGareService` le fait par gare.
+
+
+
+
+
+
+
+
+
+
+
+Le résultat d'un voyage se calcule voyage par voyage — l'agréger en bouclant coûterait très cher (D3 vient de me le rappeler). Je regarde ce que `ligne/performance` expose déjà.
+
+`LigneStatsProvider` fait déjà toute la recette avec les bonnes règles. Il manque les **dépenses**. Je complète l'existant plutôt que de créer une page.
+
+Tout est clair. J'ajoute la requête des dépenses par ligne.
+
+Point critique : les deux membres du résultat doivent porter sur la même période. Je vérifie sur quoi la recette par ligne est bornée.
+
+Les deux portent bien sur `datedepartprevue`. Je vérifie le droit de voir des montants de charge, puis je complète le DTO.
+
+Cache du conteneur périmé. Je le vide.
+
+L'endpoint renvoie dépenses et résultat. J'affiche sur la page existante.
+
+J'ajoute la mise en garde, essentielle ici.
+
+La page affiche charges et résultat avec la mise en garde. J'ajoute la sentinelle et je lance tout.
+
+Le 4ᵉ test échoue parce que `ROLE_ADMIN` **implique** la permission de voir les dépenses : la branche « sans droit » est inatteignable sur cet endpoint. Je remplace le test par ce qui est vrai.
+
+La sentinelle ne mord pas : ma période de test est trop large pour discriminer. Je la resserre.
+
+La sentinelle ne mord toujours pas — je vérifie que `daterCreation` agit bien sur une dépense.
+
+Le test ne discrimine pas la colonne de bornage. Je le reconstruis à l'envers — un départ **hors** période dont la dépense est saisie **dans** la période.
+
+La signature paramétrée de `premiereLigne` a été perdue au cours d'une édition : la requête utilisait toujours 2000–2100. Je la rétablis.
+
+La sentinelle mord enfin. Je lance les deux suites et je documente.
+
+## Statistique 3 livrée — le résultat par ligne
+
+La recette par ligne existait déjà, avec les bonnes règles. **Seules les charges manquaient** : je n'ai donc rien créé de nouveau côté écran, j'ai complété la page « Performance par ligne » — la charge devient une quatrième tuile à côté des trois recettes, et le résultat s'affiche sous la recette.
+
+**Deux arbitrages d'implémentation :**
+
+**Une seule requête pour toutes les lignes**, pas un appel de `VoyageResultatService` par voyage. D3 venait de montrer que ce sont les statistiques qui coûtent à l'échelle ; boucler sur 2 000 voyages aurait rendu l'écran inutilisable pour un chiffre que le SQL donne d'un coup.
+
+**Les deux membres portent sur `datedepartprevue`**, jamais sur la date de saisie de la dépense. Le carburant d'un départ du 30 septembre peut être saisi le 2 octobre : le compter en octobre laisserait la recette de ce départ seule de son côté.
+
+**Résultat, jamais bénéfice** — l'écran le dit en toutes lettres. Seules les charges rattachées à un départ y entrent ; salaires, loyer, dépannages et pièces n'ont aucun lien avec une ligne et ne peuvent y être répartis sans clé inventée.
+
+## Deux choses que je dois signaler sur les tests
+
+**Ma première sentinelle de période ne prouvait rien.** Elle antidatait la saisie d'une dépense et vérifiait qu'elle restait comptée — elle passait au vert **aussi** en bornant sur `createdAt`. Un test de période ne discrimine que si l'une des deux dates tombe hors de la fenêtre. Je l'ai remontée à l'envers : un départ hors période dont la charge est saisie dedans. Elle tombe maintenant correctement (13 000 au lieu de 4 000).
+
+**Un test que j'ai supprimé.** J'avais écrit une vérification du cas « sans le droit de lire les charges, le résultat vaut `null` ». Elle échouait, et pour une bonne raison : `ROLE_ADMIN` emporte cette permission, donc ce cas est **inatteignable** sur cet endpoint. La branche `null` reste dans le code comme précaution pour une ouverture future, mais je ne la couvre pas — l'écrire en prétendant la couvrir aurait donné une fausse garantie.
+
+Vérifié sur vos données : ligne Abidjan → Korhogo, 10 346 600 F de recette, 11 000 F de charges, 10 335 600 F de résultat. Backend `OK (350 tests, 1233 assertions)`, frontend `OK (47, 142)`. README et mémoire à jour.
+
+**Prochaine : la 2**, ce que coûtent les désistements en argent — `montantrembourse` n'est exposé dans aucune statistique aujourd'hui.
+
+
+
+
+
+
+
+
+
+Le résultat d'un voyage se calcule voyage par voyage — l'agréger en bouclant coûterait très cher (D3 vient de me le rappeler). Je regarde ce que `ligne/performance` expose déjà.
+
+`LigneStatsProvider` fait déjà toute la recette avec les bonnes règles. Il manque les **dépenses**. Je complète l'existant plutôt que de créer une page.
+
+Tout est clair. J'ajoute la requête des dépenses par ligne.
+
+Point critique : les deux membres du résultat doivent porter sur la même période. Je vérifie sur quoi la recette par ligne est bornée.
+
+Les deux portent bien sur `datedepartprevue`. Je vérifie le droit de voir des montants de charge, puis je complète le DTO.
+
+Cache du conteneur périmé. Je le vide.
+
+L'endpoint renvoie dépenses et résultat. J'affiche sur la page existante.
+
+J'ajoute la mise en garde, essentielle ici.
+
+La page affiche charges et résultat avec la mise en garde. J'ajoute la sentinelle et je lance tout.
+
+Le 4ᵉ test échoue parce que `ROLE_ADMIN` **implique** la permission de voir les dépenses : la branche « sans droit » est inatteignable sur cet endpoint. Je remplace le test par ce qui est vrai.
+
+La sentinelle ne mord pas : ma période de test est trop large pour discriminer. Je la resserre.
+
+La sentinelle ne mord toujours pas — je vérifie que `daterCreation` agit bien sur une dépense.
+
+Le test ne discrimine pas la colonne de bornage. Je le reconstruis à l'envers — un départ **hors** période dont la dépense est saisie **dans** la période.
+
+La signature paramétrée de `premiereLigne` a été perdue au cours d'une édition : la requête utilisait toujours 2000–2100. Je la rétablis.
+
+La sentinelle mord enfin. Je lance les deux suites et je documente.
+
+## Statistique 3 livrée — le résultat par ligne
+
+La recette par ligne existait déjà, avec les bonnes règles. **Seules les charges manquaient** : je n'ai donc rien créé de nouveau côté écran, j'ai complété la page « Performance par ligne » — la charge devient une quatrième tuile à côté des trois recettes, et le résultat s'affiche sous la recette.
+
+**Deux arbitrages d'implémentation :**
+
+**Une seule requête pour toutes les lignes**, pas un appel de `VoyageResultatService` par voyage. D3 venait de montrer que ce sont les statistiques qui coûtent à l'échelle ; boucler sur 2 000 voyages aurait rendu l'écran inutilisable pour un chiffre que le SQL donne d'un coup.
+
+**Les deux membres portent sur `datedepartprevue`**, jamais sur la date de saisie de la dépense. Le carburant d'un départ du 30 septembre peut être saisi le 2 octobre : le compter en octobre laisserait la recette de ce départ seule de son côté.
+
+**Résultat, jamais bénéfice** — l'écran le dit en toutes lettres. Seules les charges rattachées à un départ y entrent ; salaires, loyer, dépannages et pièces n'ont aucun lien avec une ligne et ne peuvent y être répartis sans clé inventée.
+
+## Deux choses que je dois signaler sur les tests
+
+**Ma première sentinelle de période ne prouvait rien.** Elle antidatait la saisie d'une dépense et vérifiait qu'elle restait comptée — elle passait au vert **aussi** en bornant sur `createdAt`. Un test de période ne discrimine que si l'une des deux dates tombe hors de la fenêtre. Je l'ai remontée à l'envers : un départ hors période dont la charge est saisie dedans. Elle tombe maintenant correctement (13 000 au lieu de 4 000).
+
+**Un test que j'ai supprimé.** J'avais écrit une vérification du cas « sans le droit de lire les charges, le résultat vaut `null` ». Elle échouait, et pour une bonne raison : `ROLE_ADMIN` emporte cette permission, donc ce cas est **inatteignable** sur cet endpoint. La branche `null` reste dans le code comme précaution pour une ouverture future, mais je ne la couvre pas — l'écrire en prétendant la couvrir aurait donné une fausse garantie.
+
+Vérifié sur vos données : ligne Abidjan → Korhogo, 10 346 600 F de recette, 11 000 F de charges, 10 335 600 F de résultat. Backend `OK (350 tests, 1233 assertions)`, frontend `OK (47, 142)`. README et mémoire à jour.
+
+**Prochaine : la 2**, ce que coûtent les désistements en argent — `montantrembourse` n'est exposé dans aucune statistique aujourd'hui.
+
+
+
+
+
+
+
+
+
+Statistique 2 : chiffrer les désistements. Je regarde la section existante pour m'y greffer.
+
+La section borne sur la date de **vente**, pas de désistement. J'aligne les montants dessus, sinon le montant ne correspondrait pas aux comptes affichés juste à côté.
+
+Maintenant je branche ces montants dans la section désistements.
+
+Le serveur est tombé pendant le vidage de cache. Je le relance.
+
+Le serveur recompile après le vidage de cache. Je laisse plus de temps.
+
+Le serveur n'écoute que sur IPv6 (`[::1]`), d'où l'échec sur `127.0.0.1`.
+
+Cohérent avec la base (42 annulations, un seul remboursement enregistré). J'affiche sur la page.
+
+L'affichage fonctionne. J'ajoute la sentinelle — le triplet d'entités est le point fragile.
+
+## Statistique 2 livrée — ce que coûtent les désistements
+
+Les montants s'ajoutent à la section désistements de l'écran Billetterie, sous les comptes qui existaient déjà. Pas de nouvelle page : c'est là qu'on cherche le chiffre.
+
+**Le remboursement court sur trois entités** — le billet désisté, ses bagages annulés en cascade, le courrier repris avant départ. C'est le même triplet que la caisse. N'en compter qu'une partie annoncerait un coût systématiquement sous-évalué, et un chiffre trop bas n'alarme personne : c'est précisément ce qui le rendrait durable.
+
+**La part imputable à la compagnie est isolée**, et c'est elle qui a de la valeur. Un client qui renonce coûte le remboursement sans qu'on puisse l'éviter ; un départ avancé après le paiement coûte la même somme, mais celle-là relève d'une décision. Le *compte* existait déjà (`reporteEviction`) — c'est son *coût* qui manquait.
+
+**Un arbitrage à connaître** : les montants suivent la même borne que les comptes de la section, c'est-à-dire les pièces **vendues** sur la période, et non les remboursements **versés** sur la période. C'est ce qui permet de lire « 42 annulés » et leur montant côte à côte. Ce n'est donc pas une mesure de trésorerie — pour « combien est sorti du tiroir », c'est la caisse qui répond. C'est écrit dans le code et au README, parce que la confusion est facile.
+
+Vérifié sur vos données : 42 annulations, 1 report, **8 000 F remboursés sur 1 pièce** — cohérent avec la base, où une seule annulation porte un montant remboursé.
+
+Sentinelles : 3 tests, dont celui du triplet qui **tombe bien** quand je n'additionne que les billets. Backend `OK (353 tests, 1245 assertions)`, frontend `OK (47, 142)`. README et mémoire à jour.
+
+**Il reste la 4**, l'entonnoir des réservations par canal : émises → payées → présentées → régularisées, séparément pour le guichet et le mobile. Vous aviez noté qu'elle pouvait attendre d'avoir du volume mobile réel — dites-moi si je l'enchaîne ou si on s'arrête là sur les statistiques.
+
+Deux choses restent en attente par ailleurs : la **purge du jeu de mesure D3** (100 000 billets et 2 196 voyages marqués `PERF-`, plus l'index `tmp_perf_recette`), et votre retour sur le **focus** que je n'ai pas réussi à reproduire.
+
+
+
+
+
+
+
+
+
+
+
+Statistique 4 : l'entonnoir par canal. Je regarde d'abord ce que la page réservations expose déjà.
+
+L'existant donne le volume par canal et le taux de conversion **global**, mais pas le croisement : on ne sait pas si le mobile convertit mieux que le guichet. C'est précisément la décision visée. Je regarde la requête à étendre.
+
+Je transforme cette ligne par canal en véritable entonnoir.
+
+Tous les compteurs sont à zéro alors que le taux global dit 42,9 %. Je mesure les valeurs réelles plutôt que de supposer.
+
+Symptôme caractéristique : le `total` est bon, le reste aux valeurs par défaut du DTO. Mon remplacement dans le provider a dû échouer.
+
+L'entonnoir est parlant : mobile à 33 % de conversion contre 100 % au guichet. J'affiche.
+
+L'entonnoir s'affiche par canal. J'ajoute la sentinelle.
+
+## Statistique 4 livrée — les quatre sont faites
+
+L'entonnoir complète la section « Répartition par canal » de l'écran Réservations. La barre de volume qui s'y trouvait déjà ne permettait pas de choisir entre deux canaux ; chaque canal affiche maintenant **émises → payées → présentées**, avec ce qui reste à régulariser, ce qui est perdu, et sa recette.
+
+**Deux règles qui décident de tout, et qu'un œil sur les chiffres ne corrigerait pas :**
+
+**Un no-show a payé.** `A_REGULARISER` compte dans les payées — c'est le voyage qu'il n'a pas pris, pas l'argent. L'exclure sous-estimerait la conversion du canal ; le ranger avec les perdues ferait croire à un manque à gagner qui n'existe pas, puisque le bon reste régularisable avec pénalité et complément. Entre « payée » et « présentée » se loge exactement le no-show.
+
+**Le taux de présentation se rapporte aux payées**, jamais aux émises. Un bon jamais payé n'avait aucun client à présenter : le compter là ferait porter au canal une déperdition déjà mesurée par sa conversion — deux chiffres pour une seule information.
+
+**Sur vos données**, le dispositif répond déjà à la question posée : le mobile apporte 86 % du volume mais convertit à **33 %**, contre **100 %** au guichet. L'échantillon est minuscule, mais c'est exactement le croisement qui manquait.
+
+Sentinelles : 3 tests, dont celui du no-show qui **fait tomber deux assertions** quand je le sors des payées. Backend `OK (356 tests, 1262 assertions)`, frontend `OK (47, 142)`.
+
+## Bilan du chantier statistiques
+
+Les quatre sont livrées, et **aucune n'a donné lieu à une nouvelle page** : la fiabilité de caisse a remplacé un lien vers un listing, le résultat par ligne a complété la page « Par ligne », le coût des désistements la section désistements, l'entonnoir la répartition par canal. C'est ce qui a remplacé la réorganisation que j'avais d'abord envisagée — chaque chiffre est posé là où on le cherchait déjà.
+
+Trois choses restent en attente de votre côté :
+
+- la **purge du jeu de mesure D3** — 100 000 billets et 2 196 voyages marqués `PERF-`, plus l'index `tmp_perf_recette` qui n'apporte rien et coûte à l'écriture ;
+- votre retour sur le **focus** que je n'ai pas reproduit sur les quatre chemins testés ;
+- les décisions D3 laissées ouvertes : que faire des statistiques à 2–4 s sur 100 000 billets, et du `COUNT` de pagination.
+
+
+
+
+
+
+
+
+
+
+
+- Pour la **purge du jeu de mesure D3**, tu peux le faire
+- Pour le **focus**, quand je clique sur le lien `/ticket/nouveau` via une navigation turbo, le focus ne se met pas sur le champ voyage ! mais quand j'actualise la page le focus se place
+- Quel était les décisions D3 laissées ouvertes !
+
+Aussi :
+- Vu que l'admin ne peut plus modifier son email, je me dis qu'on vas donner la possibilité au super admin de pouvoir modifier l'email des utilisateurs !
+- Vérifie si toute la partie statistiques est correcte et cohérent
+
+
+
+
+
+
+
+Beaucoup de points. Je commence par la purge, puis le focus — pour lequel j'ai une hypothèse précise cette fois.
+
+Le jeu était déjà purgé (36 voyages, max 44 billets — l'état d'origine). Je vérifie l'index et l'état global.
+
+Base propre. Maintenant le focus — je relis ma garde, qui est ma principale suspecte.
+
+Trouvé. Ligne 348 : quand la garde renonce, elle pose quand même le drapeau — donc **on abandonne définitivement après un seul essai raté**. Lors d'une navigation Turbo rapide, le focus est encore sur le lien cliqué au moment où l'effet se joue ; au rechargement complet il est sur `body`, et ça marche. C'est exactement votre symptôme.
+
+Je reproduis maintenant la condition exacte : focus sur le lien au moment du montage.
+
+La condition du bug est reproduite : **pendant la transition, le focus est encore sur le lien cliqué**. Je vérifie que l'ancienne garde échouait bien dans ce cas précis.
+
+Avec l'ancienne garde, le focus arrive **aussi** sur voyage : mon test ne reproduit pas votre cas. Je restaure la correction — le défaut de logique qu'elle supprime est réel — mais je ne peux pas affirmer que c'est la cause de votre symptôme.
+
+Maintenant l'email. Je vérifie d'abord ce qui est déjà possible avant d'ajouter quoi que ce soit.
+
+Point important : le `PATCH /users/{id}` **exclut délibérément** le super admin — le code dit « c'est à l'admin de modifier son utilisateur, à cause des `userRoles` ». J'ouvre donc une porte étroite plutôt que d'élargir celle-là.
+
+Un défaut avant d'aller plus loin : le journal ne s'écrirait pas. Je vérifie sur les données réelles.
+
+Confirmé : le super admin n'a pas d'entreprise, et `ActiviteLogger::log()` sort sans rien écrire dans ce cas. La trace que mon commentaire promettait ne s'écrirait jamais. Je corrige en traçant dans l'entreprise de **la cible** — c'est là que l'admin lit son journal.
+
+Maintenant la déclaration de l'opération dans `User.php`.
+
+`UserEntrepriseExtension:54` ne borne **pas** le super admin — mon commentaire sur le provider était faux. Je le retire.
+
+Le heredoc casse sur les apostrophes. J'écris le fichier directement.
+
+5 tests verts. Je vérifie que l'ajout de paramètre à `ActiviteLogger` n'a rien cassé ailleurs.
+
+Je branche l'écran : une action dédiée dans le contrôleur frontend.
+
+Maintenant le bouton sur la fiche utilisateur.
+
+Je vérifie le chemin complet sur la base de dev — en choisissant le cas qui **n'écrit rien** : une adresse déjà prise.
+
+Les deux bouts sont vérifiés sur la base réelle, sans aucune écriture. Je passe à l'audit des statistiques.
+
+Tous les endpoints répondent. Je croise maintenant les chiffres. Premier point : un nom qui porte deux calculs dans **la même réponse**.
+
+C'est pire qu'un doublon de nom. Le sous-titre annonce un calcul et affiche un autre.
+
+**Défaut trouvé, et c'est mon ajout qui l'a causé.** À [ReservationStatsProvider.php:76](src/State/ReservationStatsProvider.php:76), ma boucle d'entonnoir réutilise `$payees` — la variable du calcul global, déjà fixée à 3 ligne 61. À la sortie de boucle elle vaut la dernière source (GUICHET = 1), et le taux global devient 1/7 = 14,3 % au lieu de 3/7 = 42,9 %.
+
+Je mesure la correction, puis j'ajoute la sentinelle qui l'aurait attrapée.
+
+Je vérifie que la sentinelle est **discriminante** — en remettant le défaut.
+
+Sentinelle discriminante (14,3 au lieu de 42,9), fichier restauré. Je continue l'audit — écart suivant : `desistements.valide` vaut exactement le total des billets.
+
+Écart suivant, plus net : dans `/stats/depenses`, un sous-total dépasse le total.
+
+Le piège de l'alias Twig est peut-être présent ici même. Ligne 62 utilise une variable `t` dans un `map()`.
+
+Écart suivant, une contradiction visible : les colis perdus.
+
+Je croise maintenant les recettes entre toutes les surfaces qui les ventilent.
+
+**Défaut majeur trouvé** : la somme des recettes par ligne (10 357 600) dépasse la recette totale de l'entreprise (10 347 600). Un sous-ensemble ne peut pas excéder le tout.
+
+La ligne 33 porte à elle seule 9 422 600 — toute la recette billets de l'entreprise — et la ligne 35 recompte son billet de 11 000. Double compte. Je regarde la requête.
+
+**Voilà le défaut** : le DQL de `findAllAvecStats` filtre `v.deletedAt IS NULL` pour les voyages mais **oublie `t.deletedAt`** pour les billets. La recette par ligne compte les billets à la corbeille.
+
+Mesure complète : les 11 000 du billet en corbeille, moins 1 000 de courrier non rattaché à une ligne, expliquent exactement l'écart de 10 000. Je corrige l'oubli.
+
+Reste 1 000 F d'écart : un courrier non rattaché à une ligne. Je vérifie s'il est légitime.
+
+La recette par ligne est maintenant cohérente (10 346 600 + 1 000 de colis non embarqué = 10 347 600). Je balaie maintenant **toutes** les requêtes de statistiques pour le même oubli.
+
+Autre angle du même défaut : les requêtes qui partent directement d'une entité d'argent sans filtrer la corbeille.
+
+Impact nul aujourd'hui (le seul billet en corbeille n'a ni remise ni remboursement), mais le trou est réel. J'examine les 11 méthodes avant de décider.
+
+Soft delete confirmé sur les 45 entités. Je corrige les 10 requêtes fautives (`countForEntreprise` est du code mort, je la signalerai).
+
+Sentinelle pour le défaut de la corbeille sur la recette par ligne.
+
+Sentinelle discriminante (17 000 au lieu de 10 000). Dernier écart de l'audit : `/stats/agent` annonce 0 F non attribué alors que 47 000 manquent.
+
+`/stats/agent` est juste : les 47 000 sont exactement 8 000 (vente à bord) + 1 000 (bagage commercial) + 38 000 (réservations) — tous hors périmètre guichet par construction. Je lance la suite complète pour valider les 11 corrections.
+
+363 tests verts. Je remesure toutes les surfaces après correction.
+
+Un dernier point d'affichage sur la même carte : elle s'intitule « Payées » mais montre `confirmees`.
+
+La carte dit 2 payées, son propre taux en dit 3. Je corrige la valeur, pas le taux.
+
+L'audit est complet. Je consigne la méthode qui a fait tomber ces défauts.
+
+Je consigne au README backend, comme le veut la convention du projet.
+
+Tout est vert des deux côtés. Voici le bilan.
+
+## 1. Changement d'e-mail par le super admin — livré
+
+`PATCH /api/users/{id}/email`, une **porte étroite** plutôt que l'ouverture du `PATCH /users/{id}` général : celui-ci exclut le super admin exprès (« à cause des `userRoles` »), et l'élargir lui aurait donné les rôles, l'entreprise et la gare avec l'adresse. Le DTO ne porte qu'un champ ; un `roles` envoyé dans le même corps est ignoré (test).
+
+Écran : fiche utilisateur, un `<details>` replié — pas de JavaScript, donc rien à réinitialiser après une navigation Turbo.
+
+**Deux erreurs à moi, corrigées en route :**
+- J'avais posé `MeProvider` en supposant que le périmètre d'entreprise bloquerait le super admin. Faux : [UserEntrepriseExtension.php:54](../Backend-Transport/src/Doctrine/UserEntrepriseExtension.php:54) sort sans borner pour lui. Provider natif rétabli.
+- **Le journal ne s'écrivait pas.** `ActiviteLogger` se scope sur l'entreprise de l'acteur, et le super admin n'en a aucune (mesuré en base). `log()` sortait en silence : le geste le plus sensible du module répondait 200 sans laisser de trace, pendant que mon commentaire affirmait le contraire. La trace va maintenant au journal de **la cible** — celui que lit l'admin concerné.
+
+Vérifié sur la base réelle sans aucune écriture : refus d'une adresse déjà prise → 400 avec sa raison, admin de compagnie → 403, adresses intactes après coup. 5 sentinelles.
+
+## 2. Audit des statistiques — 2 chiffres faux trouvés, corrigés
+
+30 endpoints collectés sur une même période et croisés. Tous répondaient 200 ; aucun écran isolé ne pouvait montrer les défauts.
+
+**Défaut 1 — la somme des recettes par ligne dépassait la recette de l'entreprise.** [LigneRepository.php:59](../Backend-Transport/src/Repository/LigneRepository.php:59) filtrait la corbeille du *voyage* et pas celle du *billet*. La ligne « Korhogo → Abidjan », qui n'a jamais rien vendu, affichait **11 000 F de recette et de résultat** pour un seul billet supprimé.
+
+Le balayage qui a suivi a trouvé **10 autres requêtes agrégatives** sans ce filtre (les 5 `remises*`, les désistements par gare, les reports imputables, les incidents courrier et bagage, les forçages) — impact nul sur le jeu actuel, trou réel. Toutes corrigées. `countForEntreprise` reste seule : elle n'a aucun appelant.
+
+**Défaut 2 — le mien.** Ma boucle d'entonnoir réutilisait `$payees`, la variable du calcul global. Le taux de conversion servait **14,3 % au lieu de 42,9 %**, sous un libellé « payées / total », avec des canaux à 33 % et 100 % tous deux au-dessus de leur propre moyenne. C'est la **troisième fois** que ce motif me piège ici, après l'alias Twig `t` et `Reservation::$prix`.
+
+Au passage, la carte « Payées » affichait 2 sous un taux qui en comptait 3 : un no-show a payé.
+
+Les deux sentinelles ont été vérifiées discriminantes en remettant le défaut (14,3 au lieu de 42,9 ; 17 000 au lieu de 10 000). **363 tests backend, 47 frontend, tous verts.**
+
+Les écarts restants sont légitimes et consignés : Σ(lignes) = total − 1 000 (un colis déposé non encore embarqué), `/stats/agent` couvre le guichet par construction, `nonImputeAUneGare` est un montant à côté et non une part du total.
+
+## 3. Jeu D3 purgé, deux décisions toujours ouvertes
+
+Purge confirmée : index absent, aucun `PERF-`, base à 36 voyages / 1056 billets. Les deux décisions n'ont **pas** été tranchées :
+
+- **Les statistiques à 2–4 s sur 100 000 billets** (`/api/stats/gares` 4 165 ms). Trois options : un index pensé pour le `GROUP BY`, de la pré-agrégation, ou rien — c'est peut-être acceptable à votre échéance. Le premier index a été réfuté par la mesure ; je ne relance pas d'essais à l'aveugle.
+- **Le `COUNT` de pagination (~600 ms)**. `paginationPartial` le supprime mais retire le nombre total de pages des écrans : changement de mécanisme, je vous le présente avant de le coder.

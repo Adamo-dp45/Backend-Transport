@@ -40,7 +40,12 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - Faire une mise à jour du Framework vers .. 8. et montre moi comment faire
 - Ne pas oublié de mettre à jour les `README.md`, la prise en main, la page d'aide et on vas continuer dans session suivante
 - Wiki du projet
-- K6 test..
+- SEO
+
+
+
+
+
 
 
 ## Points ouverts que j'ai relevés
@@ -60,69 +65,124 @@ SycaPay, Jèko, GeniusPay, AdjeminPay
 - dédié annuler à l'admin !! Voir qui peut annuler et à quel moment
 
 
+prompts.chat
+test de montée en charge localhost
+session local changer email
+
+
+**K6 - Test de montée en charge**
+Je vais vérifier les outils et pratiques actuels avant de répondre, certains outils évoluant rapidement.# Tests de montée en charge dans Symfony
+
+L'objectif : vérifier que l'appli tient la charge attendue, trouver le point de rupture, et repérer les goulots d'étranglement avant que les utilisateurs ne le fassent à ta place. Voici comment structurer ça.
+
+## 1. Préparer un environnement représentatif de la prod
+
+C'est l'étape la plus souvent bâclée, et elle fausse tout le reste si elle est mal faite :
+
+- **Environnement `prod`, jamais `dev`** : `APP_ENV=prod` et `APP_DEBUG=0`. Le profiler Symfony et la Web Debug Toolbar ajoutent un overhead énorme et rendent les mesures inutilisables.
+- **Cache "chaud"** avant de lancer quoi que ce soit :
+  ```bash
+  composer install --no-dev --optimize-autoloader
+  php bin/console cache:clear --env=prod
+  php bin/console cache:warmup --env=prod
+  ```
+- **OPcache activé et réglé pour la prod** (`opcache.validate_timestamps=0`, mémoire et `max_accelerated_files` suffisants).
+- **Un jeu de données réaliste en volume**, dans une base dédiée aux tests — jamais la prod.
+- **Le même runtime que la prod.** Si tu es passé sur FrankenPHP en mode worker (nativement supporté depuis Symfony 7.4 LTS, plus besoin d'installer de package séparépuisque Symfony 7.4 supporte nativement ce mode dès l'installation), les gains sont réels : les benchmarks montrent des temps de réponse divisés par trois à cinq par rapport à PHP-FPM sur des applications Symfony. Mais ce mode change la donne pour tes tests de charge : l'application reste chargée en mémoire entre les requêtes, donc tout service qui garde un état lié à la requête doit implémenter `ResetInterface` pour être réinitialisé proprement par le kernel — sinon tu peux avoir des fuites d'état ou de mémoire qui n'apparaissent qu'après plusieurs minutes de charge soutenue. C'est exactement le genre de bug qu'un test de charge est censé révéler, donc autant le savoir avant.
+
+## 2. Choisir l'outil
+
+PHPUnit/WebTestCase servent aux tests fonctionnels, pas à simuler des centaines d'utilisateurs simultanés — il te faut un outil dédié :
+
+- **k6** (Grafana) — le standard actuel du marché. Outil open source où les scripts s'écrivent en JavaScript ou TypeScript, pensé développeur. Tu définis des seuils de type SLO (des thresholds qui fixent les critères de succès/échec du test, et des checks pour valider les réponses de l'API), des montées progressives d'utilisateurs virtuels, des paliers. S'intègre bien en CI.
+- **Gatling** — alternative solide (Scala), rapports HTML détaillés. Un consultant qui audite des applications Symfony l'utilise pour simuler des charges importantes et identifier les goulots d'étranglement quand les tests de performance basiques (navigateur, Postman) ne suffisent plus.
+- **Apache Bench / hey / wrk** — pour un check rapide et brutal sur un seul endpoint, sans scénario.
+- **Blackfire (Player + Scenarios)** — spécifique à l'écosystème PHP, très intégré à Symfony : les scénarios Blackfire peuvent déclencher un profil pour chaque requête et lancer des tests de performance via le flag --blackfire. Ça permet de voir directement dans le code où ça coince pendant la montée en charge, plutôt que de mesurer en boîte noire.
+
+D'ailleurs, la documentation officielle de FrankenPHP recommande k6 ou Gatling pour calibrer le nombre de workers et de threads en fonction de tests simulant un trafic réel — c'est un bon signal que ce sont les outils à privilégier dans ce contexte.
+
+## 3. Écrire un scénario réaliste
+
+Ne tape pas juste un endpoint en boucle — simule un vrai parcours (connexion, navigation, recherche, action métier), avec différents types de test selon l'objectif : **smoke** (ça tourne, faible charge), **load** (charge nominale attendue), **stress** (monter jusqu'à la casse), **spike** (pic brutal), **soak/endurance** (charge modérée mais prolongée, pour détecter fuites mémoire et connexions DB non libérées).
+
+Exemple avec k6 contre une API Symfony :
+
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  scenarios: {
+    montee_en_charge: {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '1m', target: 50 },   // montée à 50 utilisateurs virtuels
+        { duration: '3m', target: 50 },   // palier stable
+        { duration: '1m', target: 200 },  // pic
+        { duration: '2m', target: 200 },
+        { duration: '1m', target: 0 },    // retour au calme
+      ],
+    },
+  },
+  thresholds: {
+    http_req_duration: ['p(95)<300'],  // 95 % des requêtes sous 300 ms
+    http_req_failed: ['rate<0.01'],    // moins de 1 % d'échecs
+  },
+};
+
+export default function () {
+  const res = http.get('https://staging.monapp.fr/api/produits');
+  check(res, {
+    'statut 200': (r) => r.status === 200,
+    'temps correct': (r) => r.timings.duration < 500,
+  });
+  sleep(1);
+}
+```
+
+Lancement : `k6 run test-charge.js`
+
+## 4. Surveiller le serveur pendant le test
+
+Le résultat de l'outil de charge (temps de réponse, taux d'erreur) ne dit pas *pourquoi* ça casse. Pendant le run, garde un œil sur :
+
+- CPU / RAM du serveur applicatif
+- Process PHP-FPM occupés (ou workers FrankenPHP saturés) — souvent le vrai plafond
+- Connexions actives et requêtes lentes côté base de données (slow query log)
+- Hit rate du cache (Redis/Memcached)
+- La queue Messenger si tu as des traitements asynchrones, pour vérifier qu'elle ne s'accumule pas
+
+## 5. Pièges classiques côté Symfony
+
+- **Requêtes N+1 avec Doctrine** : invisibles à faible charge, elles explosent le nombre de connexions DB dès que le trafic monte. Le profiler Symfony ou Blackfire les repèrent bien.
+- **Sessions sur fichiers** (comportement par défaut) : ça devient un goulot d'étranglement dès qu'il y a plusieurs instances ou une forte concurrence — passe sur Redis ou une base pour le stockage de session.
+- **Absence de pagination** sur des listes qui grossissent avec le temps.
+- **Traitements lourds synchrones** dans le contrôleur (envoi d'e-mail, appel à une API externe) qui devraient passer par Messenger pour ne pas monopoliser un worker PHP pendant tout ce temps.
+
+Le test n'a de valeur que si tu boucles : tester → identifier le goulot avec un profiler → corriger → retester dans les mêmes conditions pour comparer objectivement. Garde les mêmes scénarios k6/Gatling d'un run à l'autre pour que la comparaison soit valable.Si tu veux, je peux aussi t'aider à écrire un scénario k6 complet adapté à tes vrais endpoints, ou à diagnostiquer un goulot d'étranglement précis que tu as déjà observé.
+
+
+
+
+
+
+
+
 
 - Pour le B4 (Réclamations et indemnisations), je me dis que vu qu'on la notion de dépense ce n'est pas nécéssaire ! est ce que j'ai raison ?
-D2(sans archive les alertes résolues au-delà d'une durée de conservation) mais sans A4 mais sans que le les lignes partent dans une table d'archive interrogeable mais hors du chemin chaud
-    - Commande pour sauvagarder la bd, aussi pour vider les tables refresh etc.. (Ne pas oublié de prévoir pour postgre)
 
 - Passer sur PostgreSQL
 
+D2(sans archive les alertes résolues au-delà d'une durée de conservation) mais sans A4 mais sans que le les lignes partent dans une table d'archive interrogeable mais hors du chemin chaud
+    - Commande pour sauvagarder la bd, aussi pour vider les tables refresh etc.. (Ne pas oublié de prévoir pour postgre)
 
 
 
 
 
-
-
-
-Bonne question, et je préfère y répondre sur pièces plutôt que de mémoire. Je relève ce qui existe déjà.
-
-19 pages, 28 endpoints — c'est déjà très fourni. Je vérifie ce que les données permettent et que personne n'expose encore.
-
-L'application en expose déjà beaucoup : **19 pages, 28 endpoints**. La question utile n'est donc pas « qu'est-ce qu'on peut sortir de plus » — on peut toujours sortir plus — mais **qu'est-ce qui manque et qui changerait une décision**. J'ai vérifié les angles morts plutôt que de lister ce qui existe.
-
-## Ce qui manque vraiment
-
-**1. La fiabilité de caisse par agent — l'angle mort complet**
-
-Aucune statistique ne touche `Sessioncaisse` : les écarts ne se voient que caisse par caisse, jamais agrégés. C'est paradoxal, parce que c'est la **seule donnée de contrôle** du projet — tout le reste mesure l'activité, elle seule mesure la véracité. Vous avez déjà le nécessaire : écart signé, motif, agent, gare, date.
-
-La décision qu'elle sert : qui former, qui surveiller, quelle gare dérive. Un agent à ±200 F de moyenne et un agent à ±5 000 F ne demandent pas la même chose, et aujourd'hui rien ne les distingue à l'œil.
-
-Attention au piège déjà documenté : il faudra écarter les attendus négatifs, sinon le classement sera pollué par de faux excédents.
-
-**2. Ce que coûtent les désistements, en argent**
-
-Les désistements sont comptés partout — annulés, reportés, dont imputables à la compagnie. Mais `montantrembourse` **n'est exposé dans aucune statistique**. On sait combien de billets sont annulés, jamais combien d'argent est ressorti.
-
-La décision : chiffrer ce que votre propre désorganisation vous coûte. Un départ avancé produit un report imputable à la compagnie ; le compte existe, le montant non. C'est la différence entre « 42 reports ce mois-ci » et « 380 000 F remboursés dont 120 000 de notre fait ».
-
-**3. Le résultat par ligne**
-
-`VoyageResultatService` calcule le résultat d'**un** voyage, pour sa fiche. Rien ne l'agrège par ligne sur une période. Vous avez pourtant le résultat par gare (`DepenseGareService`).
-
-La décision : quelle ligne mérite un car de plus, laquelle on arrête. C'est sans doute la statistique la plus structurante pour une compagnie, et c'est un assemblage de briques existantes.
-
-**4. L'entonnoir des réservations par canal**
-
-`Reservation` porte `source` (guichet / mobile), `etatpaiement`, le statut, la pénalité et le complément. Les statuts sont comptés ; la **conversion par canal** ne l'est pas.
-
-La décision : le canal mobile rapporte-t-il réellement, ou produit-il surtout des bons payés que personne ne vient honorer ? Émises → payées → présentées → régularisées → perdues, par canal : quatre chiffres qui tranchent la question.
-
-## Mon classement
-
-**La caisse d'abord** : angle mort total, données déjà là, et c'est du contrôle, pas du confort. **Le résultat par ligne ensuite** : plus de travail, mais c'est la décision la plus lourde que vous prenez. Les désistements chiffrés sont rapides à ajouter aux pages existantes. L'entonnoir des réservations peut attendre d'avoir du volume mobile réel.
-
-## Une réserve
-
-Vous aviez vous-même dit « on peut centraliser les statistiques de recette pour que l'admin ne se perde pas ». Avec 19 pages, le risque n'est plus le manque d'information mais sa dispersion — une statistique que personne n'ouvre ne vaut rien. Avant d'en ajouter quatre, il y a peut-être plus à gagner à ranger ce qui existe. Je peux faire l'inventaire de ce qui est réellement consulté si l'activité est tracée, plutôt que de supposer.
-
-
-
-
-
-
-
+Je pérfère avoir une page pour changer l'email
+- On vas mettre en place les tests de montée en charge
 
 
 - - 
@@ -132,7 +192,6 @@ Le Mobile Money reste hors périmètre en attendant l'agrégateur
 
 - Générer l'impression côté Backend et donner la possibilités au Frontend de choisir le modèle qu'il souhaite, donc on aura plusieurs formats de tickets(aussi, courriers, bagage, bordereau..) :: Regarde d'autres endroit de l'application dans lequel il est logique de dédié toutes les tâches lourdes au backend, c'est qui est logique dans une architecture séparé
 - B2 Contrôle d'embarquement par QR => Aussi peut on doit on le faire côté serveur :: mais met en commentaire le code existant
-
 
 - Le polling du alerte
 

@@ -261,4 +261,43 @@ class DepenseRepository extends ServiceEntityRepository
 
         return $totaux;
     }
+
+    /**
+     * Les charges rattachées aux DÉPARTS d'une ligne, sur une période — groupées par ligne.
+     *
+     * Sert le RÉSULTAT PAR LIGNE ('LigneStatsProvider'), pendant du résultat par gare
+     * ('DepenseGareService') et du résultat d'un départ ('VoyageResultatService'). Mêmes prédicats
+     * que 'totalPourVoyage', dont ceci est la version agrégée : une dépense compte si elle est
+     * rattachée à un voyage, de l'entreprise, et hors corbeille.
+     *
+     * !! UNE SEULE REQUÊTE POUR TOUTES LES LIGNES, et surtout pas un appel par voyage. La mesure D3
+     * (02/10/2026) a montré que ce sont les STATISTIQUES qui coûtent à l'échelle — 4 secondes pour
+     * 'stats/gares' sur 100 000 billets. Boucler 'VoyageResultatService' sur les 2 000 voyages d'une
+     * période rendrait cet écran inutilisable, pour un chiffre que le SQL donne d'un coup.
+     *
+     * !! LA PÉRIODE PORTE SUR LE DÉPART, pas sur la date de la dépense. Le carburant d'un départ du
+     * 30 septembre peut être saisi le 2 octobre ; le rattacher à octobre le ferait manquer au mois
+     * dont il est la charge, et la recette de ce départ — elle, datée du 30 — resterait seule. Un
+     * résultat dont les deux membres ne portent pas sur la même chose ne veut rien dire.
+     *
+     * @return array<int, array{ligneid: int, montant: int, nb: int}>
+     */
+    public function totalParLigne(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('d')
+            ->select('l.id AS ligneid, COALESCE(SUM(d.montant), 0) AS montant, COUNT(d.id) AS nb')
+            ->join('d.voyage', 'v')
+            ->join('v.ligne', 'l')
+            ->andWhere('d.identreprise = :ide')
+            ->andWhere('d.deletedAt IS NULL')
+            ->andWhere('v.deletedAt IS NULL')
+            ->andWhere('v.datedepartprevue >= :debut')
+            ->andWhere('v.datedepartprevue <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('l.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
 }

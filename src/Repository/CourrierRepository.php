@@ -421,6 +421,7 @@ class CourrierRepository extends ServiceEntityRepository
             )
             ->join('c.garedepart', 'g')
             ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL') // la corbeille exclut de toute statistique : la piece n'aurait jamais du etre saisie
             ->andWhere("c.statut IN ('ANNULE', 'PERDU')")
             ->andWhere('c.createdAt >= :debut')
             ->andWhere('c.createdAt <= :fin')
@@ -656,5 +657,32 @@ class CourrierRepository extends ServiceEntityRepository
             ->setParameter('session', $sessionId)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /**
+     * Ce que les annulations de courriers ont coûté en remboursements, sur la période.
+     *
+     * Pendant de 'TicketRepository::remboursementsPourPeriode' — mêmes bornes (la date de SAISIE,
+     * pas celle de l'annulation) pour que les montants se lisent à côté des comptes de la même
+     * section. Pas d'imputabilité ici : elle n'existe que sur le billet, qui porte le report.
+     *
+     * @return array{montant: int, nb: int}
+     */
+    public function remboursementsPourPeriode(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        $ligne = $this->createQueryBuilder('c')
+            ->select('COALESCE(SUM(c.montantrembourse), 0) AS montant, COUNT(c.id) AS nb')
+            ->andWhere('c.identreprise = :ide')
+            ->andWhere('c.deletedAt IS NULL')
+            ->andWhere('c.montantrembourse > 0')
+            ->andWhere('c.createdAt >= :debut')
+            ->andWhere('c.createdAt <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleResult();
+
+        return ['montant' => (int) $ligne['montant'], 'nb' => (int) $ligne['nb']];
     }
 }

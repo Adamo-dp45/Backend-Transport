@@ -99,4 +99,84 @@ class SessioncaisseRepository extends ServiceEntityRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * LA FIABILITÉ D'UNE CAISSE, agent par agent — ce que la clôture permet enfin de mesurer.
+     *
+     * Jusqu'ici l'écart ne se lisait qu'une caisse à la fois : un agent à 200 F près et un agent à
+     * 5 000 F ne se distinguaient pas, alors qu'ils ne demandent pas la même chose. On agrège donc
+     * sur une période, par agent ET par gare de session — un agent prêté à une autre gare y ouvre sa
+     * caisse, et mélanger les deux effacerait le lieu où le problème se produit.
+     *
+     * !! DEUX CHIFFRES D'ÉCART, ET ILS NE DISENT PAS LA MÊME CHOSE :
+     *  - 'ecartNet' est la somme SIGNÉE. Un agent qui alterne +3 000 et −3 000 y paraît parfait,
+     *    alors qu'il ne tombe jamais juste.
+     *  - 'ecartAbsolu' additionne les valeurs absolues : c'est lui qui mesure l'IMPRÉCISION, et c'est
+     *    sur lui qu'on classe. Le net reste servi parce qu'un net durablement négatif pose une autre
+     *    question — celle d'un manquant qui ne se compense pas.
+     *
+     * !! LES ATTENDUS NÉGATIFS SONT ÉCARTÉS ('montanttheorique >= 0'), comme dans
+     * 'ecartsElevesDepuis'. Un théorique négatif signifie qu'il est sorti de la caisse plus d'argent
+     * qu'il n'y est entré — un remboursement payé avec des espèces du coffre, que rien ne permet
+     * encore de saisir. L'écart y vaut la totalité du réapprovisionnement non enregistré, et ces
+     * caisses-là classeraient un agent irréprochable en tête des suspects. Elles sont comptées à
+     * part ('clotureesEcartees') : on les retire du calcul, on ne les cache pas.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function fiabiliteParAgent(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): array
+    {
+        return $this->createQueryBuilder('s')
+            ->select(
+                'u.id AS agentid, u.nom AS nom, u.prenom AS prenom,'
+                . ' g.id AS gareid, g.libelle AS garelibelle,'
+                . ' COUNT(s.id) AS nbclotures,'
+                . " SUM(CASE WHEN s.ecart <> 0 THEN 1 ELSE 0 END) AS nbavececart,"
+                . ' COALESCE(SUM(s.ecart), 0) AS ecartnet,'
+                . ' COALESCE(SUM(ABS(s.ecart)), 0) AS ecartabsolu,'
+                . ' COALESCE(MAX(ABS(s.ecart)), 0) AS pireecart,'
+                . ' COALESCE(SUM(s.montanttheorique), 0) AS volume'
+            )
+            ->join('s.agent', 'u')
+            ->leftJoin('s.gare', 'g')
+            ->andWhere('s.identreprise = :ide')
+            ->andWhere('s.statut = :statut')
+            ->andWhere('s.deletedAt IS NULL')
+            ->andWhere('s.montanttheorique >= 0')
+            ->andWhere('s.datefin >= :debut')
+            ->andWhere('s.datefin <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statut', SessioncaisseStatut::CLOTUREE->value)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->groupBy('u.id')
+            ->addGroupBy('g.id')
+            ->getQuery()
+            ->getArrayResult();
+    }
+
+    /**
+     * Les clôtures ÉCARTÉES du calcul de fiabilité : celles dont l'attendu est négatif.
+     *
+     * Servies pour être AFFICHÉES. Un classement dont on a retiré des lignes sans le dire est un
+     * classement qu'on ne peut pas contredire — et ici le motif du retrait est une limite connue du
+     * module (pas d'apport de caisse saisissable), pas une anomalie de l'agent.
+     */
+    public function clotureesEcartees(\DateTimeImmutable $debut, \DateTimeImmutable $fin, int $identreprise): int
+    {
+        return (int) $this->createQueryBuilder('s')
+            ->select('COUNT(s.id)')
+            ->andWhere('s.identreprise = :ide')
+            ->andWhere('s.statut = :statut')
+            ->andWhere('s.deletedAt IS NULL')
+            ->andWhere('s.montanttheorique < 0')
+            ->andWhere('s.datefin >= :debut')
+            ->andWhere('s.datefin <= :fin')
+            ->setParameter('ide', $identreprise)
+            ->setParameter('statut', SessioncaisseStatut::CLOTUREE->value)
+            ->setParameter('debut', $debut)
+            ->setParameter('fin', $fin)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }
